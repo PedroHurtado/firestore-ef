@@ -41,19 +41,26 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         public override async Task<int> SaveChangesAsync(
-            IList<IUpdateEntry> entries,
-            CancellationToken cancellationToken = default)
+    IList<IUpdateEntry> entries,
+    CancellationToken cancellationToken = default)
         {
             if (entries == null || entries.Count == 0)
                 return 0;
 
             var processedCount = 0;
 
+            // 1. Procesar entidades normales (CRUD)
             foreach (var entry in entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var entityType = entry.EntityType;
+
+                // ✅ NUEVO: Saltar entidades intermedias generadas automáticamente
+                // Las manejamos manualmente en ProcessSkipNavigationChanges
+                if (IsJoinEntity(entityType))
+                    continue;
+
                 var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
                 var documentId = GetOrGenerateDocumentId(entry);
 
@@ -76,8 +83,12 @@ namespace Firestore.EntityFrameworkCore.Storage
                 }
             }
 
+            // ✅ 2. Gestionar tablas intermedias para skip navigations (N:M)
+            await ProcessSkipNavigationChanges(entries, cancellationToken);
+
             return processedCount;
         }
+
 
         private string GetOrGenerateDocumentId(IUpdateEntry entry)
         {
@@ -146,10 +157,81 @@ namespace Firestore.EntityFrameworkCore.Storage
             // ✅ Serializar colecciones de referencias de entidades
             SerializeEntityReferenceCollections(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
-            // ✅ NUEVO: Convertir shadow FKs en DocumentReferences
+            // ✅ Convertir shadow FKs en DocumentReferences
             SerializeShadowForeignKeyReferences(entry, dict);
 
+            // ✅ NUEVO: Serializar referencias a documentos de tablas intermedias (N:M)
+            SerializeJoinEntityReferences(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
             return dict;
+        }
+
+        // ✅ NUEVO: Serializar referencias a documentos de tablas intermedias (N:M)
+        private void SerializeJoinEntityReferences(
+            IEntityType entityType,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            var skipNavigations = entityType.GetSkipNavigations();
+
+            foreach (var skipNavigation in skipNavigations)
+            {
+                var collection = skipNavigation.PropertyInfo?.GetValue(entity) as IEnumerable;
+                if (collection == null) continue;
+
+                var joinReferences = CreateJoinEntityReferenceArray(skipNavigation, collection, entity);
+                if (joinReferences.Length > 0)
+                {
+                    // Nombre del array: "PizzasIngredients", "ProductosCategorias", etc.
+                    var joinArrayName = GetJoinCollectionName(skipNavigation);
+                    dict[joinArrayName] = joinReferences;
+                }
+            }
+        }
+
+        // ✅ Crear array de referencias a documentos de la tabla intermedia
+        private Google.Cloud.Firestore.DocumentReference[] CreateJoinEntityReferenceArray(
+            ISkipNavigation skipNavigation,
+            IEnumerable collection,
+            object principalEntity)
+        {
+            var references = new List<Google.Cloud.Firestore.DocumentReference>();
+
+            // Obtener ID de la entidad principal
+            var principalEntityType = skipNavigation.DeclaringEntityType;
+            var principalIdProperty = principalEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (principalIdProperty == null) return Array.Empty<Google.Cloud.Firestore.DocumentReference>();
+
+            var principalId = principalIdProperty.PropertyInfo?.GetValue(principalEntity);
+            if (principalId == null || IsDefaultValue(principalId, principalIdProperty.ClrType))
+                return Array.Empty<Google.Cloud.Firestore.DocumentReference>();
+
+            // Obtener información para generar IDs determinísticos
+            var targetEntityType = skipNavigation.TargetEntityType;
+            var targetIdProperty = targetEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (targetIdProperty == null) return Array.Empty<Google.Cloud.Firestore.DocumentReference>();
+
+            var joinCollectionName = GetJoinCollectionName(skipNavigation);
+
+            foreach (var item in collection)
+            {
+                if (item == null) continue;
+
+                var targetId = targetIdProperty.PropertyInfo?.GetValue(item);
+                if (targetId == null || IsDefaultValue(targetId, targetIdProperty.ClrType))
+                    continue;
+
+                // ✅ ID determinístico: principal_target (sin ordenar alfabéticamente)
+                var documentId = $"{principalId}_{targetId}";
+
+                var docRef = _firestoreClient.Database
+                    .Collection(joinCollectionName)
+                    .Document(documentId);
+
+                references.Add(docRef);
+            }
+
+            return references.ToArray();
         }
 
         private void SerializeProperties(
@@ -160,7 +242,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             foreach (var property in typeBase.GetProperties())
             {
                 if (property.IsPrimaryKey()) continue;
-                
+
                 // ✅ Omitir TODAS las FKs (las convertiremos en referencias)
                 if (property.IsForeignKey()) continue;
 
@@ -175,7 +257,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
         }
 
-        // ✅ NUEVO: Convertir shadow FKs en DocumentReferences
+        // ✅ Convertir shadow FKs en DocumentReferences
         private void SerializeShadowForeignKeyReferences(IUpdateEntry entry, Dictionary<string, object> dict)
         {
             var entityType = entry.EntityType;
@@ -205,7 +287,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                     .Document(fkValue.ToString()!);
 
                 // Usar el nombre de la entidad principal (sin "Id")
-                // Ejemplo: "PedidoId" → "Pedido"
                 var referenceName = principalEntityType.ClrType.Name;
                 dict[referenceName] = docRef;
             }
@@ -558,6 +639,237 @@ namespace Firestore.EntityFrameworkCore.Storage
                 return value.Equals(defaultValue);
             }
             return false;
+        }
+
+        // ========================================================================
+        // ✅ NUEVAS FUNCIONALIDADES PARA RELACIONES N:M (SKIP NAVIGATIONS)
+        // ========================================================================
+
+        // ✅ NUEVO: Detectar si es una entidad intermedia generada automáticamente
+        private bool IsJoinEntity(IEntityType entityType)
+        {
+            // Las entidades intermedias tienen 2+ foreign keys y no tienen propiedades propias
+            var foreignKeys = entityType.GetForeignKeys().ToList();
+
+            if (foreignKeys.Count < 2)
+                return false;
+
+            // Verificar que tiene solo FK properties (y la PK)
+            var properties = entityType.GetProperties().ToList();
+            var fkProperties = foreignKeys.SelectMany(fk => fk.Properties).ToHashSet();
+            var pkProperties = entityType.FindPrimaryKey()?.Properties.ToHashSet() ?? new HashSet<IProperty>();
+
+            // Si todas las propiedades son FKs o PKs, es una join entity
+            return properties.All(p => fkProperties.Contains(p) || pkProperties.Contains(p));
+        }
+
+        // ✅ Gestionar tablas intermedias para relaciones N:M
+        private async Task ProcessSkipNavigationChanges(
+            IList<IUpdateEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            foreach (var entry in entries)
+            {
+                // Solo procesar entidades Added o Modified
+                if (entry.EntityState != EntityState.Added &&
+                    entry.EntityState != EntityState.Modified)
+                    continue;
+
+                var entityType = entry.EntityType;
+                var skipNavigations = GetSkipNavigations(entityType);
+
+                foreach (var skipNavigation in skipNavigations)
+                {
+                    await ProcessSkipNavigationForEntity(
+                        entry,
+                        skipNavigation,
+                        cancellationToken);
+                }
+            }
+        }
+
+        // ✅ Obtener skip navigations (relaciones N:M) de una entidad
+        private IEnumerable<ISkipNavigation> GetSkipNavigations(IEntityType entityType)
+        {
+            return entityType.GetSkipNavigations();
+        }
+
+        // ✅ Procesar cambios en una skip navigation específica
+        private async Task ProcessSkipNavigationForEntity(
+            IUpdateEntry entry,
+            ISkipNavigation skipNavigation,
+            CancellationToken cancellationToken)
+        {
+            var entity = entry.ToEntityEntry().Entity;
+            var currentCollection = skipNavigation.PropertyInfo?.GetValue(entity) as IEnumerable;
+
+            if (currentCollection == null)
+                return;
+
+            // Obtener colección original (antes de cambios)
+            var originalCollection = entry.EntityState == EntityState.Added
+                ? Enumerable.Empty<object>()
+                : GetOriginalCollection(entry, skipNavigation);
+
+            var currentIds = GetEntityIds(currentCollection, skipNavigation.TargetEntityType).ToHashSet();
+            var originalIds = GetEntityIds(originalCollection, skipNavigation.TargetEntityType).ToHashSet();
+
+            // Detectar añadidos y eliminados
+            var addedIds = currentIds.Except(originalIds).ToList();
+            var removedIds = originalIds.Except(currentIds).ToList();
+
+            if (addedIds.Count == 0 && removedIds.Count == 0)
+                return;
+
+            // Obtener ID de la entidad principal
+            var principalId = GetEntityId(entry);
+
+            // Obtener nombre de la colección intermedia
+            var joinCollectionName = GetJoinCollectionName(skipNavigation);
+
+            // Añadir nuevas relaciones
+            foreach (var targetId in addedIds)
+            {
+                await AddJoinDocument(
+                    joinCollectionName,
+                    principalId,
+                    targetId,
+                    skipNavigation,
+                    cancellationToken);
+            }
+
+            // Eliminar relaciones
+            foreach (var targetId in removedIds)
+            {
+                await RemoveJoinDocument(
+                    joinCollectionName,
+                    principalId,
+                    targetId,
+                    skipNavigation,
+                    cancellationToken);
+            }
+        }
+
+        // ✅ Obtener colección original del ChangeTracker
+        private IEnumerable<object> GetOriginalCollection(
+            IUpdateEntry entry,
+            ISkipNavigation skipNavigation)
+        {
+            try
+            {
+                var entityEntry = entry.ToEntityEntry();
+                var collectionEntry = entityEntry.Collection(skipNavigation.Name);
+
+                if (!collectionEntry.IsModified)
+                    return Enumerable.Empty<object>();
+
+                var currentValue = collectionEntry.CurrentValue as IEnumerable<object>;
+                return currentValue ?? Enumerable.Empty<object>();
+            }
+            catch
+            {
+                return Enumerable.Empty<object>();
+            }
+        }
+
+        // ✅ Obtener IDs de una colección de entidades
+        private IEnumerable<string> GetEntityIds(
+            IEnumerable collection,
+            IEntityType entityType)
+        {
+            var idProperty = entityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (idProperty == null)
+                yield break;
+
+            foreach (var item in collection)
+            {
+                if (item == null) continue;
+
+                var id = idProperty.PropertyInfo?.GetValue(item);
+                if (id != null && !IsDefaultValue(id, idProperty.ClrType))
+                {
+                    yield return id.ToString()!;
+                }
+            }
+        }
+
+        // ✅ Obtener ID de una entidad
+        private string GetEntityId(IUpdateEntry entry)
+        {
+            var keyProperty = entry.EntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (keyProperty == null)
+                throw new InvalidOperationException("Entity has no primary key");
+
+            var id = entry.GetCurrentValue(keyProperty);
+            if (id == null || IsDefaultValue(id, keyProperty.ClrType))
+                throw new InvalidOperationException("Entity ID is not set");
+
+            return id.ToString()!;
+        }
+
+        // ✅ Generar nombre de colección intermedia (pluralizado y en orden)
+        // ✅ Generar nombre de colección intermedia (pluralizado y en orden)
+        private string GetJoinCollectionName(ISkipNavigation skipNavigation)
+        {
+            // Obtener nombres pluralizados de las colecciones (ya vienen procesados por _collectionManager)
+            var leftCollection = _collectionManager.GetCollectionName(skipNavigation.DeclaringEntityType.ClrType);
+            var rightCollection = _collectionManager.GetCollectionName(skipNavigation.TargetEntityType.ClrType);
+
+            // Mantener orden: Principal (DeclaringEntityType) primero
+            return $"{leftCollection}{rightCollection}";
+        }
+
+        // ✅ Añadir documento en tabla intermedia
+        private async Task AddJoinDocument(
+            string joinCollectionName,
+            string principalId,
+            string targetId,
+            ISkipNavigation skipNavigation,
+            CancellationToken cancellationToken)
+        {
+            var leftEntity = skipNavigation.DeclaringEntityType.ClrType.Name;
+            var rightEntity = skipNavigation.TargetEntityType.ClrType.Name;
+
+            var leftCollection = _collectionManager.GetCollectionName(skipNavigation.DeclaringEntityType.ClrType);
+            var rightCollection = _collectionManager.GetCollectionName(skipNavigation.TargetEntityType.ClrType);
+
+            // ✅ ID determinístico: principal_target (sin ordenar)
+            var documentId = $"{principalId}_{targetId}";
+
+            var document = new Dictionary<string, object>
+            {
+                [$"{leftEntity}Id"] = _firestoreClient.Database
+                    .Collection(leftCollection)
+                    .Document(principalId),
+                [$"{rightEntity}Id"] = _firestoreClient.Database
+                    .Collection(rightCollection)
+                    .Document(targetId),
+                ["_createdAt"] = DateTime.UtcNow,
+                ["_updatedAt"] = DateTime.UtcNow
+            };
+
+            await _firestoreClient.SetDocumentAsync(
+                joinCollectionName,
+                documentId,
+                document,
+                cancellationToken);
+        }
+
+        // ✅ Eliminar documento de tabla intermedia
+        private async Task RemoveJoinDocument(
+            string joinCollectionName,
+            string principalId,
+            string targetId,
+            ISkipNavigation skipNavigation,
+            CancellationToken cancellationToken)
+        {
+            // ✅ ID determinístico: principal_target (igual que AddJoinDocument)
+            var documentId = $"{principalId}_{targetId}";
+
+            await _firestoreClient.DeleteDocumentAsync(
+                joinCollectionName,
+                documentId,
+                cancellationToken);
         }
     }
 }
