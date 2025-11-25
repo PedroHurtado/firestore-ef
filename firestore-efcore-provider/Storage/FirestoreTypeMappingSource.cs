@@ -23,8 +23,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                 { typeof(float), new FloatTypeMapping("number") },
                 { typeof(decimal), new FirestoreDecimalTypeMapping() },               
                 { typeof(bool), new BoolTypeMapping("number") },
-                
-
             };
         }
 
@@ -43,6 +41,28 @@ namespace Firestore.EntityFrameworkCore.Storage
 
             if (clrType.IsEnum)
                 return new FirestoreEnumTypeMapping(clrType);
+
+            // ✅ SOPORTE PARA LISTAS (arrays nativos en Firestore)
+            if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                var elementType = clrType.GetGenericArguments()[0];
+                
+                // List<decimal> o List<decimal?>
+                if (elementType == typeof(decimal) || elementType == typeof(decimal?))
+                {
+                    return new FirestoreListDecimalTypeMapping(clrType);
+                }
+                
+                // List<TEnum> donde TEnum es enum (o nullable enum)
+                var actualEnumType = Nullable.GetUnderlyingType(elementType) ?? elementType;
+                if (actualEnumType.IsEnum)
+                {
+                    return new FirestoreListEnumTypeMapping(clrType, actualEnumType);
+                }
+                
+                // Listas de tipos primitivos (int, string, double, etc.) ya son soportadas por EF Core
+                // No necesitan mapping especial, Firestore las maneja como arrays nativos
+            }
 
             return base.FindMapping(mappingInfo);
         }

@@ -25,12 +25,10 @@ public class FirestoreConventionSetBuilder : ProviderConventionSetBuilder
 
         // Agregar conventions que se ejecutan cuando se agrega una complex property
         conventionSet.ComplexPropertyAddedConventions.Add(new GeoPointConvention());
+        conventionSet.ComplexPropertyAddedConventions.Add(new ComplexTypeNavigationPropertyConvention());
 
         // Agregar conventions que se ejecutan cuando se agrega una navigation
         conventionSet.NavigationAddedConventions.Add(new DocumentReferenceNamingConvention());
-
-        // Agregar conventions que se ejecutan al finalizar el modelo
-        conventionSet.ModelFinalizingConventions.Add(new ComplexTypeNavigationPropertyConvention());
 
         return conventionSet;
     }

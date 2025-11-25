@@ -33,8 +33,11 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             
             var builder = new EntityFrameworkServicesBuilder(serviceCollection);
             
-
             builder.TryAddCoreServices();
+
+            // ✅ CRÍTICO: Reemplazar el IProviderConventionSetBuilder por defecto con el nuestro
+            // AddScoped reemplaza el servicio anterior registrado por TryAddCoreServices
+            serviceCollection.AddScoped<IProviderConventionSetBuilder, FirestoreConventionSetBuilder>();
 
             builder
                 .TryAdd<IDatabaseProvider, DatabaseProvider<FirestoreOptionsExtension>>()
@@ -43,8 +46,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 .TryAdd<IQueryContextFactory, FirestoreQueryContextFactory>()
                 .TryAdd<IQueryCompilationContextFactory, FirestoreQueryCompilationContextFactory>()
                 .TryAdd<IQueryableMethodTranslatingExpressionVisitorFactory, FirestoreQueryableMethodTranslatingExpressionVisitorFactory>()
-                .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()
-                .TryAdd<IProviderConventionSetBuilder, FirestoreConventionSetBuilder>()
+                .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()                
                 .TryAdd<ITypeMappingSource, FirestoreTypeMappingSource>()
                 .TryAdd<IModelValidator, FirestoreModelValidator>()
                 .TryAdd<IDatabaseCreator, FirestoreDatabaseCreator>()

@@ -6,21 +6,16 @@ using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 
 namespace Firestore.EntityFrameworkCore.Metadata.Conventions;
 
-public class ComplexTypeNavigationPropertyConvention : IModelFinalizingConvention
+public class ComplexTypeNavigationPropertyConvention : IComplexPropertyAddedConvention
 {
-    public void ProcessModelFinalizing(
-        IConventionModelBuilder modelBuilder,
-        IConventionContext<IConventionModelBuilder> context)
+    public void ProcessComplexPropertyAdded(
+        IConventionComplexPropertyBuilder propertyBuilder,
+        IConventionContext<IConventionComplexPropertyBuilder> context)
     {
-        var model = modelBuilder.Metadata;
-
-        foreach (var entityType in model.GetEntityTypes())
-        {
-            foreach (var complexProperty in entityType.GetComplexProperties())
-            {
-                IgnoreNavigationsInComplexType(complexProperty.ComplexType, model);
-            }
-        }
+        var complexType = propertyBuilder.Metadata.ComplexType;
+        var model = propertyBuilder.Metadata.DeclaringType.Model;
+        
+        IgnoreNavigationsInComplexType(complexType, model);
     }
 
     private void IgnoreNavigationsInComplexType(IConventionComplexType complexType, IConventionModel model)
@@ -35,13 +30,8 @@ public class ComplexTypeNavigationPropertyConvention : IModelFinalizingConventio
             // Verificar si es una entidad (navigation property)
             if (IsEntityType(propertyType, model))
             {
-                // Ignorar la propiedad en el complex type si existe
-                var existingProperty = complexType.FindProperty(propertyInfo.Name);
-
-                if (existingProperty != null)
-                {
-                    complexType.RemoveProperty(existingProperty);
-                }
+                // Ignorar la propiedad usando el builder
+                complexType.Builder.Ignore(propertyInfo.Name);
             }
 
             // Verificar si es una colección de entidades
@@ -55,12 +45,7 @@ public class ComplexTypeNavigationPropertyConvention : IModelFinalizingConventio
                     var elementType = propertyType.GetGenericArguments()[0];
                     if (IsEntityType(elementType, model))
                     {
-                        var existingProperty = complexType.FindProperty(propertyInfo.Name);
-
-                        if (existingProperty != null)
-                        {
-                            complexType.RemoveProperty(existingProperty);
-                        }
+                        complexType.Builder.Ignore(propertyInfo.Name);
                     }
                 }
             }
@@ -73,7 +58,7 @@ public class ComplexTypeNavigationPropertyConvention : IModelFinalizingConventio
         }
     }
 
-    private static bool IsEntityType(Type type, IConventionModel model)
+    private bool IsEntityType(Type type, IConventionModel model)
     {
         return model.FindEntityType(type) != null;
     }
