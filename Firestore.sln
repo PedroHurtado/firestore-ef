@@ -1,0 +1,35 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "firestore-efcore-provider", "firestore-efcore-provider", "{6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Firestore.EntityFrameworkCore", "firestore-efcore-provider\Firestore.EntityFrameworkCore.csproj", "{156A14F8-4BD1-A161-B91C-10D0E1F23415}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "firestore-test", "firestore-test\firestore-test.csproj", "{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{156A14F8-4BD1-A161-B91C-10D0E1F23415}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{156A14F8-4BD1-A161-B91C-10D0E1F23415}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{156A14F8-4BD1-A161-B91C-10D0E1F23415}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{156A14F8-4BD1-A161-B91C-10D0E1F23415}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{156A14F8-4BD1-A161-B91C-10D0E1F23415} = {6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {19F8FB2C-EFA1-42F6-B1BA-330749DE2C49}
+	EndGlobalSection
+EndGlobal

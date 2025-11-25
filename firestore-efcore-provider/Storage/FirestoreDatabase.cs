@@ -1,0 +1,563 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.EntityFrameworkCore.Update;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using System.Collections;
+using System.Reflection;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Firestore.EntityFrameworkCore.Storage
+{
+    public class FirestoreDatabase(
+        DatabaseDependencies dependencies,
+        IFirestoreClientWrapper firestoreClient,
+        IFirestoreDocumentSerializer documentSerializer,
+        IFirestoreIdGenerator idGenerator,
+        IFirestoreCollectionManager collectionManager,
+        IDiagnosticsLogger<Microsoft.EntityFrameworkCore.DbLoggerCategory.Database.Command> commandLogger,
+        ITypeMappingSource typeMappingSource,
+        IModel model
+        ) : Database(dependencies)
+
+    {
+        private readonly IFirestoreClientWrapper _firestoreClient = firestoreClient;
+        private readonly IFirestoreDocumentSerializer _documentSerializer = documentSerializer;
+        private readonly IFirestoreIdGenerator _idGenerator = idGenerator;
+        private readonly IFirestoreCollectionManager _collectionManager = collectionManager;
+        private readonly IDiagnosticsLogger<Microsoft.EntityFrameworkCore.DbLoggerCategory.Database.Command> _commandLogger = commandLogger;
+        private readonly ITypeMappingSource _typeMappingSource = typeMappingSource;
+        private readonly IModel _model = model;
+
+        public override int SaveChanges(IList<IUpdateEntry> entries)
+        {
+            return SaveChangesAsync(entries).GetAwaiter().GetResult();
+        }
+
+        public override async Task<int> SaveChangesAsync(
+            IList<IUpdateEntry> entries,
+            CancellationToken cancellationToken = default)
+        {
+            if (entries == null || entries.Count == 0)
+                return 0;
+
+            var processedCount = 0;
+
+            foreach (var entry in entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var entityType = entry.EntityType;
+                var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
+                var documentId = GetOrGenerateDocumentId(entry);
+
+                switch (entry.EntityState)
+                {
+                    case EntityState.Added:
+                        await AddDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        processedCount++;
+                        break;
+
+                    case EntityState.Modified:
+                        await UpdateDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        processedCount++;
+                        break;
+
+                    case EntityState.Deleted:
+                        await DeleteDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        processedCount++;
+                        break;
+                }
+            }
+
+            return processedCount;
+        }
+
+        private string GetOrGenerateDocumentId(IUpdateEntry entry)
+        {
+            var keyProperties = entry.EntityType.FindPrimaryKey()?.Properties;
+            if (keyProperties == null || keyProperties.Count == 0)
+                throw new InvalidOperationException("La entidad no tiene clave primaria.");
+
+            if (keyProperties.Count > 1)
+                throw new NotSupportedException("Firestore no soporta claves compuestas.");
+
+            var keyProperty = keyProperties[0];
+            var keyValue = entry.GetCurrentValue(keyProperty);
+
+            if (keyValue == null || IsDefaultValue(keyValue, keyProperty.ClrType))
+            {
+                if (entry.EntityState == EntityState.Added)
+                    return _idGenerator.GenerateId();
+                throw new InvalidOperationException("No se puede modificar/eliminar sin ID.");
+            }
+
+            return keyValue.ToString() ?? throw new InvalidOperationException("El ID no puede ser null.");
+        }
+
+        private async Task AddDocumentAsync(
+            string collectionName, string documentId, IUpdateEntry entry,
+            CancellationToken cancellationToken)
+        {
+            var document = SerializeEntityFromEntry(entry);
+            document["_createdAt"] = DateTime.UtcNow;
+            document["_updatedAt"] = DateTime.UtcNow;
+
+            await _firestoreClient.SetDocumentAsync(collectionName, documentId, document, cancellationToken);
+            UpdateEntityIdIfNeeded(entry, documentId);
+        }
+
+        private async Task UpdateDocumentAsync(
+            string collectionName, string documentId, IUpdateEntry entry,
+            CancellationToken cancellationToken)
+        {
+            var document = SerializeEntityFromEntry(entry);
+            document["_updatedAt"] = DateTime.UtcNow;
+
+            await _firestoreClient.UpdateDocumentAsync(collectionName, documentId, document, cancellationToken);
+        }
+
+        private async Task DeleteDocumentAsync(
+            string collectionName, string documentId, IUpdateEntry entry,
+            CancellationToken cancellationToken)
+        {
+            await _firestoreClient.DeleteDocumentAsync(collectionName, documentId, cancellationToken);
+        }
+
+        private Dictionary<string, object> SerializeEntityFromEntry(IUpdateEntry entry)
+        {
+            var dict = new Dictionary<string, object>();
+
+            // Serializar propiedades simples
+            SerializeProperties(entry.EntityType, prop => entry.GetCurrentValue(prop), dict);
+
+            // Serializar Complex Properties (Value Objects)
+            SerializeComplexProperties(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
+            // ✅ Serializar referencias de entidades individuales
+            SerializeEntityReferences(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
+            // ✅ Serializar colecciones de referencias de entidades
+            SerializeEntityReferenceCollections(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
+            // ✅ NUEVO: Convertir shadow FKs en DocumentReferences
+            SerializeShadowForeignKeyReferences(entry, dict);
+
+            return dict;
+        }
+
+        private void SerializeProperties(
+            ITypeBase typeBase,
+            Func<IProperty, object?> valueGetter,
+            Dictionary<string, object> dict)
+        {
+            foreach (var property in typeBase.GetProperties())
+            {
+                if (property.IsPrimaryKey()) continue;
+                
+                // ✅ Omitir TODAS las FKs (las convertiremos en referencias)
+                if (property.IsForeignKey()) continue;
+
+                var value = valueGetter(property);
+                if (value == null) continue;
+
+                value = ApplyConverter(property, value);
+                if (value != null)
+                {
+                    dict[property.Name] = value;
+                }
+            }
+        }
+
+        // ✅ NUEVO: Convertir shadow FKs en DocumentReferences
+        private void SerializeShadowForeignKeyReferences(IUpdateEntry entry, Dictionary<string, object> dict)
+        {
+            var entityType = entry.EntityType;
+
+            // Buscar todas las FKs (incluyendo shadow properties)
+            foreach (var foreignKey in entityType.GetForeignKeys())
+            {
+                // Solo si la navegación inversa es una colección (relación 1:N)
+                var principalToDependent = foreignKey.PrincipalToDependent;
+                if (principalToDependent == null || !principalToDependent.IsCollection)
+                    continue;
+
+                // Obtener el valor de la shadow FK
+                var fkProperty = foreignKey.Properties.First();
+                var fkValue = entry.GetCurrentValue(fkProperty);
+
+                if (fkValue == null || IsDefaultValue(fkValue, fkProperty.ClrType))
+                    continue;
+
+                // Obtener el tipo de la entidad principal (Pedido)
+                var principalEntityType = foreignKey.PrincipalEntityType;
+                var collectionName = _collectionManager.GetCollectionName(principalEntityType.ClrType);
+
+                // Crear DocumentReference
+                var docRef = _firestoreClient.Database
+                    .Collection(collectionName)
+                    .Document(fkValue.ToString()!);
+
+                // Usar el nombre de la entidad principal (sin "Id")
+                // Ejemplo: "PedidoId" → "Pedido"
+                var referenceName = principalEntityType.ClrType.Name;
+                dict[referenceName] = docRef;
+            }
+        }
+
+        private void SerializeComplexProperties(
+            ITypeBase typeBase,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            foreach (var complexProperty in typeBase.GetComplexProperties())
+            {
+                var complexValue = complexProperty.PropertyInfo?.GetValue(entity);
+                if (complexValue == null) continue;
+
+                // ✅ 1. Verificar si está marcado como Reference (ComplexProperty)
+                if (complexProperty.FindAnnotation("Firestore:IsReference")?.Value is true)
+                {
+                    var refPropertyName = complexProperty.FindAnnotation("Firestore:ReferenceProperty")?.Value as string;
+                    dict[complexProperty.Name] = ConvertToFirestoreReference(complexValue, refPropertyName);
+                    continue;
+                }
+
+                // ✅ 2. Verificar si está marcado como GeoPoint
+                if (complexProperty.FindAnnotation("Firestore:IsGeoPoint")?.Value is true)
+                {
+                    dict[complexProperty.Name] = ConvertToFirestoreGeoPoint(complexValue);
+                    continue;
+                }
+
+                // ✅ 3. Verificar si es una colección de complex types
+                if (complexValue is IEnumerable enumerable &&
+                    complexValue is not string &&
+                    complexValue is not byte[])
+                {
+                    var list = new List<Dictionary<string, object>>();
+                    foreach (var item in enumerable)
+                    {
+                        list.Add(SerializeComplexTypeFromObject(item));
+                    }
+                    dict[complexProperty.Name] = list;
+                    continue;
+                }
+
+                // ✅ 4. Complex type simple (no colección, no GeoPoint, no Reference)
+                dict[complexProperty.Name] = SerializeComplexType(complexValue, complexProperty.ComplexType);
+            }
+        }
+
+        // ✅ Serializar referencias de entidades individuales - DETECCIÓN AUTOMÁTICA
+        private void SerializeEntityReferences(
+            IEntityType entityType,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                // Omitir colecciones (se manejan en SerializeEntityReferenceCollections)
+                if (navigation.IsCollection) continue;
+
+                var relatedEntity = navigation.PropertyInfo?.GetValue(entity);
+                if (relatedEntity == null) continue;
+
+                // ✅ SIEMPRE usa la clave primaria (Id)
+                var relatedEntityType = navigation.TargetEntityType;
+                var primaryKey = relatedEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+
+                if (primaryKey == null)
+                    throw new InvalidOperationException(
+                        $"Entity type '{relatedEntityType.Name}' has no primary key defined.");
+
+                var relatedId = primaryKey.PropertyInfo?.GetValue(relatedEntity);
+                if (relatedId == null || IsDefaultValue(relatedId, primaryKey.ClrType))
+                    continue; // Omitir si no tiene ID
+
+                // Obtener nombre de la colección
+                var collectionName = _collectionManager.GetCollectionName(relatedEntityType.ClrType);
+
+                // Crear DocumentReference
+                dict[navigation.Name] = _firestoreClient.Database
+                    .Collection(collectionName)
+                    .Document(relatedId.ToString()!);
+            }
+        }
+
+        // ✅ Serializar colecciones de referencias de entidades
+        private void SerializeEntityReferenceCollections(
+            IEntityType entityType,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            // Obtener todas las navegaciones de colección de EF Core
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                if (!navigation.IsCollection) continue;
+
+                var collectionValue = navigation.PropertyInfo?.GetValue(entity);
+                if (collectionValue == null) continue;
+
+                var references = CreateReferenceArray(navigation, collectionValue);
+                if (references.Length > 0)
+                {
+                    dict[navigation.Name] = references;
+                }
+            }
+        }
+
+        // ✅ Crear array de DocumentReferences desde una colección de entidades
+        private Google.Cloud.Firestore.DocumentReference[] CreateReferenceArray(
+            INavigation navigation,
+            object collection)
+        {
+            var targetEntityType = navigation.TargetEntityType;
+            var collectionName = _collectionManager.GetCollectionName(targetEntityType.ClrType);
+            var references = new List<Google.Cloud.Firestore.DocumentReference>();
+
+            // Obtener la clave primaria de la entidad objetivo
+            var idProperty = targetEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (idProperty == null)
+                throw new InvalidOperationException(
+                    $"Entity type '{targetEntityType.Name}' has no primary key defined.");
+
+            foreach (var item in (IEnumerable)collection)
+            {
+                if (item == null) continue;
+
+                // Obtener el ID de la entidad
+                var idValue = idProperty.PropertyInfo?.GetValue(item);
+                if (idValue == null || IsDefaultValue(idValue, idProperty.ClrType))
+                    continue; // Omitir entidades sin ID
+
+                var documentId = idValue.ToString()!;
+                var docRef = _firestoreClient.Database
+                    .Collection(collectionName)
+                    .Document(documentId);
+
+                references.Add(docRef);
+            }
+
+            return references.ToArray();
+        }
+
+        private Dictionary<string, object> SerializeComplexTypeFromObject(object complexObject)
+        {
+            var dict = new Dictionary<string, object>();
+            var type = complexObject.GetType();
+
+            foreach (var prop in type.GetProperties())
+            {
+                var value = prop.GetValue(complexObject);
+                if (value == null) continue;
+
+                if (value.GetType().IsClass &&
+                    value is not string &&
+                    value is not IEnumerable)
+                {
+                    dict[prop.Name] = SerializeComplexTypeFromObject(value);
+                }
+                else
+                {
+                    dict[prop.Name] = value;
+                }
+            }
+
+            return dict;
+        }
+
+        private Dictionary<string, object> SerializeComplexType(object complexObject, IComplexType complexType)
+        {
+            var dict = new Dictionary<string, object>();
+
+            // Serializar propiedades simples del complex type
+            SerializeProperties(complexType, prop => prop.PropertyInfo?.GetValue(complexObject), dict);
+
+            // Serializar Complex Properties anidados (recursivo)
+            SerializeComplexProperties(complexType, complexObject, dict);
+
+            // ✅ Detectar y serializar referencias a entidades dentro del ComplexType
+            SerializeNestedEntityReferences(complexObject, dict);
+
+            return dict;
+        }
+
+        // ✅ Serializar referencias a entidades dentro de ComplexTypes
+        private void SerializeNestedEntityReferences(object complexObject, Dictionary<string, object> dict)
+        {
+            var type = complexObject.GetType();
+
+            foreach (var prop in type.GetProperties())
+            {
+                var propValue = prop.GetValue(complexObject);
+                if (propValue == null) continue;
+
+                var propType = prop.PropertyType;
+
+                // ✅ Detectar si la propiedad es una entidad (tiene DbSet registrado)
+                var entityType = _model.FindEntityType(propType);
+                if (entityType != null)
+                {
+                    // Es una referencia a entidad - convertir a DocumentReference
+                    var primaryKey = entityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+                    if (primaryKey == null)
+                        throw new InvalidOperationException(
+                            $"Entity type '{entityType.Name}' has no primary key defined.");
+
+                    var relatedId = primaryKey.PropertyInfo?.GetValue(propValue);
+                    if (relatedId == null || IsDefaultValue(relatedId, primaryKey.ClrType))
+                        continue;
+
+                    var collectionName = _collectionManager.GetCollectionName(propType);
+                    dict[prop.Name] = _firestoreClient.Database
+                        .Collection(collectionName)
+                        .Document(relatedId.ToString()!);
+                }
+            }
+        }
+
+        private object? ApplyConverter(IProperty property, object value)
+        {
+            // ✅ Si es colección, ignorar el converter de EF Core
+            if (value is IEnumerable enumerable && value is not string && value is not byte[])
+            {
+                return ConvertCollection(property, enumerable);
+            }
+
+            // ✅ Para otros tipos, buscar converter en property O en typeMapping
+            var converter = property.GetValueConverter() ?? property.GetTypeMapping()?.Converter;
+
+            return converter != null
+                ? converter.ConvertToProvider(value)
+                : value;
+        }
+
+        private Google.Cloud.Firestore.DocumentReference ConvertToFirestoreReference(
+            object value,
+            string? propertyName)
+        {
+            var type = value.GetType();
+
+            // ✅ Buscar la propiedad especificada o "Id" por defecto
+            PropertyInfo? property;
+            if (propertyName != null)
+            {
+                property = type.GetProperty(propertyName);
+                if (property == null)
+                    throw new InvalidOperationException(
+                        $"El tipo '{type.Name}' no tiene una propiedad '{propertyName}'");
+            }
+            else
+            {
+                property = type.GetProperty("Id");
+                if (property == null)
+                    throw new InvalidOperationException(
+                        $"El tipo '{type.Name}' debe tener una propiedad 'Id' o especificar una con HasReference(x => x.Property)");
+            }
+
+            var propertyValue = property.GetValue(value)?.ToString();
+            if (string.IsNullOrEmpty(propertyValue))
+                throw new InvalidOperationException($"La propiedad '{property.Name}' no puede ser null o vacía para una referencia");
+
+            // Obtener nombre de la colección
+            var collectionName = GetCollectionName(type);
+
+            // Crear la referencia
+            return _firestoreClient.Database.Collection(collectionName).Document(propertyValue);
+        }
+
+        private string GetCollectionName(Type type)
+        {
+            var tableAttr = type.GetCustomAttribute<TableAttribute>();
+            return tableAttr?.Name ?? type.Name.ToLowerInvariant() + "s";
+        }
+
+        private Google.Cloud.Firestore.GeoPoint ConvertToFirestoreGeoPoint(object value)
+        {
+            var type = value.GetType();
+
+            var latProp = FindLatitudeProperty(type);
+            var lonProp = FindLongitudeProperty(type);
+
+            var lat = (double)latProp.GetValue(value)!;
+            var lon = (double)lonProp.GetValue(value)!;
+
+            return new Google.Cloud.Firestore.GeoPoint(lat, lon);
+        }
+
+        private PropertyInfo FindLatitudeProperty(Type type)
+        {
+            return type.GetProperty("Latitude")
+                ?? type.GetProperty("Latitud")
+                ?? throw new InvalidOperationException(
+                    $"El tipo '{type.Name}' debe tener una propiedad 'Latitude' o 'Latitud' para usar HasGeoPoint()");
+        }
+
+        private PropertyInfo FindLongitudeProperty(Type type)
+        {
+            return type.GetProperty("Longitude")
+                ?? type.GetProperty("Longitud")
+                ?? throw new InvalidOperationException(
+                    $"El tipo '{type.Name}' debe tener una propiedad 'Longitude' o 'Longitud' para usar HasGeoPoint()");
+        }
+
+        private object ConvertCollection(IProperty property, IEnumerable collection)
+        {
+            var elementType = property.ClrType.GetGenericArguments().FirstOrDefault()
+                              ?? property.ClrType.GetElementType();
+
+            if (elementType == null)
+                return collection;
+
+            // ✅ Para decimal → double
+            if (elementType == typeof(decimal))
+            {
+                return collection.Cast<decimal>().Select(d => (double)d).ToList();
+            }
+
+            // ✅ Para enum → string
+            if (elementType.IsEnum)
+            {
+                return collection.Cast<object>().Select(e => e.ToString()!).ToList();
+            }
+
+            return collection;
+        }
+
+        private CoreTypeMapping? FindMappingForType(Type type)
+        {
+            return _typeMappingSource.FindMapping(type);
+        }
+
+        private void UpdateEntityIdIfNeeded(IUpdateEntry entry, string documentId)
+        {
+            var keyProperty = entry.EntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (keyProperty != null)
+            {
+                var currentValue = entry.GetCurrentValue(keyProperty);
+                if (currentValue == null || IsDefaultValue(currentValue, keyProperty.ClrType))
+                {
+                    entry.SetStoreGeneratedValue(keyProperty, documentId);
+                }
+            }
+        }
+
+        private static bool IsDefaultValue(object value, Type type)
+        {
+            if (value == null) return true;
+            if (type.IsValueType)
+            {
+                var defaultValue = Activator.CreateInstance(type);
+                return value.Equals(defaultValue);
+            }
+            return false;
+        }
+    }
+}

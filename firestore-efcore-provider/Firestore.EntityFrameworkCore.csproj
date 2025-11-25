@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>    
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    
+    <!-- Información del paquete -->
+    <PackageId>Firestore.EntityFrameworkCore</PackageId>
+    <Version>1.0.0-alpha</Version>
+    <Authors>Tu Nombre</Authors>
+    <Company>Tu Compañía</Company>
+    <Description>Proveedor de Entity Framework Core para Google Cloud Firestore</Description>
+    <PackageTags>EntityFrameworkCore;EFCore;Firestore;Google;Cloud;NoSQL</PackageTags>
+    <RepositoryUrl>https://github.com/tu-usuario/firestore-efcore</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Entity Framework Core -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
+    <!-- Google Cloud Firestore -->
+    <PackageReference Include="Google.Cloud.Firestore" Version="3.7.0" />
+  </ItemGroup>
+ 
+
+</Project>
