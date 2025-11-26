@@ -12,6 +12,8 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using System.Collections;
 using System.Reflection;
 using System.ComponentModel.DataAnnotations.Schema;
+using Google.Cloud.Firestore;
+using Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 namespace Firestore.EntityFrameworkCore.Storage
 {
@@ -41,8 +43,8 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         public override async Task<int> SaveChangesAsync(
-    IList<IUpdateEntry> entries,
-    CancellationToken cancellationToken = default)
+            IList<IUpdateEntry> entries,
+            CancellationToken cancellationToken = default)
         {
             if (entries == null || entries.Count == 0)
                 return 0;
@@ -56,39 +58,161 @@ namespace Firestore.EntityFrameworkCore.Storage
 
                 var entityType = entry.EntityType;
 
-                // ✅ NUEVO: Saltar entidades intermedias generadas automáticamente
-                // Las manejamos manualmente en ProcessSkipNavigationChanges
+                // ✅ Saltar entidades intermedias generadas automáticamente
                 if (IsJoinEntity(entityType))
                     continue;
 
-                var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
-                var documentId = GetOrGenerateDocumentId(entry);
+                // ✅ NUEVO: Obtener el document path (puede ser jerárquico para subcollections)
+                var documentRef = GetDocumentPath(entry, entries);
 
                 switch (entry.EntityState)
                 {
                     case EntityState.Added:
-                        await AddDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        await AddDocumentAsync(documentRef, entry, cancellationToken);
                         processedCount++;
                         break;
 
                     case EntityState.Modified:
-                        await UpdateDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        await UpdateDocumentAsync(documentRef, entry, cancellationToken);
                         processedCount++;
                         break;
 
                     case EntityState.Deleted:
-                        await DeleteDocumentAsync(collectionName, documentId, entry, cancellationToken);
+                        await DeleteDocumentAsync(documentRef, entry, cancellationToken);
                         processedCount++;
                         break;
                 }
             }
 
-            // ✅ 2. Gestionar tablas intermedias para skip navigations (N:M)
+            // 2. Gestionar tablas intermedias para skip navigations (N:M)
             await ProcessSkipNavigationChanges(entries, cancellationToken);
 
             return processedCount;
         }
 
+        // ========================================================================
+        // ✅ NUEVAS FUNCIONALIDADES PARA SUBCOLLECTIONS
+        // ========================================================================
+
+        /// <summary>
+        /// Obtiene el DocumentReference completo para una entidad, incluyendo el path jerárquico si es subcollection
+        /// </summary>
+        private DocumentReference GetDocumentPath(IUpdateEntry entry, IList<IUpdateEntry> allEntries)
+        {
+            var entityType = entry.EntityType;
+            var documentId = GetOrGenerateDocumentId(entry);
+
+            // ✅ Buscar si esta entidad es una subcollection de otra
+            var parentNavigation = FindParentNavigationForSubCollection(entityType);
+
+            if (parentNavigation == null)
+            {
+                // Es una entidad raíz - path simple
+                var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
+                return _firestoreClient.Database
+                    .Collection(collectionName)
+                    .Document(documentId);
+            }
+
+            // Es una subcollection - construir path jerárquico
+            return BuildSubCollectionPath(entry, parentNavigation, allEntries, documentId);
+        }
+
+        /// <summary>
+        /// Encuentra la navigation que marca esta entidad como subcollection
+        /// </summary>
+        private INavigation? FindParentNavigationForSubCollection(IEntityType entityType)
+        {
+            // Buscar en todas las entidades del modelo
+            foreach (var parentEntityType in _model.GetEntityTypes())
+            {
+                foreach (var navigation in parentEntityType.GetNavigations())
+                {
+                    // Si esta navigation apunta a nuestro entityType y está marcada como subcollection
+                    if (navigation.TargetEntityType == entityType && navigation.IsSubCollection())
+                    {
+                        return navigation;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Construye el path completo para una subcollection, incluyendo todos los niveles padres
+        /// </summary>
+        private DocumentReference BuildSubCollectionPath(
+            IUpdateEntry entry,
+            INavigation parentNavigation,
+            IList<IUpdateEntry> allEntries,
+            string documentId)
+        {
+            var entityType = entry.EntityType;
+            var parentEntityType = parentNavigation.DeclaringEntityType;
+
+            // Buscar la entidad padre en el ChangeTracker
+            var parentEntry = FindParentEntry(entry, parentNavigation, allEntries);
+
+            if (parentEntry == null)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot save subcollection entity '{entityType.ClrType.Name}' (ID: {documentId}) " +
+                    $"because parent entity '{parentEntityType.ClrType.Name}' is not being tracked. " +
+                    $"Make sure to add the parent entity to the context first.");
+            }
+
+            // Obtener el path del padre (recursivo para subcollections anidadas)
+            var parentPath = GetDocumentPath(parentEntry, allEntries);
+
+            // Construir el path de la subcollection
+            var subCollectionName = _collectionManager.GetCollectionName(entityType.ClrType);
+
+            return parentPath
+                .Collection(subCollectionName)
+                .Document(documentId);
+        }
+
+        /// <summary>
+        /// Encuentra la entidad padre en el ChangeTracker
+        /// </summary>
+        private IUpdateEntry? FindParentEntry(
+            IUpdateEntry childEntry,
+            INavigation parentNavigation,
+            IList<IUpdateEntry> allEntries)
+        {
+            var childEntity = childEntry.ToEntityEntry().Entity;
+            var parentEntityType = parentNavigation.DeclaringEntityType;
+
+            // Buscar en todas las entidades trackeadas del tipo padre
+            foreach (var entry in allEntries)
+            {
+                if (entry.EntityType != parentEntityType)
+                    continue;
+
+                var parentEntity = entry.ToEntityEntry().Entity;
+
+                // Obtener la colección de hijos del padre
+                var childrenCollection = parentNavigation.PropertyInfo?.GetValue(parentEntity) as IEnumerable;
+                if (childrenCollection == null)
+                    continue;
+
+                // Verificar si nuestro hijo está en esa colección
+                foreach (var item in childrenCollection)
+                {
+                    if (ReferenceEquals(item, childEntity))
+                    {
+                        return entry;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // ========================================================================
+        // MÉTODOS CRUD MODIFICADOS PARA SOPORTAR SUBCOLLECTIONS
+        // ========================================================================
 
         private string GetOrGenerateDocumentId(IUpdateEntry entry)
         {
@@ -113,33 +237,43 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         private async Task AddDocumentAsync(
-            string collectionName, string documentId, IUpdateEntry entry,
+            DocumentReference documentRef,
+            IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
             var document = SerializeEntityFromEntry(entry);
             document["_createdAt"] = DateTime.UtcNow;
             document["_updatedAt"] = DateTime.UtcNow;
 
-            await _firestoreClient.SetDocumentAsync(collectionName, documentId, document, cancellationToken);
+            await documentRef.SetAsync(document, cancellationToken: cancellationToken);
+
+            // Actualizar el ID si fue generado
+            var documentId = documentRef.Id;
             UpdateEntityIdIfNeeded(entry, documentId);
         }
 
         private async Task UpdateDocumentAsync(
-            string collectionName, string documentId, IUpdateEntry entry,
+            DocumentReference documentRef,
+            IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
             var document = SerializeEntityFromEntry(entry);
             document["_updatedAt"] = DateTime.UtcNow;
 
-            await _firestoreClient.UpdateDocumentAsync(collectionName, documentId, document, cancellationToken);
+            await documentRef.SetAsync(document, SetOptions.MergeAll, cancellationToken);
         }
 
         private async Task DeleteDocumentAsync(
-            string collectionName, string documentId, IUpdateEntry entry,
+            DocumentReference documentRef,
+            IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
-            await _firestoreClient.DeleteDocumentAsync(collectionName, documentId, cancellationToken);
+            await documentRef.DeleteAsync(cancellationToken: cancellationToken);
         }
+
+        // ========================================================================
+        // SERIALIZACIÓN (SIN CAMBIOS)
+        // ========================================================================
 
         private Dictionary<string, object> SerializeEntityFromEntry(IUpdateEntry entry)
         {
@@ -160,13 +294,13 @@ namespace Firestore.EntityFrameworkCore.Storage
             // ✅ Convertir shadow FKs en DocumentReferences
             SerializeShadowForeignKeyReferences(entry, dict);
 
-            // ✅ NUEVO: Serializar referencias a documentos de tablas intermedias (N:M)
+            // ✅ Serializar referencias a documentos de tablas intermedias (N:M)
             SerializeJoinEntityReferences(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
             return dict;
         }
 
-        // ✅ NUEVO: Serializar referencias a documentos de tablas intermedias (N:M)
+        // ✅ Serializar referencias a documentos de tablas intermedias (N:M)
         private void SerializeJoinEntityReferences(
             IEntityType entityType,
             object entity,
@@ -261,6 +395,12 @@ namespace Firestore.EntityFrameworkCore.Storage
         private void SerializeShadowForeignKeyReferences(IUpdateEntry entry, Dictionary<string, object> dict)
         {
             var entityType = entry.EntityType;
+
+            // ✅ NUEVO: Si esta entidad es subcollection, no guardar referencia al padre
+            // El path ya indica la jerarquía: /clientes/cli-001/pedidos/ped-001
+            var isSubCollection = FindParentNavigationForSubCollection(entityType) != null;
+            if (isSubCollection)
+                return; // No serializar referencias al padre en subcollections
 
             // Buscar todas las FKs (incluyendo shadow properties)
             foreach (var foreignKey in entityType.GetForeignKeys())
@@ -382,6 +522,10 @@ namespace Firestore.EntityFrameworkCore.Storage
             foreach (var navigation in entityType.GetNavigations())
             {
                 if (!navigation.IsCollection) continue;
+
+                // ✅ NUEVO: Omitir subcollections (se guardan en paths separados)
+                if (navigation.IsSubCollection())
+                    continue;
 
                 var collectionValue = navigation.PropertyInfo?.GetValue(entity);
                 if (collectionValue == null) continue;
@@ -642,10 +786,10 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         // ========================================================================
-        // ✅ NUEVAS FUNCIONALIDADES PARA RELACIONES N:M (SKIP NAVIGATIONS)
+        // ✅ FUNCIONALIDADES PARA RELACIONES N:M (SKIP NAVIGATIONS)
         // ========================================================================
 
-        // ✅ NUEVO: Detectar si es una entidad intermedia generada automáticamente
+        // ✅ Detectar si es una entidad intermedia generada automáticamente
         private bool IsJoinEntity(IEntityType entityType)
         {
             // Las entidades intermedias tienen 2+ foreign keys y no tienen propiedades propias
@@ -807,7 +951,6 @@ namespace Firestore.EntityFrameworkCore.Storage
             return id.ToString()!;
         }
 
-        // ✅ Generar nombre de colección intermedia (pluralizado y en orden)
         // ✅ Generar nombre de colección intermedia (pluralizado y en orden)
         private string GetJoinCollectionName(ISkipNavigation skipNavigation)
         {

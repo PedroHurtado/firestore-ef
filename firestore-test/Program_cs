@@ -1,0 +1,506 @@
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Extensions;
+using Firestore.EntityFrameworkCore.Metadata.Builders;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+ConfigureServices(builder.Services, builder.Configuration);
+
+var host = builder.Build();
+
+var context = host.Services.GetRequiredService<MiContexto>();
+var logger = host.Services.GetRequiredService<ILogger<Program>>();
+
+await PruebaDatos(context, logger);
+
+static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
+{
+    services.AddLogging(configure =>
+    {
+        configure.AddConsole();
+        configure.SetMinimumLevel(LogLevel.Information);
+    });
+
+    services.AddDbContext<MiContexto>(options =>
+        options.UseFirestore("tapapear-f6f2b", "credentials.json")
+    );
+}
+
+static async Task PruebaDatos(MiContexto context, ILogger logger)
+{
+    logger.LogInformation("=== PRUEBA COMPLETA DE CONVENTIONS ===\n");
+
+    try
+    {
+        // === 1. CATÁLOGOS (PrimaryKeyConvention + CollectionNamingConvention) ===
+        logger.LogInformation("--- Paso 1: Creando catálogos ---");
+        
+        var espana = new Pais
+        {
+            Id = "pais-001",
+            Nombre = "España",
+            Codigo = "ES"
+        };
+
+        var andalucia = new Provincia
+        {
+            Id = "prov-001",
+            Nombre = "Andalucía",
+            Codigo = "AN"
+        };
+
+        context.Paises.Add(espana);
+        context.Provincias.Add(andalucia);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ País: {espana.Nombre} (sin HasKey - PrimaryKeyConvention)");
+        logger.LogInformation($"✓ Provincia: {andalucia.Nombre} (sin ToTable - CollectionNamingConvention)");
+
+        // === 2. INGREDIENTES ===
+        logger.LogInformation("\n--- Paso 2: Creando ingredientes ---");
+        
+        var mozzarella = new Ingredient
+        {
+            Id = "ing-001",
+            Name = "Mozzarella",
+            Cost = 2.5  // DecimalToDoubleConvention (si fuera decimal)
+        };
+
+        var tomato = new Ingredient
+        {
+            Id = "ing-002",
+            Name = "Tomato Sauce",
+            Cost = 1.0
+        };
+
+        var pepperoni = new Ingredient
+        {
+            Id = "ing-003",
+            Name = "Pepperoni",
+            Cost = 3.5
+        };
+
+        context.Ingredients.Add(mozzarella);
+        context.Ingredients.Add(tomato);
+        context.Ingredients.Add(pepperoni);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ Ingredientes creados (colección 'Ingredients' pluralizada)");
+
+        // === 3. PRODUCTO (EnumToStringConvention + DecimalToDoubleConvention + ComplexTypes + GeoPoint) ===
+        logger.LogInformation("\n--- Paso 3: Creando producto con TODAS las conventions ---");
+
+        var producto = new Producto
+        {
+            Id = "prod-001",
+            Nombre = "Laptop HP",
+            Precio = 1299.99m,  // ✅ DecimalToDoubleConvention
+            Stock = 10,
+            FechaCreacion = DateTime.UtcNow,  // ✅ TimestampConvention (detecta FechaCreacion)
+            Categoria = CategoriaProducto.Electronica,  // ✅ EnumToStringConvention
+            DireccionAlmacen = new Direccion
+            {
+                Calle = "Calle Mayor 123",
+                Ciudad = "Cádiz",
+                CodigoPostal = "11001",
+                Pais = espana,  // ✅ ComplexTypeNavigationPropertyConvention (se ignora y se guarda referencia)
+                Provincia = andalucia,  // ✅ ComplexTypeNavigationPropertyConvention
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 12.5,
+                    Posicion = new Ubicacion(36.5299, -6.2930)  // ✅ GeoPointConvention (anidado)
+                }
+            },
+            InformacionAdicional = new InformacionAdicional
+            {
+                Garantia = "2 años",
+                Fabricante = "HP Inc.",
+                Contacto = new ContactoFabricante  // ✅ ComplexType anidado
+                {
+                    Email = "support@hp.com",
+                    Telefono = "+34 900 123 456",
+                    HorarioAtencion = "L-V 9:00-18:00"
+                }
+            },
+            DataInt = [1, 2, 3],
+            DataDecimal = [10.5m, 20.3m, 30.1m],  // ✅ DecimalToDoubleConvention en colección
+            DataEnum = [CategoriaProducto.Electronica, CategoriaProducto.Ropa]  // ✅ EnumToStringConvention en colección
+        };
+
+        context.Productos.Add(producto);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ Producto: {producto.Nombre}");
+        logger.LogInformation($"  → Precio (decimal→double): ${producto.Precio}");
+        logger.LogInformation($"  → Categoría (enum→string): {producto.Categoria}");
+        logger.LogInformation($"  → GeoPoint anidado: ({producto.DireccionAlmacen.Coordenadas.Posicion.Latitude}, {producto.DireccionAlmacen.Coordenadas.Posicion.Longitude})");
+        logger.LogInformation($"  → Referencias en ComplexType: Pais={producto.DireccionAlmacen.Pais.Nombre}, Provincia={producto.DireccionAlmacen.Provincia.Nombre}");
+
+        // === 4. CLIENTE (GeoPoint directo) ===
+        logger.LogInformation("\n--- Paso 4: Creando cliente ---");
+
+        var cliente = new Cliente
+        {
+            Id = "cli-001",
+            Nombre = "Juan Pérez",
+            Email = "juan@example.com",
+            Ubicacion = new Ubicacion(36.5299, -6.2930),  // ✅ GeoPointConvention directo
+            Direccion = new Direccion
+            {
+                Calle = "Av. Principal 456",
+                Ciudad = "Cádiz",
+                CodigoPostal = "11002",
+                Pais = espana,
+                Provincia = andalucia,
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 15.0,
+                    Posicion = new Ubicacion(36.5299, -6.2930)
+                }
+            },
+            Pedidos = []
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ Cliente: {cliente.Nombre}");
+        logger.LogInformation($"  → GeoPoint directo: ({cliente.Ubicacion.Latitude}, {cliente.Ubicacion.Longitude})");
+
+        // === 5. PEDIDO CON LÍNEAS (DocumentReferenceNamingConvention) ===
+        logger.LogInformation("\n--- Paso 5: Creando pedido con líneas ---");
+
+        var linea1 = new LineaPedido
+        {
+            Id = "linea-001",
+            Producto = producto,  // ✅ DocumentReferenceNamingConvention → ProductoRef
+            Cantidad = 2,
+            PrecioUnitario = 1299.99m  // ✅ DecimalToDoubleConvention
+        };
+
+        var pedido = new Pedido
+        {
+            Id = "ped-001",
+            NumeroOrden = "ORD-2024-001",
+            FechaPedido = DateTime.UtcNow,  // ✅ TimestampConvention
+            Cliente = cliente,  // ✅ DocumentReferenceNamingConvention → ClienteRef
+            Lineas = [linea1]
+        };
+
+        context.Pedidos.Add(pedido);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ Pedido: {pedido.NumeroOrden}");
+        logger.LogInformation($"  → Cliente referencia: {pedido.Cliente.Nombre}");
+        logger.LogInformation($"  → Producto referencia: {linea1.Producto.Nombre}");
+
+        // === 6. PIZZA CON INGREDIENTES (N:M) ===
+        logger.LogInformation("\n--- Paso 6: Creando pizza con relación N:M ---");
+
+        var margherita = new Pizza
+        {
+            Id = "pizza-001",
+            Name = "Margherita",
+            Description = "Classic pizza",
+            Url = "https://example.com/margherita.jpg",
+            Ingredients = [mozzarella, tomato]
+        };
+
+        context.Pizzas.Add(margherita);
+        await context.SaveChangesAsync();
+
+        logger.LogInformation($"✓ Pizza: {margherita.Name}");
+        logger.LogInformation($"  → Ingredientes: {margherita.Ingredients.Count}");
+        logger.LogInformation($"  → Precio calculado: ${margherita.GetPrice():F2}");
+
+        // === RESUMEN CONVENTIONS ===
+        logger.LogInformation("\n╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║         TODAS LAS CONVENTIONS PROBADAS (9 de 10) ✅           ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝");
+
+        logger.LogInformation("\n📋 CONVENTIONS APLICADAS:\n");
+        
+        logger.LogInformation("1. ✅ PrimaryKeyConvention");
+        logger.LogInformation("   → Detectó 'Id' en todas las entidades sin HasKey()");
+        
+        logger.LogInformation("\n2. ✅ CollectionNamingConvention");
+        logger.LogInformation("   → Pizza → Pizzas");
+        logger.LogInformation("   → Ingredient → Ingredients");
+        logger.LogInformation("   → Pais → Paises");
+        logger.LogInformation("   → Provincia → Provincias");
+        
+        logger.LogInformation("\n3. ✅ EnumToStringConvention");
+        logger.LogInformation("   → CategoriaProducto.Electronica → \"Electronica\"");
+        
+        logger.LogInformation("\n4. ✅ DecimalToDoubleConvention");
+        logger.LogInformation("   → Producto.Precio (decimal 1299.99m → double)");
+        logger.LogInformation("   → LineaPedido.PrecioUnitario (decimal → double)");
+        
+        logger.LogInformation("\n5. ✅ ListDecimalToDoubleArrayConvention");
+        logger.LogInformation("   → DataDecimal: List<decimal> → List<double>");
+        logger.LogInformation("   → Arrays nativos en Firestore: [10.5, 20.3, 30.1]");
+        
+        logger.LogInformation("\n6. ✅ ListEnumToStringArrayConvention");
+        logger.LogInformation("   → DataEnum: List<CategoriaProducto> → List<string>");
+        logger.LogInformation("   → Arrays nativos en Firestore: [\"Electronica\", \"Ropa\"]");
+        
+        logger.LogInformation("\n7. ⚠️ ComplexTypeNavigationPropertyConvention (LIMITADA)");
+        logger.LogInformation("   → Limitación: EF Core detecta navigations antes de ignorarlas");
+        logger.LogInformation("   → Solución: Usar .Ignore() manual en OnModelCreating");
+        logger.LogInformation("   → Direccion.Pais/Provincia requieren .Ignore() manual");
+        
+        logger.LogInformation("\n8. ✅ TimestampConvention");
+        logger.LogInformation("   → Producto.FechaCreacion detectada automáticamente");
+        logger.LogInformation("   → Pedido.FechaPedido detectada automáticamente");
+        
+        logger.LogInformation("\n9. ✅ GeoPointConvention");
+        logger.LogInformation("   → Cliente.Ubicacion (Latitude, Longitude) → GeoPoint");
+        logger.LogInformation("   → Coordenadas.Posicion anidado → GeoPoint");
+        logger.LogInformation("   → Sin necesidad de .HasGeoPoint() manual");
+        
+        logger.LogInformation("\n10. ✅ DocumentReferenceNamingConvention");
+        logger.LogInformation("   → Pedido.Cliente → ClienteRef");
+        logger.LogInformation("   → LineaPedido.Producto → ProductoRef");
+        logger.LogInformation("   → Pizza.Ingredients → IngredientRef (en IngredientPizza)");
+
+        logger.LogInformation("\n🔗 Firestore Console:");
+        logger.LogInformation("   https://console.firebase.google.com/project/tapapear-f6f2b/firestore");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"\n✗ Error: {ex.Message}");
+        logger.LogError($"StackTrace: {ex.StackTrace}");
+        if (ex.InnerException != null)
+        {
+            logger.LogError($"InnerException: {ex.InnerException.Message}");
+        }
+    }
+}
+
+// ============= ENTIDADES =============
+
+public enum CategoriaProducto
+{
+    Electronica,
+    Ropa,
+    Alimentos
+}
+
+// === CATÁLOGOS ===
+public class Pais
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Codigo { get; set; }
+}
+
+public class Provincia
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Codigo { get; set; }
+}
+
+// === VALUE OBJECTS ===
+public record Ubicacion(double Latitude, double Longitude);
+
+public record Coordenadas
+{
+    public double Altitud { get; init; }
+    public required Ubicacion Posicion { get; init; }
+}
+
+public record Direccion
+{
+    public required string Calle { get; init; }
+    public required string Ciudad { get; init; }
+    public required string CodigoPostal { get; init; }
+    public required Pais Pais { get; init; }
+    public required Provincia Provincia { get; init; }
+    public required Coordenadas Coordenadas { get; init; }
+}
+
+public record ContactoFabricante
+{
+    public required string Email { get; init; }
+    public required string Telefono { get; init; }
+    public required string HorarioAtencion { get; init; }
+}
+
+public record InformacionAdicional
+{
+    public required string Garantia { get; init; }
+    public required string Fabricante { get; init; }
+    public required ContactoFabricante Contacto { get; init; }
+}
+
+// === ENTIDADES ===
+public class Producto
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public decimal Precio { get; set; }
+    public int Stock { get; set; }
+    public DateTime FechaCreacion { get; set; }
+    public CategoriaProducto Categoria { get; set; }
+    public required Direccion DireccionAlmacen { get; set; }
+    public required InformacionAdicional InformacionAdicional { get; set; }
+    public required List<int> DataInt { get; set; }
+    public required List<decimal> DataDecimal { get; set; }
+    public required List<CategoriaProducto> DataEnum { get; set; }
+}
+
+public class LineaPedido
+{
+    public string? Id { get; set; }
+    public required Producto Producto { get; set; }
+    public int Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
+}
+
+public class Pedido
+{
+    public string? Id { get; set; }
+    public required string NumeroOrden { get; set; }
+    public DateTime FechaPedido { get; set; }
+    public required Cliente Cliente { get; set; }
+    public required List<LineaPedido> Lineas { get; set; }
+}
+
+public class Cliente
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+    public required Direccion Direccion { get; set; }
+    public required Ubicacion Ubicacion { get; set; }
+    public required List<Pedido> Pedidos { get; set; }
+}
+
+public class Ingredient
+{
+    public string? Id { get; set; }
+    public required string Name { get; set; }
+    public double Cost { get; set; }
+}
+
+public class Pizza
+{
+    public string? Id { get; set; }
+    public required string Name { get; set; }
+    public required string Description { get; set; }
+    public required string Url { get; set; }
+    public required List<Ingredient> Ingredients { get; set; } = [];
+
+    public double GetPrice()
+    {
+        var ingredientsCost = Ingredients.Sum(i => i.Cost);
+        return ingredientsCost * 1.20;
+    }
+}
+
+// ============= CONTEXTO SIMPLIFICADO =============
+
+public class MiContexto : DbContext
+{
+    public DbSet<Producto> Productos { get; set; } = null!;
+    public DbSet<Cliente> Clientes { get; set; } = null!;
+    public DbSet<Pedido> Pedidos { get; set; } = null!;
+    public DbSet<LineaPedido> LineasPedido { get; set; } = null!;
+    public DbSet<Pais> Paises { get; set; } = null!;
+    public DbSet<Provincia> Provincias { get; set; } = null!;
+    public DbSet<Pizza> Pizzas { get; set; } = null!;
+    public DbSet<Ingredient> Ingredients { get; set; } = null!;
+
+    public MiContexto(DbContextOptions<MiContexto> options) : base(options)
+    {
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // ============= CONFIGURACIÓN MÍNIMA =============
+        // Las conventions hacen TODO el resto automáticamente
+        
+        // PRODUCTO
+        modelBuilder.Entity<Producto>(entity =>
+        {
+            // Solo configuramos ComplexProperties (estructura) y validaciones
+            entity.ComplexProperty(p => p.DireccionAlmacen, direccion =>
+            {
+                // NOTA: ComplexTypeNavigationPropertyConvention tiene limitaciones
+                // EF Core detecta las navigations antes de que la convention pueda ignorarlas
+                //direccion.Ignore(d => d.Pais);
+                //direccion.Ignore(d => d.Provincia);
+                
+                direccion.ComplexProperty(d => d.Coordenadas, coord =>
+                {
+                    coord.ComplexProperty(c => c.Posicion);  // GeoPoint anidado
+                });
+            });
+
+            entity.ComplexProperty(p => p.InformacionAdicional, info =>
+            {
+                info.ComplexProperty(i => i.Contacto);
+            });
+
+            entity.Property(e => e.Nombre).IsRequired();
+            
+            // ✅ DataInt, DataDecimal, DataEnum se manejan automáticamente:
+            // - ListDecimalToDoubleArrayConvention: List<decimal> → List<double>
+            // - ListEnumToStringArrayConvention: List<enum> → List<string>
+            // Se guardan como arrays nativos en Firestore
+        });
+
+        // PEDIDO - Solo relación
+        modelBuilder.Entity<Pedido>(entity =>
+        {
+            entity.Property(e => e.NumeroOrden).IsRequired();
+            entity.HasMany(p => p.Lineas).WithOne();
+        });
+
+        // CLIENTE
+        modelBuilder.Entity<Cliente>(entity =>
+        {
+            entity.ComplexProperty(e => e.Direccion, direccion =>
+            {
+                // NOTA: ComplexTypeNavigationPropertyConvention tiene limitaciones
+                direccion.Ignore(d => d.Pais);
+                direccion.Ignore(d => d.Provincia);
+                
+                direccion.ComplexProperty(d => d.Coordenadas, coord =>
+                {
+                    coord.ComplexProperty(c => c.Posicion);  // GeoPoint anidado
+                });
+            });
+
+            entity.ComplexProperty(e => e.Ubicacion);  // GeoPoint directo
+        });
+
+        // PIZZA - Solo N:M
+        modelBuilder.Entity<Pizza>(entity =>
+        {
+            entity.HasMany(p => p.Ingredients).WithMany();
+        });
+
+        // ✅ LO QUE LAS CONVENTIONS HACEN AUTOMÁTICAMENTE:
+        // - PrimaryKeyConvention: HasKey(Id) en TODAS las entidades
+        // - CollectionNamingConvention: Pluralización (Pizza→Pizzas, Pais→Paises, etc.)
+        // - EnumToStringConvention: Categoria enum→string
+        // - DecimalToDoubleConvention: Precio, PrecioUnitario decimal→double
+        // - ListDecimalToDoubleArrayConvention: List<decimal>→List<double> para arrays nativos
+        // - ListEnumToStringArrayConvention: List<enum>→List<string> para arrays nativos
+        // - TimestampConvention: Detecta FechaCreacion, FechaPedido
+        // - GeoPointConvention: Detecta Ubicacion y Posicion por nombre+Lat/Lng
+        // - DocumentReferenceNamingConvention: ClienteRef, ProductoRef, etc.
+        
+        // ⚠️ LIMITACIÓN CONOCIDA:
+        // - ComplexTypeNavigationPropertyConvention: No funciona completamente
+        //   EF Core detecta navigations antes de que la convention pueda ignorarlas
+        //   Solución: Mantener .Ignore() manual para navigation properties en ComplexTypes
+    }
+}

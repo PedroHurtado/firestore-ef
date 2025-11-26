@@ -1,5 +1,3 @@
-using System;
-using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Firestore.EntityFrameworkCore.Extensions;
