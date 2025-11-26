@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Reflection;
 using Firestore.EntityFrameworkCore.Storage;
 using Firestore.EntityFrameworkCore.Update;
 using Firestore.EntityFrameworkCore.Query;
@@ -18,6 +19,7 @@ using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 
 namespace Firestore.EntityFrameworkCore.Infrastructure
 {
@@ -98,7 +100,60 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression CreateShapedQueryExpression(IEntityType entityType)
         {
-            throw new NotImplementedException();
+            // Obtener el nombre de la colección en Firestore
+            var collectionName = GetCollectionName(entityType);
+
+            // Crear la expresión de query inicial (sin filtros ni ordenamientos)
+            var queryExpression = new Query.FirestoreQueryExpression(entityType, collectionName);
+
+            // Crear el shaper que define cómo materializar las entidades
+            var entityShaperExpression = new StructuralTypeShaperExpression(
+                entityType,
+                new ProjectionBindingExpression(
+                    queryExpression,
+                    new ProjectionMember(),
+                    typeof(ValueBuffer)),
+                nullable: false);
+
+            return new ShapedQueryExpression(queryExpression, entityShaperExpression);
+        }
+
+        private string GetCollectionName(IEntityType entityType)
+        {
+            // Buscar atributo [Table] en el tipo
+            var tableAttribute = entityType.ClrType
+                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
+
+            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
+                return tableAttribute.Name;
+
+            // Fallback: usar el nombre del tipo pluralizado
+            var entityName = entityType.ClrType.Name;
+            return Pluralize(entityName);
+        }
+
+        private static string Pluralize(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return name;
+
+            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
+                name.Length > 1 &&
+                !IsVowel(name[name.Length - 2]))
+            {
+                return name.Substring(0, name.Length - 1) + "ies";
+            }
+
+            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+                return name + "es";
+
+            return name + "s";
+        }
+
+        private static bool IsVowel(char c)
+        {
+            c = char.ToLowerInvariant(c);
+            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
         }
 
         protected override QueryableMethodTranslatingExpressionVisitor CreateSubqueryVisitor()
@@ -228,7 +283,33 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression TranslateSelect(ShapedQueryExpression source, LambdaExpression selector)
         {
-            throw new NotImplementedException();
+            // Para la Fase 1, soportamos proyecciones simples de entidad completa
+            // Proyecciones complejas (campos específicos) se implementarán en Fase 3
+
+            // Caso 1: Proyección de identidad (x => x)
+            // Simplemente retornamos el source original sin cambios
+            if (selector.Body == selector.Parameters[0])
+            {
+                return source;
+            }
+
+            // Caso 2: Proyección a la misma entidad con conversión de tipo
+            // Ejemplo: x => (Product)x
+            if (selector.Body is UnaryExpression unary &&
+                unary.NodeType == ExpressionType.Convert &&
+                unary.Operand == selector.Parameters[0])
+            {
+                return source;
+            }
+
+            // Caso 3: Proyecciones complejas (select new { ... } o x => x.Property)
+            // Por ahora, para permitir que funcione ToList() y queries básicas,
+            // retornamos el source sin cambios
+            // TODO: Implementar en Fase 3 - Proyecciones y transformaciones
+
+            // Nota: Las proyecciones complejas se implementarán en una fase posterior
+            // Por ahora retornamos la entidad completa
+            return source;
         }
 
         protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression collectionSelector, LambdaExpression resultSelector)
@@ -320,9 +401,93 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
         {
-            // Implementación básica - lanzar excepción por ahora
-            throw new NotImplementedException("Query compilation not yet implemented for Firestore provider");
+            // Obtener el FirestoreQueryExpression
+            var firestoreQueryExpression = (Query.FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
+
+            // Obtener el tipo de entidad
+            var entityType = firestoreQueryExpression.EntityType.ClrType;
+
+            // Crear parámetros para el shaper
+            var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
+            var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
+
+            // Crear el shaper: (queryContext, documentSnapshot) => entity
+            var shaperExpression = CreateShaperExpression(
+                queryContextParameter,
+                documentSnapshotParameter,
+                firestoreQueryExpression);
+
+            var shaperLambda = Expression.Lambda(
+                shaperExpression,
+                queryContextParameter,
+                documentSnapshotParameter);
+
+            // Crear la expresión que instancia FirestoreQueryingEnumerable<T>
+            var enumerableType = typeof(Query.FirestoreQueryingEnumerable<>).MakeGenericType(entityType);
+            var constructor = enumerableType.GetConstructor(new[]
+            {
+                typeof(QueryContext),
+                typeof(Query.FirestoreQueryExpression),
+                typeof(Func<,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), entityType),
+                typeof(Type)
+            })!;
+
+            var newExpression = Expression.New(
+                constructor,
+                QueryCompilationContext.QueryContextParameter,
+                Expression.Constant(firestoreQueryExpression),
+                Expression.Constant(shaperLambda.Compile()),
+                Expression.Constant(entityType));
+
+            return newExpression;
         }
+
+        /// <summary>
+        /// Crea la expresión del shaper que convierte DocumentSnapshot en una entidad.
+        /// </summary>
+        private Expression CreateShaperExpression(
+            ParameterExpression queryContextParameter,
+            ParameterExpression documentSnapshotParameter,
+            Query.FirestoreQueryExpression queryExpression)
+        {
+            var entityType = queryExpression.EntityType.ClrType;
+            var deserializeMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                .GetMethod(nameof(DeserializeEntity), BindingFlags.NonPublic | BindingFlags.Static)!
+                .MakeGenericMethod(entityType);
+
+            return Expression.Call(
+                deserializeMethod,
+                queryContextParameter,
+                documentSnapshotParameter,
+                Expression.Constant(queryExpression));
+        }
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot a una entidad.
+        /// </summary>
+        private static T DeserializeEntity<T>(
+            QueryContext queryContext,
+            DocumentSnapshot documentSnapshot,
+            Query.FirestoreQueryExpression queryExpression) where T : class, new()
+        {
+            var dbContext = queryContext.Context;
+            var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
+
+            var model = dbContext.Model;
+            var typeMappingSource = (ITypeMappingSource)serviceProvider.GetService(typeof(ITypeMappingSource))!;
+            var collectionManager = (IFirestoreCollectionManager)serviceProvider.GetService(typeof(IFirestoreCollectionManager))!;
+            var loggerFactory = (Microsoft.Extensions.Logging.ILoggerFactory)serviceProvider.GetService(typeof(Microsoft.Extensions.Logging.ILoggerFactory))!;
+
+            var deserializerLogger = Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger<Storage.FirestoreDocumentDeserializer>(loggerFactory);
+            var deserializer = new Storage.FirestoreDocumentDeserializer(
+                model,
+                typeMappingSource,
+                collectionManager,
+                deserializerLogger);
+
+            return deserializer.DeserializeEntity<T>(documentSnapshot);
+        }
+
     }
 
     public class FirestoreLoggingDefinitions : LoggingDefinitions

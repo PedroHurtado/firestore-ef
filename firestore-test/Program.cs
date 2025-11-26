@@ -15,7 +15,8 @@ var host = builder.Build();
 var context = host.Services.GetRequiredService<MiContexto>();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
-await PruebaSubcollections(context, logger);
+//await PruebaSubcollections(context, logger);
+await PruebaLectura(context, logger);
 
 static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
 {
@@ -228,6 +229,219 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
         logger.LogInformation("🔗 Firestore Console:");
         logger.LogInformation("   https://console.firebase.google.com/project/tapapear-f6f2b/firestore");
         logger.LogInformation("\n⚠️  Verifica en la consola que los paths se hayan creado correctamente");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"\n✗ Error: {ex.Message}");
+        logger.LogError($"StackTrace: {ex.StackTrace}");
+        if (ex.InnerException != null)
+        {
+            logger.LogError($"InnerException: {ex.InnerException.Message}");
+        }
+    }
+}
+
+static async Task PruebaLectura(MiContexto context, ILogger logger)
+{
+    logger.LogInformation("\n\n=== PRUEBA DE LECTURA DE ENTIDADES ===\n");
+
+    try
+    {
+        // ============= ESCENARIO 1: LECTURA SIMPLE DE TODOS LOS CLIENTES =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║              ESCENARIO 1: LECTURA SIMPLE (Clientes)           ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Leyendo todos los clientes ---");
+        var clientes = await context.Clientes.ToListAsync();
+
+        logger.LogInformation($"✓ Clientes encontrados: {clientes.Count}\n");
+        foreach (var cliente in clientes)
+        {
+            logger.LogInformation($"  • ID: {cliente.Id}");
+            logger.LogInformation($"    Nombre: {cliente.Nombre}");
+            logger.LogInformation($"    Email: {cliente.Email}");
+            logger.LogInformation("");
+        }
+
+        logger.LogInformation("✅ ESCENARIO 1 COMPLETADO\n");
+
+        // ============= ESCENARIO 2: LECTURA POR ID =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║            ESCENARIO 2: LECTURA POR ID (Cliente)              ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Buscando cliente con ID: cli-001 ---");
+        var clienteEspecifico = await context.Clientes.FindAsync("cli-001");
+
+        if (clienteEspecifico != null)
+        {
+            logger.LogInformation($"✓ Cliente encontrado:");
+            logger.LogInformation($"  • ID: {clienteEspecifico.Id}");
+            logger.LogInformation($"  • Nombre: {clienteEspecifico.Nombre}");
+            logger.LogInformation($"  • Email: {clienteEspecifico.Email}");
+        }
+        else
+        {
+            logger.LogWarning("⚠️  Cliente no encontrado");
+        }
+
+        logger.LogInformation("\n✅ ESCENARIO 2 COMPLETADO\n");
+
+        // ============= ESCENARIO 3: LECTURA CON FILTRO (WHERE) =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║         ESCENARIO 3: LECTURA CON FILTRO (Where/FirstOrDefault)║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Buscando cliente por nombre: 'María García' ---");
+        var clientePorNombre = await context.Clientes
+            .Where(c => c.Nombre == "María García")
+            .FirstOrDefaultAsync();
+
+        if (clientePorNombre != null)
+        {
+            logger.LogInformation($"✓ Cliente encontrado:");
+            logger.LogInformation($"  • ID: {clientePorNombre.Id}");
+            logger.LogInformation($"  • Nombre: {clientePorNombre.Nombre}");
+            logger.LogInformation($"  • Email: {clientePorNombre.Email}");
+        }
+        else
+        {
+            logger.LogWarning("⚠️  Cliente no encontrado");
+        }
+
+        logger.LogInformation("\n✅ ESCENARIO 3 COMPLETADO\n");
+
+        // ============= ESCENARIO 4: LECTURA DE PRODUCTOS =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║           ESCENARIO 4: LECTURA DE PRODUCTOS                   ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Leyendo todos los productos ---");
+        var productos = await context.Productos.ToListAsync();
+
+        logger.LogInformation($"✓ Productos encontrados: {productos.Count}\n");
+        foreach (var producto in productos)
+        {
+            logger.LogInformation($"  • ID: {producto.Id}");
+            logger.LogInformation($"    Nombre: {producto.Nombre}");
+            logger.LogInformation($"    Precio: ${producto.Precio}");
+            logger.LogInformation("");
+        }
+
+        logger.LogInformation("✅ ESCENARIO 4 COMPLETADO\n");
+
+        // ============= ESCENARIO 5: LECTURA CON INCLUDE (SUBCOLLECTIONS) =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║    ESCENARIO 5: LECTURA CON INCLUDE (Cliente->Pedidos)        ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Leyendo cliente con sus pedidos ---");
+        var clienteConPedidos = await context.Clientes
+            .Include(c => c.Pedidos)
+            .FirstOrDefaultAsync(c => c.Id == "cli-001");
+
+        if (clienteConPedidos != null)
+        {
+            logger.LogInformation($"✓ Cliente: {clienteConPedidos.Nombre}");
+            logger.LogInformation($"  Email: {clienteConPedidos.Email}");
+            logger.LogInformation($"  → Pedidos cargados: {clienteConPedidos.Pedidos?.Count ?? 0}\n");
+
+            if (clienteConPedidos.Pedidos != null)
+            {
+                foreach (var pedido in clienteConPedidos.Pedidos)
+                {
+                    logger.LogInformation($"    • Pedido ID: {pedido.Id}");
+                    logger.LogInformation($"      Número Orden: {pedido.NumeroOrden}");
+                    logger.LogInformation($"      Total: ${pedido.Total}");
+                    logger.LogInformation($"      Estado: {pedido.Estado}");
+                    logger.LogInformation($"      Fecha: {pedido.FechaPedido:yyyy-MM-dd HH:mm}");
+                    logger.LogInformation("");
+                }
+            }
+        }
+
+        logger.LogInformation("✅ ESCENARIO 5 COMPLETADO\n");
+
+        // ============= ESCENARIO 6: LECTURA CON INCLUDE ANIDADO =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║  ESCENARIO 6: INCLUDE ANIDADO (Cliente->Pedidos->Lineas)      ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Leyendo cliente con pedidos y líneas completas ---");
+        var clienteCompleto = await context.Clientes
+            .Include(c => c.Pedidos)
+                .ThenInclude(p => p.Lineas)
+                    .ThenInclude(l => l.Producto)
+            .FirstOrDefaultAsync(c => c.Id == "cli-002");
+
+        if (clienteCompleto != null)
+        {
+            logger.LogInformation($"✓ Cliente: {clienteCompleto.Nombre}");
+            logger.LogInformation($"  Email: {clienteCompleto.Email}");
+            logger.LogInformation($"  → Pedidos: {clienteCompleto.Pedidos?.Count ?? 0}\n");
+
+            if (clienteCompleto.Pedidos != null)
+            {
+                foreach (var pedido in clienteCompleto.Pedidos)
+                {
+                    logger.LogInformation($"    📦 Pedido: {pedido.NumeroOrden}");
+                    logger.LogInformation($"       Total: ${pedido.Total}");
+                    logger.LogInformation($"       Estado: {pedido.Estado}");
+                    logger.LogInformation($"       Líneas: {pedido.Lineas?.Count ?? 0}");
+
+                    if (pedido.Lineas != null)
+                    {
+                        foreach (var linea in pedido.Lineas)
+                        {
+                            logger.LogInformation($"         - {linea.Producto.Nombre}");
+                            logger.LogInformation($"           Cantidad: {linea.Cantidad}");
+                            logger.LogInformation($"           Precio unitario: ${linea.PrecioUnitario}");
+                            logger.LogInformation($"           Subtotal: ${linea.Cantidad * linea.PrecioUnitario}");
+                        }
+                    }
+                    logger.LogInformation("");
+                }
+            }
+        }
+
+        logger.LogInformation("✅ ESCENARIO 6 COMPLETADO\n");
+
+        // ============= ESCENARIO 7: CONSULTA CON PROYECCIÓN (SELECT) =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║        ESCENARIO 7: CONSULTA CON PROYECCIÓN (Select)          ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        logger.LogInformation("--- Obteniendo solo nombres de clientes ---");
+        var nombresClientes = await context.Clientes
+            .Select(c => new { c.Id, c.Nombre })
+            .ToListAsync();
+
+        logger.LogInformation($"✓ Clientes encontrados: {nombresClientes.Count}\n");
+        foreach (var item in nombresClientes)
+        {
+            logger.LogInformation($"  • {item.Id}: {item.Nombre}");
+        }
+
+        logger.LogInformation("\n✅ ESCENARIO 7 COMPLETADO\n");
+
+        // ============= RESUMEN =============
+        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        logger.LogInformation("║                   RESUMEN DE LECTURA                          ║");
+        logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝");
+
+        logger.LogInformation("\n📖 MÉTODOS DE LECTURA UTILIZADOS:\n");
+        logger.LogInformation("✅ ToListAsync() - Leer todas las entidades");
+        logger.LogInformation("✅ FindAsync(id) - Buscar por ID (clave primaria)");
+        logger.LogInformation("✅ Where().FirstOrDefaultAsync() - Filtrar y obtener primero");
+        logger.LogInformation("✅ Include().ThenInclude() - Cargar subcollections anidadas");
+        logger.LogInformation("✅ Select() - Proyecciones (seleccionar campos específicos)\n");
+
+        logger.LogInformation("🔍 VENTAJAS DE ENTITY FRAMEWORK CORE:\n");
+        logger.LogInformation("✅ Sintaxis LINQ familiar y expresiva");
+        logger.LogInformation("✅ Include/ThenInclude para cargar relaciones");
+        logger.LogInformation("✅ Lazy loading vs Eager loading");
+        logger.LogInformation("✅ Tracking automático de cambios\n");
     }
     catch (Exception ex)
     {
