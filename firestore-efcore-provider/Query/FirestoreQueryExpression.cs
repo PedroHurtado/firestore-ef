@@ -173,19 +173,95 @@ namespace Firestore.EntityFrameworkCore.Query
         public FirestoreOperator Operator { get; set; }
 
         /// <summary>
-        /// Valor con el que comparar
-        /// NOTA: Los valores ya deben estar convertidos (decimal→double, enum→string)
+        /// Expresión que representa el valor con el que comparar.
+        /// Puede ser una ConstantExpression o una expresión que accede a QueryContext.ParameterValues
         /// </summary>
-        public object Value { get; set; }
+        public System.Linq.Expressions.Expression ValueExpression { get; set; }
 
         /// <summary>
         /// Constructor
         /// </summary>
-        public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, object value)
+        public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, System.Linq.Expressions.Expression valueExpression)
         {
             PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
             Operator = @operator;
-            Value = value;
+            ValueExpression = valueExpression ?? throw new ArgumentNullException(nameof(valueExpression));
+        }
+
+        /// <summary>
+        /// Evalúa la expresión del valor en runtime usando el QueryContext proporcionado
+        /// </summary>
+        public object? EvaluateValue(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+        {
+            System.Console.WriteLine($"[DEBUG EvaluateValue] Starting evaluation of expression: {ValueExpression}");
+            System.Console.WriteLine($"[DEBUG EvaluateValue] Expression type: {ValueExpression.GetType().Name}");
+
+            // Si es una ConstantExpression, retornar su valor directamente
+            if (ValueExpression is System.Linq.Expressions.ConstantExpression constant)
+            {
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Constant expression, value: {constant.Value}");
+                return constant.Value;
+            }
+
+            // Para cualquier otra expresión (incluyendo accesos a QueryContext.ParameterValues),
+            // compilarla y ejecutarla con el QueryContext como parámetro
+            try
+            {
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Attempting to replace queryContext parameter");
+
+                // Reemplazar el parámetro queryContext en la expresión con el valor real
+                var replacer = new QueryContextParameterReplacer(queryContext);
+                var replacedExpression = replacer.Visit(ValueExpression);
+
+                System.Console.WriteLine($"[DEBUG EvaluateValue] After replacement: {replacedExpression}");
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Replaced expression type: {replacedExpression.GetType().Name}");
+
+                // Compilar y evaluar
+                var lambda = System.Linq.Expressions.Expression.Lambda<Func<object>>(
+                    System.Linq.Expressions.Expression.Convert(replacedExpression, typeof(object)));
+
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Lambda created, compiling...");
+                var compiled = lambda.Compile();
+
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Compiled, executing...");
+                var result = compiled();
+
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Result: {result ?? "NULL"}");
+                System.Console.WriteLine($"[DEBUG EvaluateValue] Result type: {result?.GetType().Name ?? "NULL"}");
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[ERROR EvaluateValue] Exception: {ex.GetType().Name}");
+                System.Console.WriteLine($"[ERROR EvaluateValue] Message: {ex.Message}");
+                System.Console.WriteLine($"[ERROR EvaluateValue] StackTrace: {ex.StackTrace}");
+                throw new InvalidOperationException($"Failed to evaluate filter value expression: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Visitor que reemplaza referencias al parámetro QueryContext con el valor real
+        /// </summary>
+        private class QueryContextParameterReplacer : System.Linq.Expressions.ExpressionVisitor
+        {
+            private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
+
+            public QueryContextParameterReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            {
+                _queryContext = queryContext;
+            }
+
+            protected override System.Linq.Expressions.Expression VisitParameter(System.Linq.Expressions.ParameterExpression node)
+            {
+                // Si es el parámetro "queryContext", reemplazarlo con una constante que contiene el QueryContext real
+                if (node.Name == "queryContext" && node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
+                {
+                    return System.Linq.Expressions.Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
+                }
+
+                return base.VisitParameter(node);
+            }
         }
 
         /// <summary>
@@ -208,14 +284,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 _ => Operator.ToString()
             };
 
-            var valueStr = Value switch
-            {
-                string s => $"\"{s}\"",
-                null => "null",
-                _ => Value.ToString()
-            };
-
-            return $"{PropertyName} {operatorSymbol} {valueStr}";
+            return $"{PropertyName} {operatorSymbol} <Expression: {ValueExpression}>";
         }
     }
 

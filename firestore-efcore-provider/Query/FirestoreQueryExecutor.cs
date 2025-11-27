@@ -31,20 +31,34 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         public async Task<QuerySnapshot> ExecuteQueryAsync(
             FirestoreQueryExpression queryExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
             CancellationToken cancellationToken = default)
         {
-            if (queryExpression == null)
-                throw new ArgumentNullException(nameof(queryExpression));
+            ArgumentNullException.ThrowIfNull(queryExpression);
 
-            _logger.LogDebug("Executing Firestore query: {Query}", queryExpression.ToString());
+            _logger.LogInformation("=== Executing Firestore query ===");
+            _logger.LogInformation("Collection: {Collection}", queryExpression.CollectionName);
+            _logger.LogInformation("Filters count: {Count}", queryExpression.Filters.Count);
+
+            /*foreach (var filter in queryExpression.Filters)
+            {
+                // Evaluar el valor en runtime
+                var evaluatedValue = filter.EvaluateValue(queryContext);
+                
+                _logger.LogInformation("  Filter: {PropertyName} {Operator} {Value} (Type: {ValueType})",
+                    filter.PropertyName,
+                    filter.Operator,
+                    evaluatedValue ?? "NULL",
+                    evaluatedValue?.GetType().Name ?? "NULL");
+            }*/
 
             // Construir Google.Cloud.Firestore.Query
-            var query = BuildFirestoreQuery(queryExpression);
+            var query = BuildFirestoreQuery(queryExpression, queryContext);
 
             // Ejecutar
             var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
 
-            _logger.LogDebug("Query returned {Count} documents", snapshot.Count);
+            _logger.LogInformation("Query returned {Count} documents", snapshot.Count);
 
             return snapshot;
         }
@@ -53,7 +67,8 @@ namespace Firestore.EntityFrameworkCore.Query
         /// Construye un Google.Cloud.Firestore.Query desde FirestoreQueryExpression
         /// </summary>
         private Google.Cloud.Firestore.Query BuildFirestoreQuery(
-            FirestoreQueryExpression queryExpression)
+            FirestoreQueryExpression queryExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
         {
             // Obtener CollectionReference inicial
             Google.Cloud.Firestore.Query query = _client.GetCollection(queryExpression.CollectionName);
@@ -61,7 +76,7 @@ namespace Firestore.EntityFrameworkCore.Query
             // Aplicar filtros WHERE
             foreach (var filter in queryExpression.Filters)
             {
-                query = ApplyWhereClause(query, filter);
+                query = ApplyWhereClause(query, filter, queryContext);
             }
 
             // Aplicar ordenamiento ORDER BY
@@ -93,10 +108,14 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private Google.Cloud.Firestore.Query ApplyWhereClause(
             Google.Cloud.Firestore.Query query,
-            FirestoreWhereClause clause)
+            FirestoreWhereClause clause,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
         {
+            // Evaluar el valor en runtime usando el QueryContext
+            var value = clause.EvaluateValue(queryContext);
+            
             // Convertir valor al tipo esperado por Firestore
-            var convertedValue = ConvertValueForFirestore(clause.Value);
+            var convertedValue = ConvertValueForFirestore(value);
 
             _logger.LogTrace("Applying filter: {PropertyName} {Operator} {Value}",
                 clause.PropertyName, clause.Operator, convertedValue);
@@ -145,12 +164,12 @@ namespace Firestore.EntityFrameworkCore.Query
         private Google.Cloud.Firestore.Query ApplyWhereIn(
             Google.Cloud.Firestore.Query query,
             string propertyName,
-            object value)
+            object? value)
         {
             if (value is not IEnumerable enumerable)
             {
                 throw new InvalidOperationException(
-                    $"WhereIn requires an IEnumerable value, got {value.GetType().Name}");
+                    $"WhereIn requires an IEnumerable value, got {value?.GetType().Name ?? "null"}");
             }
 
             // Convertir a array y validar límite
@@ -172,12 +191,12 @@ namespace Firestore.EntityFrameworkCore.Query
         private Google.Cloud.Firestore.Query ApplyWhereArrayContainsAny(
             Google.Cloud.Firestore.Query query,
             string propertyName,
-            object value)
+            object? value)
         {
             if (value is not IEnumerable enumerable)
             {
                 throw new InvalidOperationException(
-                    $"WhereArrayContainsAny requires an IEnumerable value, got {value.GetType().Name}");
+                    $"WhereArrayContainsAny requires an IEnumerable value, got {value?.GetType().Name ?? "null"}");
             }
 
             var values = ConvertEnumerableToArray(enumerable);
@@ -197,12 +216,12 @@ namespace Firestore.EntityFrameworkCore.Query
         private Google.Cloud.Firestore.Query ApplyWhereNotIn(
             Google.Cloud.Firestore.Query query,
             string propertyName,
-            object value)
+            object? value)
         {
             if (value is not IEnumerable enumerable)
             {
                 throw new InvalidOperationException(
-                    $"WhereNotIn requires an IEnumerable value, got {value.GetType().Name}");
+                    $"WhereNotIn requires an IEnumerable value, got {value?.GetType().Name ?? "null"}");
             }
 
             var values = ConvertEnumerableToArray(enumerable);
@@ -235,10 +254,10 @@ namespace Firestore.EntityFrameworkCore.Query
         /// Convierte un valor de C# al tipo esperado por Firestore.
         /// Aplica conversiones necesarias: decimal → double, enum → string
         /// </summary>
-        private object ConvertValueForFirestore(object value)
+        private object? ConvertValueForFirestore(object? value)
         {
             if (value == null)
-                return null!;
+                return null;
 
             // Conversión: decimal → double
             if (value is decimal d)
@@ -281,7 +300,10 @@ namespace Firestore.EntityFrameworkCore.Query
                 {
                     // Aplicar conversiones recursivamente a cada elemento
                     var convertedItem = ConvertValueForFirestore(item);
-                    list.Add(convertedItem);
+                    if (convertedItem != null)
+                    {
+                        list.Add(convertedItem);
+                    }
                 }
             }
 
@@ -300,7 +322,10 @@ namespace Firestore.EntityFrameworkCore.Query
                 if (item != null)
                 {
                     var convertedItem = ConvertValueForFirestore(item);
-                    list.Add(convertedItem);
+                    if (convertedItem != null)
+                    {
+                        list.Add(convertedItem);
+                    }
                 }
             }
 

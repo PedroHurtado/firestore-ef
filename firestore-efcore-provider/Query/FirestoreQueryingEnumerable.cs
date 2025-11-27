@@ -1,13 +1,11 @@
 using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Storage;
-using Microsoft.EntityFrameworkCore.Storage;
+
 using Google.Cloud.Firestore;
 
 namespace Firestore.EntityFrameworkCore.Query
@@ -87,7 +85,10 @@ namespace Firestore.EntityFrameworkCore.Query
                 var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
 
                 // Ejecutar query
-                var snapshot = await executor.ExecuteQueryAsync(_enumerable._queryExpression, _cancellationToken);
+                var snapshot = await executor.ExecuteQueryAsync(
+                        _enumerable._queryExpression,      // 1. queryExpression
+                        _enumerable._queryContext,         // 2. queryContext
+                        _cancellationToken);
 
                 // Inicializar enumerador con los documentos
                 _enumerator = snapshot.Documents.GetEnumerator();

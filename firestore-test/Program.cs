@@ -248,7 +248,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
     try
     {
         // ============= ESCENARIO 1: LECTURA SIMPLE DE TODOS LOS CLIENTES =============
-        logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
+        /*logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
         logger.LogInformation("║              ESCENARIO 1: LECTURA SIMPLE (Clientes)           ║");
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
 
@@ -270,7 +270,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
         logger.LogInformation("║            ESCENARIO 2: LECTURA POR ID (Cliente)              ║");
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
-
+        */
         logger.LogInformation("--- Buscando cliente con ID: cli-001 ---");
         var clienteEspecifico = await context.Clientes.FindAsync("cli-001");
 
@@ -318,7 +318,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
 
         logger.LogInformation("--- Leyendo todos los productos ---");
-        var productos = await context.Productos.ToListAsync();
+        /*var productos = await context.Productos.ToListAsync();
 
         logger.LogInformation($"✓ Productos encontrados: {productos.Count}\n");
         foreach (var producto in productos)
@@ -441,7 +441,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         logger.LogInformation("✅ Sintaxis LINQ familiar y expresiva");
         logger.LogInformation("✅ Include/ThenInclude para cargar relaciones");
         logger.LogInformation("✅ Lazy loading vs Eager loading");
-        logger.LogInformation("✅ Tracking automático de cambios\n");
+        logger.LogInformation("✅ Tracking automático de cambios\n");*/
     }
     catch (Exception ex)
     {

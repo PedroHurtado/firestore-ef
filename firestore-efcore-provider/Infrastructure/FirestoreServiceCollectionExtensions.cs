@@ -218,7 +218,20 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
         {
-            throw new NotImplementedException();
+            // Si hay un predicado, primero aplicar el Where
+            if (predicate != null)
+            {
+                source = TranslateWhere(source, predicate) ?? source;
+            }
+
+            // Obtener el FirestoreQueryExpression actual
+            var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
+
+            // Aplicar límite de 1 documento (FirstOrDefault solo necesita el primero)
+            var newQueryExpression = firestoreQueryExpression.WithLimit(1);
+
+            // Retornar el ShapedQueryExpression actualizado
+            return source.UpdateQueryExpression(newQueryExpression);
         }
 
         protected override ShapedQueryExpression? TranslateGroupBy(ShapedQueryExpression source, LambdaExpression keySelector, LambdaExpression? elementSelector, LambdaExpression? resultSelector)
@@ -364,7 +377,34 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression? TranslateWhere(ShapedQueryExpression source, LambdaExpression predicate)
         {
-            throw new NotImplementedException();
+            System.Console.WriteLine($"[DEBUG] TranslateWhere called with predicate: {predicate}");
+
+            // Obtener el FirestoreQueryExpression actual
+            var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
+
+            // 🔥 SOLUCIÓN: Detectar si hay parámetros __p_X en la expresión
+            // Si los hay, significa que el valor vendrá en runtime y debemos prepararnos
+            var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
+            var evaluatedBody = parameterReplacer.Visit(predicate.Body);
+
+            System.Console.WriteLine($"[DEBUG] After parameter replacement: {evaluatedBody}");
+
+            // Traducir el predicado a filtros de Firestore
+            var translator = new FirestoreWhereTranslator();
+            var whereClause = translator.Translate(evaluatedBody);
+
+            if (whereClause == null)
+            {
+                System.Console.WriteLine("[DEBUG] TranslateWhere: Could not translate predicate, returning null");
+                return null;
+            }
+
+            System.Console.WriteLine($"[DEBUG] TranslateWhere: Created filter - {whereClause.PropertyName} {whereClause.Operator} <Expression>");
+
+            // Crear una nueva expresión con el filtro agregado
+            var newQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
+
+            return source.UpdateQueryExpression(newQueryExpression);
         }
 
         protected override Expression VisitExtension(Expression extensionExpression)
@@ -488,6 +528,172 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             return deserializer.DeserializeEntity<T>(documentSnapshot);
         }
 
+    }
+
+    /// <summary>
+    /// Visitor que reemplaza ParameterExpression de runtime (__p_0) con acceso a QueryContext.ParameterValues
+    /// </summary>
+
+internal class RuntimeParameterReplacer : ExpressionVisitor
+{
+    private readonly QueryCompilationContext _queryCompilationContext;
+
+    public RuntimeParameterReplacer(QueryCompilationContext queryCompilationContext)
+    {
+        _queryCompilationContext = queryCompilationContext;
+    }
+
+    protected override Expression VisitParameter(ParameterExpression node)
+    {
+        // Detectar parámetros de runtime como __p_0, __p_1, etc.
+        if (node.Name != null && node.Name.StartsWith("__p_"))
+        {
+            System.Console.WriteLine($"[DEBUG RuntimeParameterReplacer] Found runtime parameter: {node.Name}");
+
+            // Crear una expresión que accede a QueryContext.ParameterValues["{node.Name}"]
+            // En tiempo de compilación: QueryContext.ParameterValues["__p_0"]
+            // En tiempo de ejecución: esto se evaluará al valor real
+            var queryContextParam = QueryCompilationContext.QueryContextParameter; // 🔥 CORREGIDO: Es estático
+            var parameterValuesProperty = Expression.Property(queryContextParam, "ParameterValues");
+            var indexer = Expression.Property(parameterValuesProperty, "Item", Expression.Constant(node.Name));
+            
+            // Convertir al tipo correcto
+            var converted = Expression.Convert(indexer, node.Type);
+
+            System.Console.WriteLine($"[DEBUG RuntimeParameterReplacer] Replaced with QueryContext access");
+            
+            return converted;
+        }
+
+        return base.VisitParameter(node);
+    }
+}
+
+    /// <summary>
+    /// Traductor de expresiones LINQ a filtros de Firestore (WhereClause).
+    /// </summary>
+    internal class FirestoreWhereTranslator
+    {
+        public Query.FirestoreWhereClause? Translate(Expression expression)
+        {
+            // Manejar expresiones binarias (==, !=, <, >, <=, >=)
+            if (expression is BinaryExpression binaryExpression)
+            {
+                return TranslateBinaryExpression(binaryExpression);
+            }
+
+            // Manejar llamadas a métodos (Contains, StartsWith, etc.)
+            if (expression is MethodCallExpression methodCallExpression)
+            {
+                return TranslateMethodCallExpression(methodCallExpression);
+            }
+
+            // No podemos traducir esta expresión
+            return null;
+        }
+
+        private Query.FirestoreWhereClause? TranslateBinaryExpression(BinaryExpression binary)
+        {
+            // Extraer el nombre de la propiedad y el valor
+            string? propertyName = null;
+            Expression? valueExpression = null;
+
+            // Determinar qué lado es la propiedad y qué lado es el valor
+            if (binary.Left is MemberExpression leftMember && leftMember.Member is PropertyInfo leftProp)
+            {
+                propertyName = leftProp.Name;
+                valueExpression = binary.Right;
+            }
+            else if (binary.Right is MemberExpression rightMember && rightMember.Member is PropertyInfo rightProp)
+            {
+                propertyName = rightProp.Name;
+                valueExpression = binary.Left;
+            }
+            // Manejar EF.Property<T>(entity, "PropertyName")
+            else if (binary.Left is MethodCallExpression leftMethod &&
+                     leftMethod.Method.Name == "Property" &&
+                     leftMethod.Method.DeclaringType?.Name == "EF")
+            {
+                propertyName = GetPropertyNameFromEFProperty(leftMethod);
+                valueExpression = binary.Right;
+            }
+            else if (binary.Right is MethodCallExpression rightMethod &&
+                     rightMethod.Method.Name == "Property" &&
+                     rightMethod.Method.DeclaringType?.Name == "EF")
+            {
+                propertyName = GetPropertyNameFromEFProperty(rightMethod);
+                valueExpression = binary.Left;
+            }
+            else
+            {
+                // No podemos traducir esta expresión
+                return null;
+            }
+
+            if (propertyName == null || valueExpression == null)
+                return null;
+
+            // Mapear el operador de C# a operador de Firestore
+            var firestoreOperator = binary.NodeType switch
+            {
+                ExpressionType.Equal => Query.FirestoreOperator.EqualTo,
+                ExpressionType.NotEqual => Query.FirestoreOperator.NotEqualTo,
+                ExpressionType.LessThan => Query.FirestoreOperator.LessThan,
+                ExpressionType.LessThanOrEqual => Query.FirestoreOperator.LessThanOrEqualTo,
+                ExpressionType.GreaterThan => Query.FirestoreOperator.GreaterThan,
+                ExpressionType.GreaterThanOrEqual => Query.FirestoreOperator.GreaterThanOrEqualTo,
+                _ => (Query.FirestoreOperator?)null
+            };
+
+            if (!firestoreOperator.HasValue)
+                return null;
+
+            // 🔥 NUEVO: La valueExpression puede ser un acceso a QueryContext.ParameterValues
+            // Lo dejamos como una expresión que se evaluará en runtime
+            return new Query.FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression);
+        }
+
+        private Query.FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
+        {
+            // Soportar Contains para operador "In"
+            if (methodCall.Method.Name == "Contains")
+            {
+                // Caso 1: list.Contains(property) -> WhereIn
+                if (methodCall.Object != null && methodCall.Arguments.Count == 1)
+                {
+                    if (methodCall.Arguments[0] is MemberExpression member && member.Member is PropertyInfo prop)
+                    {
+                        var propertyName = prop.Name;
+                        return new Query.FirestoreWhereClause(propertyName, Query.FirestoreOperator.In, methodCall.Object);
+                    }
+                }
+
+                // Caso 2: property.Contains(value) -> Array-Contains
+                if (methodCall.Object is MemberExpression objMember &&
+                    objMember.Member is PropertyInfo objProp &&
+                    methodCall.Arguments.Count == 1)
+                {
+                    var propertyName = objProp.Name;
+                    return new Query.FirestoreWhereClause(propertyName, Query.FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
+                }
+            }
+
+            // No podemos traducir este método
+            return null;
+        }
+
+        /// <summary>
+        /// Extrae el nombre de la propiedad de una llamada a EF.Property (entity, "PropertyName")
+        /// </summary>
+        private string? GetPropertyNameFromEFProperty(MethodCallExpression methodCall)
+        {
+            // EF.Property tiene 2 argumentos: entity y propertyName (string constante)
+            if (methodCall.Arguments.Count >= 2 && methodCall.Arguments[1] is ConstantExpression constant)
+            {
+                return constant.Value as string;
+            }
+            return null;
+        }
     }
 
     public class FirestoreLoggingDefinitions : LoggingDefinitions
