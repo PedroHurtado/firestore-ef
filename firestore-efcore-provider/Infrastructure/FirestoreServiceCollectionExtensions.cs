@@ -20,6 +20,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using System.Linq;
 
 namespace Firestore.EntityFrameworkCore.Infrastructure
 {
@@ -294,6 +296,31 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             throw new NotImplementedException();
         }
 
+        public static void PrintNavigationsRecursive(
+        IReadOnlyEntityType entityType,
+        string indent = "",
+        HashSet<IReadOnlyEntityType>? visited = null)
+        {
+            visited ??= [];
+
+            // Evitar ciclos (muy importante)
+            if (visited.Contains(entityType))
+                return;
+
+            visited.Add(entityType);
+
+            Console.WriteLine($"{indent}{entityType.Name}");
+
+            foreach (var nav in entityType.GetNavigations())
+            {
+                Console.WriteLine($"{indent} └─ {nav.Name}");
+
+                // Recurse into the target entity
+                var targetEntity = nav.TargetEntityType;
+                PrintNavigationsRecursive(targetEntity, indent + "    ", visited);
+            }
+        }
+
         protected override ShapedQueryExpression TranslateSelect(ShapedQueryExpression source, LambdaExpression selector)
         {
             // Para la Fase 1, soportamos proyecciones simples de entidad completa
@@ -301,11 +328,16 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             // Caso 1: Proyección de identidad (x => x)
             // Simplemente retornamos el source original sin cambios            
-
+            Console.WriteLine(selector.Body.GetType().Name);
             if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
             {
+
+                //includeExpression.NavigationTree
                 if (includeExpression.Navigation is IReadOnlyNavigation navigation)
                 {
+                    
+                    PrintNavigationsRecursive(navigation.TargetEntityType);
+
                     if (navigation.IsSubCollection())
                     {
                         var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
@@ -531,6 +563,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override Expression VisitExtension(Expression extensionExpression)
         {
+            Console.WriteLine(extensionExpression);
             // Log para debuggear qué tipos de extension expressions estamos recibiendo
             //Console.WriteLine($"QueryableMethodTranslating - VisitExtension: {extensionExpression.GetType().Name}");
 

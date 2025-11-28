@@ -46,13 +46,13 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
 
         logger.LogInformation("--- Construyendo cliente con pedidos en memoria ---");
-        
+
         var cliente1 = new Cliente
         {
             Id = "cli-001",
             Nombre = "Juan Pérez",
             Email = "juan@example.com",
-            Pedidos = 
+            Pedidos =
             [
                 new Pedido
                 {
@@ -90,7 +90,7 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
         logger.LogInformation($"  → Path cliente: /clientes/{cliente1.Id}");
         logger.LogInformation($"  → Path pedido 1: /clientes/{cliente1.Id}/pedidos/{cliente1.Pedidos[0].Id}");
         logger.LogInformation($"  → Path pedido 2: /clientes/{cliente1.Id}/pedidos/{cliente1.Pedidos[1].Id}");
-        
+
         logger.LogInformation("\n✅ ESCENARIO 1 COMPLETADO\n");
 
         // ============= ESCENARIO 2: DOS SUBCOLLECTIONS ANIDADAS =============
@@ -113,21 +113,21 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
             Precio = 29.99m
         };
 
-        context.Productos.Add(producto1);
-        context.Productos.Add(producto2);
+        //context.Productos.Add(producto1);
+        //context.Productos.Add(producto2);
         await context.SaveChangesAsync();
 
         logger.LogInformation($"✓ Producto 1: {producto1.Nombre} - ${producto1.Precio}");
         logger.LogInformation($"✓ Producto 2: {producto2.Nombre} - ${producto2.Precio}\n");
 
         logger.LogInformation("--- Construyendo cliente con pedidos y líneas anidadas en memoria ---");
-        
+
         var cliente2 = new Cliente
         {
             Id = "cli-002",
             Nombre = "María García",
             Email = "maria@example.com",
-            Pedidos = 
+            Pedidos =
             [
                 new Pedido
                 {
@@ -136,7 +136,7 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
                     Total = 1359.97m,
                     FechaPedido = DateTime.UtcNow,
                     Estado = EstadoPedido.Pendiente,
-                    Lineas = 
+                    Lineas =
                     [
                         new LineaPedido
                         {
@@ -161,7 +161,7 @@ static async Task PruebaSubcollections(MiContexto context, ILogger logger)
                     Total = 59.98m,
                     FechaPedido = DateTime.UtcNow,
                     Estado = EstadoPedido.Confirmado,
-                    Lineas = 
+                    Lineas =
                     [
                         new LineaPedido
                         {
@@ -327,13 +327,13 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         .FirstOrDefaultAsync();
         Console.WriteLine(result);*/
 
-
         var clienteConPedidos = await context.Clientes
             .Include(c => c.Pedidos)
-                //.ThenInclude(c=>c.Lineas)                        
+                .ThenInclude(p => p.Lineas)
+                    //.ThenInclude(l => l.Producto)
             .FirstOrDefaultAsync(c => c.Id == "cli-002");
         Console.WriteLine(clienteConPedidos);
-        
+
         /*var productos = await context.Productos.ToListAsync();
 
         logger.LogInformation($"✓ Productos encontrados: {productos.Count}\n");
@@ -491,7 +491,7 @@ public class Cliente
     public string? Id { get; set; }
     public required string Nombre { get; set; }
     public required string Email { get; set; }
-    
+
     // Subcollection de primer nivel
     public required List<Pedido> Pedidos { get; set; }
 }
@@ -507,7 +507,7 @@ public class Pedido
     public decimal Total { get; set; }
     public DateTime FechaPedido { get; set; }
     public EstadoPedido Estado { get; set; }
-    
+
     // Subcollection de segundo nivel (anidada)
     public required List<LineaPedido> Lineas { get; set; }
 }
@@ -540,11 +540,11 @@ public class MiContexto : DbContext
 {
     // Entidades raíz
     public DbSet<Cliente> Clientes { get; set; } = null!;
-    public DbSet<Producto> Productos { get; set; } = null!;
-    
+    //public DbSet<Producto> Productos { get; set; } = null!;
+
     // Entidades subcollection (necesitan DbSet para Collection Group Queries)
-    public DbSet<Pedido> Pedidos { get; set; } = null!;
-    public DbSet<LineaPedido> LineasPedido { get; set; } = null!;
+    //public DbSet<Pedido> Pedidos { get; set; } = null!;
+    //public DbSet<LineaPedido> LineasPedido { get; set; } = null!;
 
     public MiContexto(DbContextOptions<MiContexto> options) : base(options)
     {
@@ -553,11 +553,11 @@ public class MiContexto : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // ============= CONFIGURACIÓN DE SUBCOLLECTIONS =============
-        
+
         modelBuilder.Entity<Cliente>(entity =>
         {
             //entity.HasMany(c=>c.Pedidos).WithOne().HasForeignKey("ClienteId");
-            
+
             // Configuración encadenada: Cliente -> Pedidos -> Lineas
             entity.SubCollection(c => c.Pedidos)
                   .SubCollection(p => p.Lineas);
