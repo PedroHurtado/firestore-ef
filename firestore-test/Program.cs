@@ -330,7 +330,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         var clienteConPedidos = await context.Clientes
             .Include(c => c.Pedidos)
                 .ThenInclude(p => p.Lineas)
-                    //.ThenInclude(l => l.Producto)
+                    .ThenInclude(l => l.Producto)
             .FirstOrDefaultAsync(c => c.Id == "cli-002");
         Console.WriteLine(clienteConPedidos);
 
