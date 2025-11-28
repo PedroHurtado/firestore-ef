@@ -38,19 +38,17 @@ namespace Firestore.EntityFrameworkCore.Query
 
             _logger.LogInformation("=== Executing Firestore query ===");
             _logger.LogInformation("Collection: {Collection}", queryExpression.CollectionName);
-            _logger.LogInformation("Filters count: {Count}", queryExpression.Filters.Count);
 
-            /*foreach (var filter in queryExpression.Filters)
+            // 🔥 Las queries por ID no deben llegar aquí - deben usar ExecuteIdQueryAsync
+            if (queryExpression.IsIdOnlyQuery)
             {
-                // Evaluar el valor en runtime
-                var evaluatedValue = filter.EvaluateValue(queryContext);
-                
-                _logger.LogInformation("  Filter: {PropertyName} {Operator} {Value} (Type: {ValueType})",
-                    filter.PropertyName,
-                    filter.Operator,
-                    evaluatedValue ?? "NULL",
-                    evaluatedValue?.GetType().Name ?? "NULL");
-            }*/
+                throw new InvalidOperationException(
+                    "ID-only queries should use ExecuteIdQueryAsync instead of ExecuteQueryAsync. " +
+                    "This is an internal error in the query execution pipeline.");
+            }
+
+            // Query normal (no es por ID)
+            _logger.LogInformation("Filters count: {Count}", queryExpression.Filters.Count);
 
             // Construir Google.Cloud.Firestore.Query
             var query = BuildFirestoreQuery(queryExpression, queryContext);
@@ -61,6 +59,116 @@ namespace Firestore.EntityFrameworkCore.Query
             _logger.LogInformation("Query returned {Count} documents", snapshot.Count);
 
             return snapshot;
+        }
+
+        /// <summary>
+        /// Ejecuta una query por ID usando GetDocumentAsync (el ID es metadata, no está en el documento)
+        /// </summary>
+        public async Task<DocumentSnapshot?> ExecuteIdQueryAsync(
+            FirestoreQueryExpression queryExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(queryExpression);
+
+            if (!queryExpression.IsIdOnlyQuery)
+            {
+                throw new InvalidOperationException(
+                    "ExecuteIdQueryAsync can only be called for ID-only queries. " +
+                    "Use ExecuteQueryAsync for regular queries.");
+            }
+
+            _logger.LogInformation("=== Executing Firestore ID query ===");
+            _logger.LogInformation("Collection: {Collection}", queryExpression.CollectionName);
+
+            // Evaluar la expresión del ID en runtime
+            var idValueExpression = queryExpression.IdValueExpression!;
+            var idValue = EvaluateIdExpression(idValueExpression, queryContext);
+
+            if (idValue == null)
+            {
+                throw new InvalidOperationException("ID value cannot be null in an ID-only query");
+            }
+
+            var idString = idValue.ToString();
+            _logger.LogInformation("Getting document by ID: {Id}", idString);
+
+            // 🔥 Usar GetDocumentAsync porque el ID es metadata del documento
+            var documentSnapshot = await _client.GetDocumentAsync(
+                queryExpression.CollectionName,
+                idString!,
+                cancellationToken);
+
+            if (documentSnapshot != null && documentSnapshot.Exists)
+            {
+                _logger.LogInformation("Document found with ID: {Id}", idString);
+                return documentSnapshot;
+            }
+            else
+            {
+                _logger.LogInformation("Document not found with ID: {Id}", idString);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Evalúa la expresión del ID en runtime usando el QueryContext
+        /// </summary>
+        private object? EvaluateIdExpression(
+            System.Linq.Expressions.Expression idExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+        {
+            // Si es una ConstantExpression, retornar su valor directamente
+            if (idExpression is System.Linq.Expressions.ConstantExpression constant)
+            {
+                return constant.Value;
+            }
+
+            // Para cualquier otra expresión (incluyendo accesos a QueryContext.ParameterValues),
+            // compilarla y ejecutarla con el QueryContext como parámetro
+            try
+            {
+                // Reemplazar el parámetro queryContext en la expresión con el valor real
+                var replacer = new IdExpressionParameterReplacer(queryContext);
+                var replacedExpression = replacer.Visit(idExpression);
+
+                // Compilar y evaluar
+                var lambda = System.Linq.Expressions.Expression.Lambda<Func<object>>(
+                    System.Linq.Expressions.Expression.Convert(replacedExpression, typeof(object)));
+
+                var compiled = lambda.Compile();
+                var result = compiled();
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to evaluate ID expression: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Visitor que reemplaza referencias al parámetro QueryContext con el valor real
+        /// </summary>
+        private class IdExpressionParameterReplacer : System.Linq.Expressions.ExpressionVisitor
+        {
+            private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
+
+            public IdExpressionParameterReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            {
+                _queryContext = queryContext;
+            }
+
+            protected override System.Linq.Expressions.Expression VisitParameter(System.Linq.Expressions.ParameterExpression node)
+            {
+                // Si es el parámetro "queryContext", reemplazarlo con una constante que contiene el QueryContext real
+                if (node.Name == "queryContext" && node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
+                {
+                    return System.Linq.Expressions.Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
+                }
+
+                return base.VisitParameter(node);
+            }
         }
 
         /// <summary>

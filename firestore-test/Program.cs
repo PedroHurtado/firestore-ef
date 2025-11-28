@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Query;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -23,7 +24,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddLogging(configure =>
     {
         configure.AddConsole();
-        configure.SetMinimumLevel(LogLevel.Information);
+        //configure.SetMinimumLevel(LogLevel.Information);
+        configure.SetMinimumLevel(LogLevel.Debug);
+        configure.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Debug);
     });
 
     services.AddDbContext<MiContexto>(options =>
@@ -271,8 +274,8 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         logger.LogInformation("║            ESCENARIO 2: LECTURA POR ID (Cliente)              ║");
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
         */
-        logger.LogInformation("--- Buscando cliente con ID: cli-001 ---");
-        var clienteEspecifico = await context.Clientes.FindAsync("cli-001");
+        /*logger.LogInformation("--- Buscando cliente con ID: cli-001 ---");
+        var clienteEspecifico = await context.Clientes.FindAsync("cli-003");
 
         if (clienteEspecifico != null)
         {
@@ -286,14 +289,14 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
             logger.LogWarning("⚠️  Cliente no encontrado");
         }
 
-        logger.LogInformation("\n✅ ESCENARIO 2 COMPLETADO\n");
+        logger.LogInformation("\n✅ ESCENARIO 2 COMPLETADO\n");*/
 
         // ============= ESCENARIO 3: LECTURA CON FILTRO (WHERE) =============
         logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
         logger.LogInformation("║         ESCENARIO 3: LECTURA CON FILTRO (Where/FirstOrDefault)║");
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
 
-        logger.LogInformation("--- Buscando cliente por nombre: 'María García' ---");
+        /*logger.LogInformation("--- Buscando cliente por nombre: 'María García' ---");
         var clientePorNombre = await context.Clientes
             .Where(c => c.Nombre == "María García")
             .FirstOrDefaultAsync();
@@ -310,7 +313,7 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
             logger.LogWarning("⚠️  Cliente no encontrado");
         }
 
-        logger.LogInformation("\n✅ ESCENARIO 3 COMPLETADO\n");
+        logger.LogInformation("\n✅ ESCENARIO 3 COMPLETADO\n");*/
 
         // ============= ESCENARIO 4: LECTURA DE PRODUCTOS =============
         logger.LogInformation("╔═══════════════════════════════════════════════════════════════╗");
@@ -318,6 +321,19 @@ static async Task PruebaLectura(MiContexto context, ILogger logger)
         logger.LogInformation("╚═══════════════════════════════════════════════════════════════╝\n");
 
         logger.LogInformation("--- Leyendo todos los productos ---");
+
+        /*var result = await context.Clientes
+            .Where(c => c.Id =="cli-003")            
+        .FirstOrDefaultAsync();
+        Console.WriteLine(result);*/
+
+
+        var clienteConPedidos = await context.Clientes
+            .Include(c => c.Pedidos)
+                //.ThenInclude(c=>c.Lineas)                        
+            .FirstOrDefaultAsync(c => c.Id == "cli-002");
+        Console.WriteLine(clienteConPedidos);
+        
         /*var productos = await context.Productos.ToListAsync();
 
         logger.LogInformation($"✓ Productos encontrados: {productos.Count}\n");
@@ -540,6 +556,8 @@ public class MiContexto : DbContext
         
         modelBuilder.Entity<Cliente>(entity =>
         {
+            //entity.HasMany(c=>c.Pedidos).WithOne().HasForeignKey("ClienteId");
+            
             // Configuración encadenada: Cliente -> Pedidos -> Lineas
             entity.SubCollection(c => c.Pedidos)
                   .SubCollection(p => p.Lineas);

@@ -84,14 +84,37 @@ namespace Firestore.EntityFrameworkCore.Query
                 var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
                 var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
 
-                // Ejecutar query
-                var snapshot = await executor.ExecuteQueryAsync(
-                        _enumerable._queryExpression,      // 1. queryExpression
-                        _enumerable._queryContext,         // 2. queryContext
+                // 🔥 MANEJO ESPECIAL PARA QUERIES POR ID
+                // Las queries por ID usan GetDocumentAsync porque el ID es metadata del documento
+                if (_enumerable._queryExpression.IsIdOnlyQuery)
+                {
+                    // Ejecutar query de ID que retorna un solo DocumentSnapshot
+                    var documentSnapshot = await executor.ExecuteIdQueryAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
                         _cancellationToken);
 
-                // Inicializar enumerador con los documentos
-                _enumerator = snapshot.Documents.GetEnumerator();
+                    // Crear lista con el documento (si existe) o lista vacía (si no existe)
+                    var documents = new List<DocumentSnapshot>();
+                    if (documentSnapshot != null && documentSnapshot.Exists)
+                    {
+                        documents.Add(documentSnapshot);
+                    }
+
+                    // Inicializar enumerador con la lista
+                    _enumerator = documents.GetEnumerator();
+                }
+                else
+                {
+                    // Query normal - ejecutar y obtener QuerySnapshot
+                    var snapshot = await executor.ExecuteQueryAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        _cancellationToken);
+
+                    // Inicializar enumerador con los documentos
+                    _enumerator = snapshot.Documents.GetEnumerator();
+                }
             }
 
             public ValueTask DisposeAsync()

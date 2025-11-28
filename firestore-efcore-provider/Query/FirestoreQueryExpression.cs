@@ -45,6 +45,22 @@ namespace Firestore.EntityFrameworkCore.Query
         public DocumentSnapshot? StartAfterDocument { get; set; }
 
         /// <summary>
+        /// Si la query es solo por ID, contiene la expresión del ID.
+        /// En este caso, se usará GetDocumentAsync en lugar de ExecuteQueryAsync.
+        /// </summary>
+        public System.Linq.Expressions.Expression? IdValueExpression { get; set; }
+
+        /// <summary>
+        /// Lista de navegaciones a cargar (Include/ThenInclude)
+        /// </summary>
+        public List<IReadOnlyNavigation> PendingIncludes { get; set; }
+
+        /// <summary>
+        /// Indica si esta query es solo por ID (sin otros filtros)
+        /// </summary>
+        public bool IsIdOnlyQuery => IdValueExpression != null;
+
+        /// <summary>
         /// Constructor
         /// </summary>
         public FirestoreQueryExpression(
@@ -55,6 +71,7 @@ namespace Firestore.EntityFrameworkCore.Query
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
             Filters = new List<FirestoreWhereClause>();
             OrderByClauses = new List<FirestoreOrderByClause>();
+            PendingIncludes = new List<IReadOnlyNavigation>();
         }
 
         /// <summary>
@@ -76,7 +93,9 @@ namespace Firestore.EntityFrameworkCore.Query
             List<FirestoreWhereClause>? filters = null,
             List<FirestoreOrderByClause>? orderByClauses = null,
             int? limit = null,
-            DocumentSnapshot? startAfterDocument = null)
+            DocumentSnapshot? startAfterDocument = null,
+            System.Linq.Expressions.Expression? idValueExpression = null,
+            List<IReadOnlyNavigation>? pendingIncludes = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -85,7 +104,9 @@ namespace Firestore.EntityFrameworkCore.Query
                 Filters = filters ?? new List<FirestoreWhereClause>(Filters),
                 OrderByClauses = orderByClauses ?? new List<FirestoreOrderByClause>(OrderByClauses),
                 Limit = limit ?? Limit,
-                StartAfterDocument = startAfterDocument ?? StartAfterDocument
+                StartAfterDocument = startAfterDocument ?? StartAfterDocument,
+                IdValueExpression = idValueExpression ?? IdValueExpression,
+                PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes)
             };
         }
 
@@ -121,6 +142,15 @@ namespace Firestore.EntityFrameworkCore.Query
         public FirestoreQueryExpression WithStartAfter(DocumentSnapshot document)
         {
             return Update(startAfterDocument: document);
+        }
+
+        /// <summary>
+        /// Agrega una navegación a cargar con Include
+        /// </summary>
+        public FirestoreQueryExpression AddInclude(IReadOnlyNavigation navigation)
+        {
+            var newIncludes = new List<IReadOnlyNavigation>(PendingIncludes) { navigation };
+            return Update(pendingIncludes: newIncludes);
         }
 
         /// <summary>
@@ -193,13 +223,9 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         public object? EvaluateValue(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
         {
-            System.Console.WriteLine($"[DEBUG EvaluateValue] Starting evaluation of expression: {ValueExpression}");
-            System.Console.WriteLine($"[DEBUG EvaluateValue] Expression type: {ValueExpression.GetType().Name}");
-
             // Si es una ConstantExpression, retornar su valor directamente
             if (ValueExpression is System.Linq.Expressions.ConstantExpression constant)
             {
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Constant expression, value: {constant.Value}");
                 return constant.Value;
             }
 
@@ -207,35 +233,21 @@ namespace Firestore.EntityFrameworkCore.Query
             // compilarla y ejecutarla con el QueryContext como parámetro
             try
             {
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Attempting to replace queryContext parameter");
-
                 // Reemplazar el parámetro queryContext en la expresión con el valor real
                 var replacer = new QueryContextParameterReplacer(queryContext);
                 var replacedExpression = replacer.Visit(ValueExpression);
-
-                System.Console.WriteLine($"[DEBUG EvaluateValue] After replacement: {replacedExpression}");
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Replaced expression type: {replacedExpression.GetType().Name}");
 
                 // Compilar y evaluar
                 var lambda = System.Linq.Expressions.Expression.Lambda<Func<object>>(
                     System.Linq.Expressions.Expression.Convert(replacedExpression, typeof(object)));
 
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Lambda created, compiling...");
                 var compiled = lambda.Compile();
-
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Compiled, executing...");
                 var result = compiled();
-
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Result: {result ?? "NULL"}");
-                System.Console.WriteLine($"[DEBUG EvaluateValue] Result type: {result?.GetType().Name ?? "NULL"}");
 
                 return result;
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"[ERROR EvaluateValue] Exception: {ex.GetType().Name}");
-                System.Console.WriteLine($"[ERROR EvaluateValue] Message: {ex.Message}");
-                System.Console.WriteLine($"[ERROR EvaluateValue] StackTrace: {ex.StackTrace}");
                 throw new InvalidOperationException($"Failed to evaluate filter value expression: {ex.Message}", ex);
             }
         }

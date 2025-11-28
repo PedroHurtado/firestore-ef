@@ -32,9 +32,9 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             serviceCollection.AddSingleton<LoggingDefinitions, FirestoreLoggingDefinitions>();
             serviceCollection.AddLogging();
-            
+
             var builder = new EntityFrameworkServicesBuilder(serviceCollection);
-            
+
             builder.TryAddCoreServices();
 
             // ✅ CRÍTICO: Reemplazar el IProviderConventionSetBuilder por defecto con el nuestro
@@ -48,7 +48,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 .TryAdd<IQueryContextFactory, FirestoreQueryContextFactory>()
                 .TryAdd<IQueryCompilationContextFactory, FirestoreQueryCompilationContextFactory>()
                 .TryAdd<IQueryableMethodTranslatingExpressionVisitorFactory, FirestoreQueryableMethodTranslatingExpressionVisitorFactory>()
-                .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()                
+                .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()
                 .TryAdd<ITypeMappingSource, FirestoreTypeMappingSource>()
                 .TryAdd<IModelValidator, FirestoreModelValidator>()
                 .TryAdd<IDatabaseCreator, FirestoreDatabaseCreator>()
@@ -65,7 +65,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         }
     }
 
-    public class FirestoreQueryableMethodTranslatingExpressionVisitorFactory 
+    public class FirestoreQueryableMethodTranslatingExpressionVisitorFactory
         : IQueryableMethodTranslatingExpressionVisitorFactory
     {
         private readonly QueryableMethodTranslatingExpressionVisitorDependencies _dependencies;
@@ -300,7 +300,27 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             // Proyecciones complejas (campos específicos) se implementarán en Fase 3
 
             // Caso 1: Proyección de identidad (x => x)
-            // Simplemente retornamos el source original sin cambios
+            // Simplemente retornamos el source original sin cambios            
+
+            if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
+            {
+                if (includeExpression.Navigation is IReadOnlyNavigation navigation)
+                {
+                    if (navigation.IsSubCollection())
+                    {
+                        var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
+                        firestoreQueryExpression.PendingIncludes.Add(navigation);
+                        // Agregar a la lista de includes                            
+                        Console.WriteLine($"✓ Added to PendingIncludes: {navigation.Name}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection");
+                    }
+                }
+                Console.WriteLine($"✓ Detected IncludeExpression: {includeExpression.Navigation.Name}");
+            }
+
             if (selector.Body == selector.Parameters[0])
             {
                 return source;
@@ -377,8 +397,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression? TranslateWhere(ShapedQueryExpression source, LambdaExpression predicate)
         {
-            System.Console.WriteLine($"[DEBUG] TranslateWhere called with predicate: {predicate}");
-
             // Obtener el FirestoreQueryExpression actual
             var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
 
@@ -387,33 +405,142 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
             var evaluatedBody = parameterReplacer.Visit(predicate.Body);
 
-            System.Console.WriteLine($"[DEBUG] After parameter replacement: {evaluatedBody}");
-
             // Traducir el predicado a filtros de Firestore
             var translator = new FirestoreWhereTranslator();
             var whereClause = translator.Translate(evaluatedBody);
 
             if (whereClause == null)
             {
-                System.Console.WriteLine("[DEBUG] TranslateWhere: Could not translate predicate, returning null");
                 return null;
             }
 
-            System.Console.WriteLine($"[DEBUG] TranslateWhere: Created filter - {whereClause.PropertyName} {whereClause.Operator} <Expression>");
+            // 🔥 DETECCIÓN DE QUERIES POR ID
+            // El ID en Firestore NO está serializado en el documento, es metadata
+            // Por tanto, queries por ID deben usar GetDocumentAsync en lugar de ExecuteQueryAsync
+            if (whereClause.PropertyName == "Id")
+            {
+                // Validar que solo se use el operador ==
+                if (whereClause.Operator != Query.FirestoreOperator.EqualTo)
+                {
+                    throw new InvalidOperationException(
+                        $"Firestore ID queries only support the '==' operator. Operator '{whereClause.Operator}' is not allowed.");
+                }
 
-            // Crear una nueva expresión con el filtro agregado
-            var newQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
+                // Validar que no haya otros filtros ya aplicados
+                if (firestoreQueryExpression.Filters.Count > 0)
+                {
+                    throw new InvalidOperationException(
+                        "Firestore ID queries cannot be combined with other filters. " +
+                        "The ID is document metadata and must be queried alone using GetDocumentAsync.");
+                }
 
-            return source.UpdateQueryExpression(newQueryExpression);
+                // Validar que no haya un IdValueExpression ya establecido
+                if (firestoreQueryExpression.IsIdOnlyQuery)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot apply multiple ID filters. Only one ID filter is allowed per query.");
+                }
+
+                // Crear una nueva expresión marcándola como ID-only query
+                var newQueryExpression = new Query.FirestoreQueryExpression(
+                    firestoreQueryExpression.EntityType,
+                    firestoreQueryExpression.CollectionName)
+                {
+                    IdValueExpression = whereClause.ValueExpression,
+                    Filters = new List<Query.FirestoreWhereClause>(firestoreQueryExpression.Filters),
+                    OrderByClauses = new List<Query.FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
+                    Limit = firestoreQueryExpression.Limit,
+                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument
+                };
+
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // 🔥 VALIDACIÓN: Si ya es una query de ID, no permitir agregar otros filtros
+            if (firestoreQueryExpression.IsIdOnlyQuery)
+            {
+                throw new InvalidOperationException(
+                    "Cannot add filters to an ID-only query. " +
+                    "ID queries must stand alone and cannot be combined with other WHERE clauses.");
+            }
+
+            // Crear una nueva expresión con el filtro agregado (query normal, no por ID)
+            var normalQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
+
+            return source.UpdateQueryExpression(normalQueryExpression);
+        }
+
+        public override Expression? Visit(Expression? node)
+        {
+            //Console.WriteLine(node);
+            /*if (node != null && node is MethodCallExpression methodCall)
+            {
+                Console.WriteLine($"QueryableMethod - Visit MethodCall: {methodCall.Method.DeclaringType?.Name}.{methodCall.Method.Name}");
+            }*/
+            return base.Visit(node);
+        }
+
+        protected override Expression VisitMethodCall(MethodCallExpression node)
+        {
+            //Console.WriteLine($"QueryableMethodTranslating - VisitMethodCall: {node.Method.DeclaringType?.Name}.{node.Method.Name}");
+
+            // Detectar llamadas a Include
+            if (node.Method.Name == "Include")
+            {
+                Console.WriteLine($"✓ Detected Include method call");
+                Console.WriteLine($"Declaring Type: {node.Method.DeclaringType?.FullName}");
+
+                // El primer argumento es la source query
+                var source = Visit(node.Arguments[0]);
+
+                if (source is ShapedQueryExpression shapedQuery &&
+                    shapedQuery.QueryExpression is Query.FirestoreQueryExpression firestoreQuery)
+                {
+                    // El segundo argumento es el lambda que especifica la navegación
+                    // Puede ser una LambdaExpression o una string
+                    if (node.Arguments.Count > 1)
+                    {
+                        var includeArg = node.Arguments[1];
+                        Console.WriteLine($"Include argument type: {includeArg.GetType().Name}");
+                        Console.WriteLine($"Include argument: {includeArg}");
+
+                        // Extraer la navegación del lambda
+                        if (includeArg is UnaryExpression { Operand: LambdaExpression lambda })
+                        {
+                            if (lambda.Body is MemberExpression memberExpr)
+                            {
+                                var propertyName = memberExpr.Member.Name;
+                                Console.WriteLine($"Navigation property: {propertyName}");
+
+                                // Buscar la navegación en el entity type
+                                var navigation = firestoreQuery.EntityType.FindNavigation(propertyName);
+                                if (navigation != null && navigation.IsSubCollection())
+                                {
+                                    Console.WriteLine($"✓ Adding subcollection navigation: {propertyName}");
+                                    var newQuery = firestoreQuery.AddInclude(navigation);
+                                    return shapedQuery.UpdateQueryExpression(newQuery);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return base.VisitMethodCall(node);
         }
 
         protected override Expression VisitExtension(Expression extensionExpression)
         {
+            // Log para debuggear qué tipos de extension expressions estamos recibiendo
+            //Console.WriteLine($"QueryableMethodTranslating - VisitExtension: {extensionExpression.GetType().Name}");
+
+            // En EF Core 8.0, Include se maneja como parte del shaper, no como una expresión del query
+            // El visitor no procesa Include directamente, se maneja en el ShapedQueryCompilingExpressionVisitor
             return base.VisitExtension(extensionExpression);
         }
     }
 
-    public class FirestoreShapedQueryCompilingExpressionVisitorFactory 
+    public class FirestoreShapedQueryCompilingExpressionVisitorFactory
         : IShapedQueryCompilingExpressionVisitorFactory
     {
         private readonly ShapedQueryCompilingExpressionVisitorDependencies _dependencies;
@@ -443,6 +570,10 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         {
             // Obtener el FirestoreQueryExpression
             var firestoreQueryExpression = (Query.FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
+
+            // Procesar el shaper original para detectar y extraer Include expressions
+            var includeDetector = new IncludeDetectorVisitor(firestoreQueryExpression);
+            includeDetector.Visit(shapedQueryExpression.ShaperExpression);
 
             // Obtener el tipo de entidad
             var entityType = firestoreQueryExpression.EntityType.ClrType;
@@ -483,6 +614,44 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         }
 
         /// <summary>
+        /// Visitor que detecta IncludeExpression en el árbol del shaper
+        /// </summary>
+        private class IncludeDetectorVisitor : ExpressionVisitor
+        {
+            private readonly Query.FirestoreQueryExpression _queryExpression;
+
+            public IncludeDetectorVisitor(Query.FirestoreQueryExpression queryExpression)
+            {
+                _queryExpression = queryExpression;
+            }
+
+            protected override Expression VisitExtension(Expression node)
+            {
+                if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
+                {
+                    Console.WriteLine($"✓ Detected IncludeExpression: {includeExpression.Navigation.Name}");
+
+                    // Agregar la navegación al query expression
+                    if (includeExpression.Navigation is IReadOnlyNavigation navigation)
+                    {
+                        if (navigation.IsSubCollection())
+                        {
+                            // Agregar a la lista de includes
+                            _queryExpression.PendingIncludes.Add(navigation);
+                            Console.WriteLine($"✓ Added to PendingIncludes: {navigation.Name}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection");
+                        }
+                    }
+                }
+
+                return base.VisitExtension(node);
+            }
+        }
+
+        /// <summary>
         /// Crea la expresión del shaper que convierte DocumentSnapshot en una entidad.
         /// </summary>
         private Expression CreateShaperExpression(
@@ -517,6 +686,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             var typeMappingSource = (ITypeMappingSource)serviceProvider.GetService(typeof(ITypeMappingSource))!;
             var collectionManager = (IFirestoreCollectionManager)serviceProvider.GetService(typeof(IFirestoreCollectionManager))!;
             var loggerFactory = (Microsoft.Extensions.Logging.ILoggerFactory)serviceProvider.GetService(typeof(Microsoft.Extensions.Logging.ILoggerFactory))!;
+            var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
 
             var deserializerLogger = Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger<Storage.FirestoreDocumentDeserializer>(loggerFactory);
             var deserializer = new Storage.FirestoreDocumentDeserializer(
@@ -525,7 +695,92 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 collectionManager,
                 deserializerLogger);
 
-            return deserializer.DeserializeEntity<T>(documentSnapshot);
+            // Deserializar la entidad principal
+            var entity = deserializer.DeserializeEntity<T>(documentSnapshot);
+
+            // Cargar subcollections si hay includes pendientes
+            if (queryExpression.PendingIncludes.Count > 0)
+            {
+                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model).GetAwaiter().GetResult();
+            }
+
+            return entity;
+        }
+
+        /// <summary>
+        /// Carga las subcollections especificadas en los includes
+        /// </summary>
+        private static async Task LoadIncludes<T>(
+            T entity,
+            DocumentSnapshot documentSnapshot,
+            List<IReadOnlyNavigation> includes,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model) where T : class
+        {
+            foreach (var navigation in includes)
+            {
+                if (!navigation.IsCollection)
+                    continue;
+
+                // Solo soportar subcollections
+                if (!navigation.IsSubCollection())
+                    continue;
+
+                // Obtener el nombre de la subcollection
+                var subCollectionName = GetSubCollectionName(navigation);
+
+                // Construir el path de la subcollection
+                var subCollectionPath = $"{documentSnapshot.Reference.Path}/{subCollectionName}";
+
+                // Obtener la referencia a la subcollection
+                //var subCollectionRef = clientWrapper.Database.Collection(subCollectionPath);
+
+                var subCollectionRef = documentSnapshot.Reference.Collection(subCollectionName);
+
+                // Ejecutar query para obtener todos los documentos de la subcollection
+                var snapshot = await subCollectionRef.GetSnapshotAsync();
+
+                // Deserializar los documentos
+                var entityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
+                if (entityType == null)
+                    continue;
+
+                // Crear lista para almacenar las entidades de la subcollection
+                var listType = typeof(List<>).MakeGenericType(navigation.TargetEntityType.ClrType);
+                var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
+
+                // Deserializar cada documento
+                var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+                    .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                    .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (doc.Exists)
+                    {
+                        var childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
+                        if (childEntity != null)
+                        {
+                            list.Add(childEntity);
+                        }
+                    }
+                }
+
+                // Asignar la lista a la propiedad de navegación
+                navigation.PropertyInfo?.SetValue(entity, list);
+            }
+        }
+
+        /// <summary>
+        /// Obtiene el nombre de la subcollection desde la navegación
+        /// </summary>
+        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
+        {
+            // Usar el nombre de la propiedad en minúsculas como nombre de la subcollection
+            //var name = navigation.Name;
+            //return char.ToLowerInvariant(name[0]) + name.Substring(1);
+            return navigation.Name;
         }
 
     }
@@ -534,40 +789,36 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
     /// Visitor que reemplaza ParameterExpression de runtime (__p_0) con acceso a QueryContext.ParameterValues
     /// </summary>
 
-internal class RuntimeParameterReplacer : ExpressionVisitor
-{
-    private readonly QueryCompilationContext _queryCompilationContext;
-
-    public RuntimeParameterReplacer(QueryCompilationContext queryCompilationContext)
+    internal class RuntimeParameterReplacer : ExpressionVisitor
     {
-        _queryCompilationContext = queryCompilationContext;
-    }
+        private readonly QueryCompilationContext _queryCompilationContext;
 
-    protected override Expression VisitParameter(ParameterExpression node)
-    {
-        // Detectar parámetros de runtime como __p_0, __p_1, etc.
-        if (node.Name != null && node.Name.StartsWith("__p_"))
+        public RuntimeParameterReplacer(QueryCompilationContext queryCompilationContext)
         {
-            System.Console.WriteLine($"[DEBUG RuntimeParameterReplacer] Found runtime parameter: {node.Name}");
-
-            // Crear una expresión que accede a QueryContext.ParameterValues["{node.Name}"]
-            // En tiempo de compilación: QueryContext.ParameterValues["__p_0"]
-            // En tiempo de ejecución: esto se evaluará al valor real
-            var queryContextParam = QueryCompilationContext.QueryContextParameter; // 🔥 CORREGIDO: Es estático
-            var parameterValuesProperty = Expression.Property(queryContextParam, "ParameterValues");
-            var indexer = Expression.Property(parameterValuesProperty, "Item", Expression.Constant(node.Name));
-            
-            // Convertir al tipo correcto
-            var converted = Expression.Convert(indexer, node.Type);
-
-            System.Console.WriteLine($"[DEBUG RuntimeParameterReplacer] Replaced with QueryContext access");
-            
-            return converted;
+            _queryCompilationContext = queryCompilationContext;
         }
 
-        return base.VisitParameter(node);
+        protected override Expression VisitParameter(ParameterExpression node)
+        {
+            // Detectar parámetros de runtime como __p_0, __p_1, etc.
+            if (node.Name != null && node.Name.StartsWith("__p_"))
+            {
+                // Crear una expresión que accede a QueryContext.ParameterValues["{node.Name}"]
+                // En tiempo de compilación: QueryContext.ParameterValues["__p_0"]
+                // En tiempo de ejecución: esto se evaluará al valor real
+                var queryContextParam = QueryCompilationContext.QueryContextParameter;
+                var parameterValuesProperty = Expression.Property(queryContextParam, "ParameterValues");
+                var indexer = Expression.Property(parameterValuesProperty, "Item", Expression.Constant(node.Name));
+
+                // Convertir al tipo correcto
+                var converted = Expression.Convert(indexer, node.Type);
+
+                return converted;
+            }
+
+            return base.VisitParameter(node);
+        }
     }
-}
 
     /// <summary>
     /// Traductor de expresiones LINQ a filtros de Firestore (WhereClause).
