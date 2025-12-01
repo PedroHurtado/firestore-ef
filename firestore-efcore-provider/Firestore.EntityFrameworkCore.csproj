@@ -27,5 +27,9 @@
     <PackageReference Include="Google.Cloud.Firestore" Version="3.7.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="docs\**" />
+  </ItemGroup>
+
 
 </Project>

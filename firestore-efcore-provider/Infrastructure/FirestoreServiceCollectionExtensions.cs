@@ -335,7 +335,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 //includeExpression.NavigationTree
                 if (includeExpression.Navigation is IReadOnlyNavigation navigation)
                 {
-                    
+
                     PrintNavigationsRecursive(navigation.TargetEntityType);
 
                     if (navigation.IsSubCollection())
@@ -608,6 +608,14 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             var includeDetector = new IncludeDetectorVisitor(firestoreQueryExpression);
             includeDetector.Visit(shapedQueryExpression.ShaperExpression);
 
+            // Log de debug: ver qué navegaciones se capturaron
+            Console.WriteLine($"\n📊 Total PendingIncludes captured: {firestoreQueryExpression.PendingIncludes.Count}");
+            foreach (var inc in firestoreQueryExpression.PendingIncludes)
+            {
+                Console.WriteLine($"  - {inc.DeclaringEntityType.ClrType.Name}.{inc.Name} -> {inc.TargetEntityType.ClrType.Name}");
+            }
+            Console.WriteLine();
+
             // Obtener el tipo de entidad
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
@@ -647,7 +655,8 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         }
 
         /// <summary>
-        /// Visitor que detecta IncludeExpression en el árbol del shaper
+        /// Visitor que detecta IncludeExpression en el árbol del shaper.
+        /// Construye una estructura jerárquica de navegaciones para soportar Include/ThenInclude.
         /// </summary>
         private class IncludeDetectorVisitor : ExpressionVisitor
         {
@@ -662,25 +671,43 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             {
                 if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
                 {
-                    Console.WriteLine($"✓ Detected IncludeExpression: {includeExpression.Navigation.Name}");
-
-                    // Agregar la navegación al query expression
-                    if (includeExpression.Navigation is IReadOnlyNavigation navigation)
-                    {
-                        if (navigation.IsSubCollection())
-                        {
-                            // Agregar a la lista de includes
-                            _queryExpression.PendingIncludes.Add(navigation);
-                            Console.WriteLine($"✓ Added to PendingIncludes: {navigation.Name}");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection");
-                        }
-                    }
+                    // Procesar la navegación
+                    ProcessInclude(includeExpression);
                 }
 
                 return base.VisitExtension(node);
+            }
+
+            private void ProcessInclude(Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
+            {
+                if (includeExpression.Navigation is not IReadOnlyNavigation navigation)
+                    return;
+
+                Console.WriteLine($"✓ Detected IncludeExpression: {navigation.Name}");
+                Console.WriteLine($"  DeclaringType: {navigation.DeclaringEntityType.ClrType.Name}");
+                Console.WriteLine($"  TargetType: {navigation.TargetEntityType.ClrType.Name}");
+                Console.WriteLine($"  IsCollection: {navigation.IsCollection}");
+
+                // Agregar la navegación a la lista de includes pendientes
+                _queryExpression.PendingIncludes.Add(navigation);
+                Console.WriteLine($"✅ Added to PendingIncludes");
+
+                // 🔑 CLAVE: Los ThenInclude están anidados en NavigationExpression
+                // Necesitamos visitar recursivamente para capturarlos todos
+                // Ejemplo: Include(c => c.Pedidos).ThenInclude(p => p.Lineas)
+                // Se representa como:
+                //   IncludeExpression(Pedidos) {
+                //     NavigationExpression = IncludeExpression(Lineas) { ... }
+                //   }
+
+                Console.WriteLine($"  🔍 Visiting NavigationExpression to find nested ThenInclude...");
+                // El NavigationExpression contiene los ThenInclude anidados
+                // Visitarlo recursivamente para capturarlos
+                if (includeExpression.NavigationExpression != null)
+                {
+                    Visit(includeExpression.NavigationExpression);
+                }
+                Console.WriteLine();
             }
         }
 
@@ -743,6 +770,9 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         /// <summary>
         /// Carga las subcollections especificadas en los includes
         /// </summary>
+        /// <summary>
+        /// Carga las navegaciones especificadas en los includes (con soporte recursivo)
+        /// </summary>
         private static async Task LoadIncludes<T>(
             T entity,
             DocumentSnapshot documentSnapshot,
@@ -751,58 +781,252 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model) where T : class
         {
-            foreach (var navigation in includes)
+            // Agrupar navegaciones por nivel
+            // Por ejemplo: [Pedidos, Pedidos.Lineas, Pedidos.Lineas.Producto]
+            // Se agrupan en:
+            //   Nivel 1: [Pedidos]
+            //   (Las demás se cargarán recursivamente al cargar Pedidos)
+
+            var rootNavigations = includes
+                .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
+                .ToList();
+
+            foreach (var navigation in rootNavigations)
             {
-                if (!navigation.IsCollection)
+                await LoadNavigationAsync(entity, documentSnapshot, navigation, includes, clientWrapper, deserializer, model);
+            }
+        }
+
+        /// <summary>
+        /// Carga una navegación específica (subcollection o referencia)
+        /// </summary>
+        private static async Task LoadNavigationAsync(
+            object entity,
+            DocumentSnapshot documentSnapshot,
+            IReadOnlyNavigation navigation,
+            List<IReadOnlyNavigation> allIncludes,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model)
+        {
+            if (navigation.IsCollection)
+            {
+                // CASO 1: Subcollection (1:N) - ej: Cliente.Pedidos
+                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
+            }
+            else
+            {
+                // CASO 2: Referencia (N:1) - ej: Linea.Producto
+                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
+            }
+        }
+
+        /// <summary>
+        /// Carga una subcollection (relación 1:N)
+        /// </summary>
+        private static async Task LoadSubCollectionAsync(
+            object parentEntity,
+            DocumentSnapshot parentDoc,
+            IReadOnlyNavigation navigation,
+            List<IReadOnlyNavigation> allIncludes,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model)
+        {
+            if (!navigation.IsSubCollection())
+            {
+                Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection, skipping");
+                return;
+            }
+
+            var subCollectionName = GetSubCollectionName(navigation);
+            var subCollectionRef = parentDoc.Reference.Collection(subCollectionName);
+
+            Console.WriteLine($"📂 Loading subcollection: {parentDoc.Reference.Path}/{subCollectionName}");
+
+            // Ejecutar query para obtener todos los documentos de la subcollection
+            var snapshot = await subCollectionRef.GetSnapshotAsync();
+
+            // Crear lista para almacenar las entidades de la subcollection
+            var listType = typeof(List<>).MakeGenericType(navigation.TargetEntityType.ClrType);
+            var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
+
+            // Deserializar cada documento
+            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+            // 🔑 CLAVE: Buscar includes anidados para esta navegación
+            // Ejemplo: Si estamos cargando "Pedidos", buscar "Lineas" que pertenezca a Pedido
+            var childIncludes = allIncludes
+                .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+                .ToList();
+
+            foreach (var doc in snapshot.Documents)
+            {
+                if (!doc.Exists)
                     continue;
 
-                // Solo soportar subcollections
-                if (!navigation.IsSubCollection())
+                // Deserializar el documento hijo
+                var childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
+                if (childEntity == null)
                     continue;
 
-                // Obtener el nombre de la subcollection
-                var subCollectionName = GetSubCollectionName(navigation);
-
-                // Construir el path de la subcollection
-                var subCollectionPath = $"{documentSnapshot.Reference.Path}/{subCollectionName}";
-
-                // Obtener la referencia a la subcollection
-                //var subCollectionRef = clientWrapper.Database.Collection(subCollectionPath);
-
-                var subCollectionRef = documentSnapshot.Reference.Collection(subCollectionName);
-
-                // Ejecutar query para obtener todos los documentos de la subcollection
-                var snapshot = await subCollectionRef.GetSnapshotAsync();
-
-                // Deserializar los documentos
-                var entityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
-                if (entityType == null)
-                    continue;
-
-                // Crear lista para almacenar las entidades de la subcollection
-                var listType = typeof(List<>).MakeGenericType(navigation.TargetEntityType.ClrType);
-                var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
-
-                // Deserializar cada documento
-                var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                    .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
-                    .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-                foreach (var doc in snapshot.Documents)
+                // 🔁 RECURSIÓN: Si hay includes anidados (ThenInclude), cargarlos
+                if (childIncludes.Count > 0)
                 {
-                    if (doc.Exists)
+                    Console.WriteLine($"  🔁 Loading nested includes for {navigation.TargetEntityType.ClrType.Name}");
+                    var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
+                        .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+                    await (Task)loadIncludesMethod.Invoke(null, new object[]
                     {
-                        var childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
-                        if (childEntity != null)
-                        {
-                            list.Add(childEntity);
-                        }
-                    }
+                        childEntity, doc, childIncludes, clientWrapper, deserializer, model
+                    })!;
                 }
 
-                // Asignar la lista a la propiedad de navegación
-                navigation.PropertyInfo?.SetValue(entity, list);
+                list.Add(childEntity);
             }
+
+            // Asignar la lista a la propiedad de navegación
+            navigation.PropertyInfo?.SetValue(parentEntity, list);
+            Console.WriteLine($"✅ Loaded {list.Count} items for {navigation.Name}");
+        }
+
+        /// <summary>
+        /// Carga una referencia (relación N:1)
+        /// </summary>
+        private static async Task LoadReferenceAsync(
+            object entity,
+            DocumentSnapshot documentSnapshot,
+            IReadOnlyNavigation navigation,
+            List<IReadOnlyNavigation> allIncludes,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model)
+        {
+            Console.WriteLine($"🔗 Loading reference: {navigation.Name}");
+
+            // Obtener el valor del campo de referencia en el documento
+            var data = documentSnapshot.ToDictionary();
+
+            // Buscar el campo que almacena la referencia
+            // Puede ser:
+            // 1. Un campo DocumentReference directo (ej: "Producto")
+            // 2. Un campo con el ID (ej: "ProductoId")
+
+            object? referenceValue = null;
+            string? referenceFieldName = null;
+
+            // Intentar primero con el nombre de la navegación
+            if (data.TryGetValue(navigation.Name, out var directValue))
+            {
+                referenceValue = directValue;
+                referenceFieldName = navigation.Name;
+            }
+            // Intentar con el patrón {NavigationName}Id
+            else if (data.TryGetValue($"{navigation.Name}Id", out var idValue))
+            {
+                referenceValue = idValue;
+                referenceFieldName = $"{navigation.Name}Id";
+            }
+
+            if (referenceValue == null)
+            {
+                Console.WriteLine($"⚠ Reference field not found for {navigation.Name}");
+                return;
+            }
+
+            // Cargar el documento referenciado
+            DocumentSnapshot? referencedDoc = null;
+
+            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+            {
+                // CASO 1: Es un DocumentReference de Firestore
+                Console.WriteLine($"  → Found DocumentReference: {docRef.Path}");
+                referencedDoc = await docRef.GetSnapshotAsync();
+            }
+            else if (referenceValue is string id)
+            {
+                // CASO 2: Es un ID, necesitamos construir la ruta
+                // Obtener el nombre de la colección del tipo target
+                var targetEntityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
+                if (targetEntityType != null)
+                {
+                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
+                    var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
+                    Console.WriteLine($"  → Constructed reference from ID: {docRefFromId.Path}");
+                    referencedDoc = await docRefFromId.GetSnapshotAsync();
+                }
+            }
+
+            if (referencedDoc == null || !referencedDoc.Exists)
+            {
+                Console.WriteLine($"⚠ Referenced document not found");
+                return;
+            }
+
+            // Deserializar el documento referenciado
+            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+            var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
+
+            if (referencedEntity != null)
+            {
+                // Asignar a la propiedad de navegación
+                navigation.PropertyInfo?.SetValue(entity, referencedEntity);
+                Console.WriteLine($"✅ Loaded reference {navigation.Name}");
+            }
+        }
+
+        /// <summary>
+        /// Obtiene el nombre de la colección para un tipo de entidad
+        /// </summary>
+        private static string GetCollectionNameForEntityType(IEntityType entityType)
+        {
+            // Buscar atributo [Table] en el tipo
+            var tableAttribute = entityType.ClrType
+                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
+
+            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
+                return tableAttribute.Name;
+
+            // Fallback: usar el nombre del tipo pluralizado
+            var entityName = entityType.ClrType.Name;
+            return Pluralize(entityName);
+        }
+
+        /// <summary>
+        /// Pluraliza un nombre de entidad
+        /// </summary>
+        private static string Pluralize(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return name;
+
+            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
+                name.Length > 1 &&
+                !IsVowel(name[name.Length - 2]))
+            {
+                return name.Substring(0, name.Length - 1) + "ies";
+            }
+
+            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+                return name + "es";
+
+            return name + "s";
+        }
+
+        /// <summary>
+        /// Verifica si un carácter es vocal
+        /// </summary>
+        private static bool IsVowel(char c)
+        {
+            c = char.ToLowerInvariant(c);
+            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
         }
 
         /// <summary>

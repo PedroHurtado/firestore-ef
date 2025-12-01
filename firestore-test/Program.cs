@@ -555,10 +555,8 @@ public class MiContexto : DbContext
         // ============= CONFIGURACIÓN DE SUBCOLLECTIONS =============
 
         modelBuilder.Entity<Cliente>(entity =>
-        {
-            //entity.HasMany(c=>c.Pedidos).WithOne().HasForeignKey("ClienteId");
-
-            // Configuración encadenada: Cliente -> Pedidos -> Lineas
+        {          
+   
             entity.SubCollection(c => c.Pedidos)
                   .SubCollection(p => p.Lineas);
         });
