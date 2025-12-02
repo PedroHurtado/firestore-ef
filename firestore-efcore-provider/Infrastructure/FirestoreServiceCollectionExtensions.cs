@@ -39,8 +39,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             builder.TryAddCoreServices();
 
-            // ✅ CRÍTICO: Reemplazar el IProviderConventionSetBuilder por defecto con el nuestro
-            // AddScoped reemplaza el servicio anterior registrado por TryAddCoreServices
             serviceCollection.AddScoped<IProviderConventionSetBuilder, FirestoreConventionSetBuilder>();
 
             builder
@@ -66,6 +64,8 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             return serviceCollection;
         }
     }
+
+    #region QueryableMethodTranslatingExpressionVisitor
 
     public class FirestoreQueryableMethodTranslatingExpressionVisitorFactory
         : IQueryableMethodTranslatingExpressionVisitorFactory
@@ -102,13 +102,9 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override ShapedQueryExpression CreateShapedQueryExpression(IEntityType entityType)
         {
-            // Obtener el nombre de la colección en Firestore
             var collectionName = GetCollectionName(entityType);
-
-            // Crear la expresión de query inicial (sin filtros ni ordenamientos)
             var queryExpression = new Query.FirestoreQueryExpression(entityType, collectionName);
 
-            // Crear el shaper que define cómo materializar las entidades
             var entityShaperExpression = new StructuralTypeShaperExpression(
                 entityType,
                 new ProjectionBindingExpression(
@@ -122,14 +118,12 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         private string GetCollectionName(IEntityType entityType)
         {
-            // Buscar atributo [Table] en el tipo
             var tableAttribute = entityType.ClrType
                 .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
 
             if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
                 return tableAttribute.Name;
 
-            // Fallback: usar el nombre del tipo pluralizado
             var entityName = entityType.ClrType.Name;
             return Pluralize(entityName);
         }
@@ -163,203 +157,64 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             return new FirestoreQueryableMethodTranslatingExpressionVisitor(this);
         }
 
-        protected override ShapedQueryExpression? TranslateAll(ShapedQueryExpression source, LambdaExpression predicate)
-        {
-            throw new NotImplementedException();
-        }
+        #region Translate Methods
 
-        protected override ShapedQueryExpression? TranslateAny(ShapedQueryExpression source, LambdaExpression? predicate)
+        protected override ShapedQueryExpression? TranslateFirstOrDefault(
+            ShapedQueryExpression source,
+            LambdaExpression? predicate,
+            Type returnType,
+            bool returnDefault)
         {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateAverage(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateCast(ShapedQueryExpression source, Type castType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateConcat(ShapedQueryExpression source1, ShapedQueryExpression source2)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateContains(ShapedQueryExpression source, Expression item)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateCount(ShapedQueryExpression source, LambdaExpression? predicate)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateDefaultIfEmpty(ShapedQueryExpression source, Expression? defaultValue)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateDistinct(ShapedQueryExpression source)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateElementAtOrDefault(ShapedQueryExpression source, Expression index, bool returnDefault)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateExcept(ShapedQueryExpression source1, ShapedQueryExpression source2)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateFirstOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
-        {
-            // Si hay un predicado, primero aplicar el Where
             if (predicate != null)
             {
                 source = TranslateWhere(source, predicate) ?? source;
             }
 
-            // Obtener el FirestoreQueryExpression actual
             var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
-
-            // Aplicar límite de 1 documento (FirstOrDefault solo necesita el primero)
             var newQueryExpression = firestoreQueryExpression.WithLimit(1);
 
-            // Retornar el ShapedQueryExpression actualizado
             return source.UpdateQueryExpression(newQueryExpression);
         }
 
-        protected override ShapedQueryExpression? TranslateGroupBy(ShapedQueryExpression source, LambdaExpression keySelector, LambdaExpression? elementSelector, LambdaExpression? resultSelector)
+        protected override ShapedQueryExpression TranslateSelect(
+            ShapedQueryExpression source,
+            LambdaExpression selector)
         {
-            throw new NotImplementedException();
-        }
+            Console.WriteLine($"🔍 TranslateSelect - selector.Body type: {selector.Body.GetType().Name}");
 
-        protected override ShapedQueryExpression? TranslateGroupJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateIntersect(ShapedQueryExpression source1, ShapedQueryExpression source2)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateLastOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateLeftJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateLongCount(ShapedQueryExpression source, LambdaExpression? predicate)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateMin(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateOfType(ShapedQueryExpression source, Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateReverse(ShapedQueryExpression source)
-        {
-            throw new NotImplementedException();
-        }
-
-        public static void PrintNavigationsRecursive(
-        IReadOnlyEntityType entityType,
-        string indent = "",
-        HashSet<IReadOnlyEntityType>? visited = null)
-        {
-            visited ??= [];
-
-            // Evitar ciclos (muy importante)
-            if (visited.Contains(entityType))
-                return;
-
-            visited.Add(entityType);
-
-            Console.WriteLine($"{indent}{entityType.Name}");
-
-            foreach (var nav in entityType.GetNavigations())
-            {
-                Console.WriteLine($"{indent} └─ {nav.Name}");
-
-                // Recurse into the target entity
-                var targetEntity = nav.TargetEntityType;
-                PrintNavigationsRecursive(targetEntity, indent + "    ", visited);
-            }
-        }
-
-        protected override ShapedQueryExpression TranslateSelect(ShapedQueryExpression source, LambdaExpression selector)
-        {
-            // Para la Fase 1, soportamos proyecciones simples de entidad completa
-            // Proyecciones complejas (campos específicos) se implementarán en Fase 3
-
-            // Caso 1: Proyección de identidad (x => x)
-            // Simplemente retornamos el source original sin cambios            
-            Console.WriteLine(selector.Body.GetType().Name);
+            // ✅ CRÍTICO: Procesar includes aquí donde SÍ llegan
             if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
             {
+                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                Console.WriteLine("✓ Detected IncludeExpression in TranslateSelect");
+                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-                //includeExpression.NavigationTree
-                if (includeExpression.Navigation is IReadOnlyNavigation navigation)
+                // Usar el visitor especializado para extraer TODOS los includes
+                var includeVisitor = new IncludeExtractionVisitor();
+                includeVisitor.Visit(includeExpression);
+
+                // Agregar todos los includes detectados al query
+                var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
+
+                Console.WriteLine($"\n📋 Includes detectados por el visitor:");
+                foreach (var navigation in includeVisitor.DetectedNavigations)
                 {
-
-                    PrintNavigationsRecursive(navigation.TargetEntityType);
-
-                    if (navigation.IsSubCollection())
-                    {
-                        var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
-                        firestoreQueryExpression.PendingIncludes.Add(navigation);
-                        // Agregar a la lista de includes                            
-                        Console.WriteLine($"✓ Added to PendingIncludes: {navigation.Name}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection");
-                    }
+                    Console.WriteLine($"  → {navigation.DeclaringEntityType.ClrType.Name}.{navigation.Name} " +
+                                    $"(IsCollection: {navigation.IsCollection}, Target: {navigation.TargetEntityType.ClrType.Name})");
+                    firestoreQueryExpression.PendingIncludes.Add(navigation);
                 }
-                Console.WriteLine($"✓ Detected IncludeExpression: {includeExpression.Navigation.Name}");
+
+                Console.WriteLine($"\n✅ Total includes capturados: {includeVisitor.DetectedNavigations.Count}");
+                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
             }
 
+            // Proyección de identidad (x => x)
             if (selector.Body == selector.Parameters[0])
             {
                 return source;
             }
 
-            // Caso 2: Proyección a la misma entidad con conversión de tipo
-            // Ejemplo: x => (Product)x
+            // Proyección con conversión de tipo
             if (selector.Body is UnaryExpression unary &&
                 unary.NodeType == ExpressionType.Convert &&
                 unary.Operand == selector.Parameters[0])
@@ -367,77 +222,18 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 return source;
             }
 
-            // Caso 3: Proyecciones complejas (select new { ... } o x => x.Property)
-            // Por ahora, para permitir que funcione ToList() y queries básicas,
-            // retornamos el source sin cambios
-            // TODO: Implementar en Fase 3 - Proyecciones y transformaciones
-
-            // Nota: Las proyecciones complejas se implementarán en una fase posterior
-            // Por ahora retornamos la entidad completa
             return source;
         }
 
-        protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression collectionSelector, LambdaExpression resultSelector)
+        protected override ShapedQueryExpression? TranslateWhere(
+            ShapedQueryExpression source,
+            LambdaExpression predicate)
         {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression selector)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateSkip(ShapedQueryExpression source, Expression count)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateSkipWhile(ShapedQueryExpression source, LambdaExpression predicate)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateSum(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateTakeWhile(ShapedQueryExpression source, LambdaExpression predicate)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateUnion(ShapedQueryExpression source1, ShapedQueryExpression source2)
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override ShapedQueryExpression? TranslateWhere(ShapedQueryExpression source, LambdaExpression predicate)
-        {
-            // Obtener el FirestoreQueryExpression actual
             var firestoreQueryExpression = (Query.FirestoreQueryExpression)source.QueryExpression;
 
-            // 🔥 SOLUCIÓN: Detectar si hay parámetros __p_X en la expresión
-            // Si los hay, significa que el valor vendrá en runtime y debemos prepararnos
             var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
             var evaluatedBody = parameterReplacer.Visit(predicate.Body);
 
-            // Traducir el predicado a filtros de Firestore
             var translator = new FirestoreWhereTranslator();
             var whereClause = translator.Translate(evaluatedBody);
 
@@ -446,34 +242,27 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 return null;
             }
 
-            // 🔥 DETECCIÓN DE QUERIES POR ID
-            // El ID en Firestore NO está serializado en el documento, es metadata
-            // Por tanto, queries por ID deben usar GetDocumentAsync en lugar de ExecuteQueryAsync
+            // Detección de queries por ID
             if (whereClause.PropertyName == "Id")
             {
-                // Validar que solo se use el operador ==
                 if (whereClause.Operator != Query.FirestoreOperator.EqualTo)
                 {
                     throw new InvalidOperationException(
-                        $"Firestore ID queries only support the '==' operator. Operator '{whereClause.Operator}' is not allowed.");
+                        $"Firestore ID queries only support the '==' operator.");
                 }
 
-                // Validar que no haya otros filtros ya aplicados
                 if (firestoreQueryExpression.Filters.Count > 0)
                 {
                     throw new InvalidOperationException(
-                        "Firestore ID queries cannot be combined with other filters. " +
-                        "The ID is document metadata and must be queried alone using GetDocumentAsync.");
+                        "Firestore ID queries cannot be combined with other filters.");
                 }
 
-                // Validar que no haya un IdValueExpression ya establecido
                 if (firestoreQueryExpression.IsIdOnlyQuery)
                 {
                     throw new InvalidOperationException(
-                        "Cannot apply multiple ID filters. Only one ID filter is allowed per query.");
+                        "Cannot apply multiple ID filters.");
                 }
 
-                // Crear una nueva expresión marcándola como ID-only query
                 var newQueryExpression = new Query.FirestoreQueryExpression(
                     firestoreQueryExpression.EntityType,
                     firestoreQueryExpression.CollectionName)
@@ -482,96 +271,168 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                     Filters = new List<Query.FirestoreWhereClause>(firestoreQueryExpression.Filters),
                     OrderByClauses = new List<Query.FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
                     Limit = firestoreQueryExpression.Limit,
-                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument
+                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument,
+                    PendingIncludes = firestoreQueryExpression.PendingIncludes // 🔥 MANTENER INCLUDES
                 };
 
                 return source.UpdateQueryExpression(newQueryExpression);
             }
 
-            // 🔥 VALIDACIÓN: Si ya es una query de ID, no permitir agregar otros filtros
             if (firestoreQueryExpression.IsIdOnlyQuery)
             {
                 throw new InvalidOperationException(
-                    "Cannot add filters to an ID-only query. " +
-                    "ID queries must stand alone and cannot be combined with other WHERE clauses.");
+                    "Cannot add filters to an ID-only query.");
             }
 
-            // Crear una nueva expresión con el filtro agregado (query normal, no por ID)
             var normalQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
-
             return source.UpdateQueryExpression(normalQueryExpression);
         }
 
-        public override Expression? Visit(Expression? node)
+        #endregion
+
+        #region Not Implemented Methods
+
+        protected override ShapedQueryExpression? TranslateAll(ShapedQueryExpression source, LambdaExpression predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateAny(ShapedQueryExpression source, LambdaExpression? predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateAverage(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateCast(ShapedQueryExpression source, Type castType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateConcat(ShapedQueryExpression source1, ShapedQueryExpression source2)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateContains(ShapedQueryExpression source, Expression item)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateCount(ShapedQueryExpression source, LambdaExpression? predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateDefaultIfEmpty(ShapedQueryExpression source, Expression? defaultValue)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateDistinct(ShapedQueryExpression source)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateElementAtOrDefault(ShapedQueryExpression source, Expression index, bool returnDefault)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateExcept(ShapedQueryExpression source1, ShapedQueryExpression source2)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateGroupBy(ShapedQueryExpression source, LambdaExpression keySelector, LambdaExpression? elementSelector, LambdaExpression? resultSelector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateGroupJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateIntersect(ShapedQueryExpression source1, ShapedQueryExpression source2)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateLastOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateLeftJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateLongCount(ShapedQueryExpression source, LambdaExpression? predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateMin(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateOfType(ShapedQueryExpression source, Type resultType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateReverse(ShapedQueryExpression source)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression collectionSelector, LambdaExpression resultSelector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSelectMany(ShapedQueryExpression source, LambdaExpression selector)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSkip(ShapedQueryExpression source, Expression count)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSkipWhile(ShapedQueryExpression source, LambdaExpression predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateSum(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateTakeWhile(ShapedQueryExpression source, LambdaExpression predicate)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
+            => throw new NotImplementedException();
+
+        protected override ShapedQueryExpression? TranslateUnion(ShapedQueryExpression source1, ShapedQueryExpression source2)
+            => throw new NotImplementedException();
+
+        #endregion
+    }
+
+    /// <summary>
+    /// ✅ Visitor especializado para extraer TODOS los includes del árbol de expresiones
+    /// </summary>
+    internal class IncludeExtractionVisitor : ExpressionVisitor
+    {
+        public List<IReadOnlyNavigation> DetectedNavigations { get; } = new();
+        private int _depth = 0;
+
+        protected override Expression VisitExtension(Expression node)
         {
-            //Console.WriteLine(node);
-            /*if (node != null && node is MethodCallExpression methodCall)
+            if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
             {
-                Console.WriteLine($"QueryableMethod - Visit MethodCall: {methodCall.Method.DeclaringType?.Name}.{methodCall.Method.Name}");
-            }*/
-            return base.Visit(node);
-        }
-
-        protected override Expression VisitMethodCall(MethodCallExpression node)
-        {
-            //Console.WriteLine($"QueryableMethodTranslating - VisitMethodCall: {node.Method.DeclaringType?.Name}.{node.Method.Name}");
-
-            // Detectar llamadas a Include
-            if (node.Method.Name == "Include")
-            {
-                Console.WriteLine($"✓ Detected Include method call");
-                Console.WriteLine($"Declaring Type: {node.Method.DeclaringType?.FullName}");
-
-                // El primer argumento es la source query
-                var source = Visit(node.Arguments[0]);
-
-                if (source is ShapedQueryExpression shapedQuery &&
-                    shapedQuery.QueryExpression is Query.FirestoreQueryExpression firestoreQuery)
+                // Capturar esta navegación
+                if (includeExpression.Navigation is IReadOnlyNavigation navigation)
                 {
-                    // El segundo argumento es el lambda que especifica la navegación
-                    // Puede ser una LambdaExpression o una string
-                    if (node.Arguments.Count > 1)
-                    {
-                        var includeArg = node.Arguments[1];
-                        Console.WriteLine($"Include argument type: {includeArg.GetType().Name}");
-                        Console.WriteLine($"Include argument: {includeArg}");
-
-                        // Extraer la navegación del lambda
-                        if (includeArg is UnaryExpression { Operand: LambdaExpression lambda })
-                        {
-                            if (lambda.Body is MemberExpression memberExpr)
-                            {
-                                var propertyName = memberExpr.Member.Name;
-                                Console.WriteLine($"Navigation property: {propertyName}");
-
-                                // Buscar la navegación en el entity type
-                                var navigation = firestoreQuery.EntityType.FindNavigation(propertyName);
-                                if (navigation != null && navigation.IsSubCollection())
-                                {
-                                    Console.WriteLine($"✓ Adding subcollection navigation: {propertyName}");
-                                    var newQuery = firestoreQuery.AddInclude(navigation);
-                                    return shapedQuery.UpdateQueryExpression(newQuery);
-                                }
-                            }
-                        }
-                    }
+                    Console.WriteLine($"{GetIndent()}✓ Captured Include: {navigation.Name}");
+                    DetectedNavigations.Add(navigation);
                 }
+
+                // 🔥 CRÍTICO: Visitar EntityExpression y NavigationExpression
+                // para encontrar ThenInclude anidados
+                _depth++;
+                Visit(includeExpression.EntityExpression);
+                Visit(includeExpression.NavigationExpression);
+                _depth--;
+
+                return node; // No llamar a base, ya visitamos manualmente
             }
 
-            return base.VisitMethodCall(node);
+            // Para otras expresiones, dejar que el visitor base maneje la recursión
+            return base.VisitExtension(node);
         }
 
-        protected override Expression VisitExtension(Expression extensionExpression)
-        {
-            Console.WriteLine(extensionExpression);
-            // Log para debuggear qué tipos de extension expressions estamos recibiendo
-            //Console.WriteLine($"QueryableMethodTranslating - VisitExtension: {extensionExpression.GetType().Name}");
-
-            // En EF Core 8.0, Include se maneja como parte del shaper, no como una expresión del query
-            // El visitor no procesa Include directamente, se maneja en el ShapedQueryCompilingExpressionVisitor
-            return base.VisitExtension(extensionExpression);
-        }
+        private string GetIndent() => new string(' ', _depth * 2);
     }
+
+    #endregion
+
+    #region ShapedQueryCompilingExpressionVisitor
 
     public class FirestoreShapedQueryCompilingExpressionVisitorFactory
         : IShapedQueryCompilingExpressionVisitorFactory
@@ -601,29 +462,16 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
         {
-            // Obtener el FirestoreQueryExpression
             var firestoreQueryExpression = (Query.FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
 
-            // Procesar el shaper original para detectar y extraer Include expressions
-            var includeDetector = new IncludeDetectorVisitor(firestoreQueryExpression);
-            includeDetector.Visit(shapedQueryExpression.ShaperExpression);
+            // ✅ Los includes ya fueron capturados en TranslateSelect
+            PrintIncludesSummary(firestoreQueryExpression);
 
-            // Log de debug: ver qué navegaciones se capturaron
-            Console.WriteLine($"\n📊 Total PendingIncludes captured: {firestoreQueryExpression.PendingIncludes.Count}");
-            foreach (var inc in firestoreQueryExpression.PendingIncludes)
-            {
-                Console.WriteLine($"  - {inc.DeclaringEntityType.ClrType.Name}.{inc.Name} -> {inc.TargetEntityType.ClrType.Name}");
-            }
-            Console.WriteLine();
-
-            // Obtener el tipo de entidad
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
-            // Crear parámetros para el shaper
             var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
             var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
 
-            // Crear el shaper: (queryContext, documentSnapshot) => entity
             var shaperExpression = CreateShaperExpression(
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -634,7 +482,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 queryContextParameter,
                 documentSnapshotParameter);
 
-            // Crear la expresión que instancia FirestoreQueryingEnumerable<T>
             var enumerableType = typeof(Query.FirestoreQueryingEnumerable<>).MakeGenericType(entityType);
             var constructor = enumerableType.GetConstructor(new[]
             {
@@ -654,66 +501,8 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             return newExpression;
         }
 
-        /// <summary>
-        /// Visitor que detecta IncludeExpression en el árbol del shaper.
-        /// Construye una estructura jerárquica de navegaciones para soportar Include/ThenInclude.
-        /// </summary>
-        private class IncludeDetectorVisitor : ExpressionVisitor
-        {
-            private readonly Query.FirestoreQueryExpression _queryExpression;
+        #region Shaper Creation
 
-            public IncludeDetectorVisitor(Query.FirestoreQueryExpression queryExpression)
-            {
-                _queryExpression = queryExpression;
-            }
-
-            protected override Expression VisitExtension(Expression node)
-            {
-                if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
-                {
-                    // Procesar la navegación
-                    ProcessInclude(includeExpression);
-                }
-
-                return base.VisitExtension(node);
-            }
-
-            private void ProcessInclude(Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
-            {
-                if (includeExpression.Navigation is not IReadOnlyNavigation navigation)
-                    return;
-
-                Console.WriteLine($"✓ Detected IncludeExpression: {navigation.Name}");
-                Console.WriteLine($"  DeclaringType: {navigation.DeclaringEntityType.ClrType.Name}");
-                Console.WriteLine($"  TargetType: {navigation.TargetEntityType.ClrType.Name}");
-                Console.WriteLine($"  IsCollection: {navigation.IsCollection}");
-
-                // Agregar la navegación a la lista de includes pendientes
-                _queryExpression.PendingIncludes.Add(navigation);
-                Console.WriteLine($"✅ Added to PendingIncludes");
-
-                // 🔑 CLAVE: Los ThenInclude están anidados en NavigationExpression
-                // Necesitamos visitar recursivamente para capturarlos todos
-                // Ejemplo: Include(c => c.Pedidos).ThenInclude(p => p.Lineas)
-                // Se representa como:
-                //   IncludeExpression(Pedidos) {
-                //     NavigationExpression = IncludeExpression(Lineas) { ... }
-                //   }
-
-                Console.WriteLine($"  🔍 Visiting NavigationExpression to find nested ThenInclude...");
-                // El NavigationExpression contiene los ThenInclude anidados
-                // Visitarlo recursivamente para capturarlos
-                if (includeExpression.NavigationExpression != null)
-                {
-                    Visit(includeExpression.NavigationExpression);
-                }
-                Console.WriteLine();
-            }
-        }
-
-        /// <summary>
-        /// Crea la expresión del shaper que convierte DocumentSnapshot en una entidad.
-        /// </summary>
         private Expression CreateShaperExpression(
             ParameterExpression queryContextParameter,
             ParameterExpression documentSnapshotParameter,
@@ -731,9 +520,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 Expression.Constant(queryExpression));
         }
 
-        /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad.
-        /// </summary>
         private static T DeserializeEntity<T>(
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
@@ -755,51 +541,40 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 collectionManager,
                 deserializerLogger);
 
-            // Deserializar la entidad principal
             var entity = deserializer.DeserializeEntity<T>(documentSnapshot);
 
-            // Cargar subcollections si hay includes pendientes
+            // 🔥 Cargar includes
             if (queryExpression.PendingIncludes.Count > 0)
             {
-                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model).GetAwaiter().GetResult();
+                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model)
+                    .GetAwaiter().GetResult();
             }
 
             return entity;
         }
 
-        /// <summary>
-        /// Carga las subcollections especificadas en los includes
-        /// </summary>
-        /// <summary>
-        /// Carga las navegaciones especificadas en los includes (con soporte recursivo)
-        /// </summary>
+        #endregion
+
+        #region Include Loading (El resto del código permanece igual)
+
         private static async Task LoadIncludes<T>(
             T entity,
             DocumentSnapshot documentSnapshot,
-            List<IReadOnlyNavigation> includes,
+            List<IReadOnlyNavigation> allIncludes,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model) where T : class
         {
-            // Agrupar navegaciones por nivel
-            // Por ejemplo: [Pedidos, Pedidos.Lineas, Pedidos.Lineas.Producto]
-            // Se agrupan en:
-            //   Nivel 1: [Pedidos]
-            //   (Las demás se cargarán recursivamente al cargar Pedidos)
-
-            var rootNavigations = includes
+            var rootNavigations = allIncludes
                 .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
                 .ToList();
 
-            foreach (var navigation in rootNavigations)
-            {
-                await LoadNavigationAsync(entity, documentSnapshot, navigation, includes, clientWrapper, deserializer, model);
-            }
+            var tasks = rootNavigations.Select(navigation =>
+                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model));
+
+            await Task.WhenAll(tasks);
         }
 
-        /// <summary>
-        /// Carga una navegación específica (subcollection o referencia)
-        /// </summary>
         private static async Task LoadNavigationAsync(
             object entity,
             DocumentSnapshot documentSnapshot,
@@ -811,19 +586,14 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         {
             if (navigation.IsCollection)
             {
-                // CASO 1: Subcollection (1:N) - ej: Cliente.Pedidos
                 await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
             }
             else
             {
-                // CASO 2: Referencia (N:1) - ej: Linea.Producto
                 await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
             }
         }
 
-        /// <summary>
-        /// Carga una subcollection (relación 1:N)
-        /// </summary>
         private static async Task LoadSubCollectionAsync(
             object parentEntity,
             DocumentSnapshot parentDoc,
@@ -844,59 +614,51 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             Console.WriteLine($"📂 Loading subcollection: {parentDoc.Reference.Path}/{subCollectionName}");
 
-            // Ejecutar query para obtener todos los documentos de la subcollection
             var snapshot = await subCollectionRef.GetSnapshotAsync();
 
-            // Crear lista para almacenar las entidades de la subcollection
             var listType = typeof(List<>).MakeGenericType(navigation.TargetEntityType.ClrType);
             var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
 
-            // Deserializar cada documento
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
                 .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-            // 🔑 CLAVE: Buscar includes anidados para esta navegación
-            // Ejemplo: Si estamos cargando "Pedidos", buscar "Lineas" que pertenezca a Pedido
-            var childIncludes = allIncludes
-                .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
-                .ToList();
 
             foreach (var doc in snapshot.Documents)
             {
                 if (!doc.Exists)
                     continue;
 
-                // Deserializar el documento hijo
                 var childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
                 if (childEntity == null)
                     continue;
 
-                // 🔁 RECURSIÓN: Si hay includes anidados (ThenInclude), cargarlos
+                var childIncludes = allIncludes
+                    .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+                    .ToList();
+
                 if (childIncludes.Count > 0)
                 {
-                    Console.WriteLine($"  🔁 Loading nested includes for {navigation.TargetEntityType.ClrType.Name}");
+                    Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for {navigation.TargetEntityType.ClrType.Name}");
+
                     var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
                         .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
                         .MakeGenericMethod(navigation.TargetEntityType.ClrType);
 
                     await (Task)loadIncludesMethod.Invoke(null, new object[]
                     {
-                        childEntity, doc, childIncludes, clientWrapper, deserializer, model
+                        childEntity, doc, allIncludes, clientWrapper, deserializer, model
                     })!;
                 }
+
+                ApplyFixup(parentEntity, childEntity, navigation);
 
                 list.Add(childEntity);
             }
 
-            // Asignar la lista a la propiedad de navegación
             navigation.PropertyInfo?.SetValue(parentEntity, list);
-            Console.WriteLine($"✅ Loaded {list.Count} items for {navigation.Name}");
+            Console.WriteLine($"✅ Loaded {list.Count} item(s) for {navigation.Name}");
         }
 
-        /// <summary>
-        /// Carga una referencia (relación N:1)
-        /// </summary>
         private static async Task LoadReferenceAsync(
             object entity,
             DocumentSnapshot documentSnapshot,
@@ -908,28 +670,17 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         {
             Console.WriteLine($"🔗 Loading reference: {navigation.Name}");
 
-            // Obtener el valor del campo de referencia en el documento
             var data = documentSnapshot.ToDictionary();
 
-            // Buscar el campo que almacena la referencia
-            // Puede ser:
-            // 1. Un campo DocumentReference directo (ej: "Producto")
-            // 2. Un campo con el ID (ej: "ProductoId")
-
             object? referenceValue = null;
-            string? referenceFieldName = null;
 
-            // Intentar primero con el nombre de la navegación
             if (data.TryGetValue(navigation.Name, out var directValue))
             {
                 referenceValue = directValue;
-                referenceFieldName = navigation.Name;
             }
-            // Intentar con el patrón {NavigationName}Id
             else if (data.TryGetValue($"{navigation.Name}Id", out var idValue))
             {
                 referenceValue = idValue;
-                referenceFieldName = $"{navigation.Name}Id";
             }
 
             if (referenceValue == null)
@@ -938,19 +689,15 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 return;
             }
 
-            // Cargar el documento referenciado
             DocumentSnapshot? referencedDoc = null;
 
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
-                // CASO 1: Es un DocumentReference de Firestore
                 Console.WriteLine($"  → Found DocumentReference: {docRef.Path}");
                 referencedDoc = await docRef.GetSnapshotAsync();
             }
             else if (referenceValue is string id)
             {
-                // CASO 2: Es un ID, necesitamos construir la ruta
-                // Obtener el nombre de la colección del tipo target
                 var targetEntityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
                 if (targetEntityType != null)
                 {
@@ -967,7 +714,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 return;
             }
 
-            // Deserializar el documento referenciado
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
                 .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
@@ -976,32 +722,90 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             if (referencedEntity != null)
             {
-                // Asignar a la propiedad de navegación
+                var childIncludes = allIncludes
+                    .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+                    .ToList();
+
+                if (childIncludes.Count > 0)
+                {
+                    Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for reference {navigation.Name}");
+
+                    var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
+                        .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+                    await (Task)loadIncludesMethod.Invoke(null, new object[]
+                    {
+                        referencedEntity, referencedDoc, allIncludes, clientWrapper, deserializer, model
+                    })!;
+                }
+
+                ApplyFixup(entity, referencedEntity, navigation);
+
                 navigation.PropertyInfo?.SetValue(entity, referencedEntity);
                 Console.WriteLine($"✅ Loaded reference {navigation.Name}");
             }
         }
 
-        /// <summary>
-        /// Obtiene el nombre de la colección para un tipo de entidad
-        /// </summary>
+        private static void ApplyFixup(
+            object parent,
+            object child,
+            IReadOnlyNavigation navigation)
+        {
+            if (navigation.Inverse != null)
+            {
+                var inverseProperty = navigation.Inverse.PropertyInfo;
+                if (inverseProperty != null)
+                {
+                    if (navigation.IsCollection)
+                    {
+                        inverseProperty.SetValue(child, parent);
+                        Console.WriteLine($"  🔗 Fixup: {child.GetType().Name}.{inverseProperty.Name} → {parent.GetType().Name}");
+                    }
+                    else
+                    {
+                        if (navigation.Inverse.IsCollection)
+                        {
+                            var collection = inverseProperty.GetValue(parent) as System.Collections.IList;
+                            if (collection != null && !collection.Contains(child))
+                            {
+                                collection.Add(child);
+                                Console.WriteLine($"  🔗 Fixup: Added to {parent.GetType().Name}.{inverseProperty.Name}");
+                            }
+                        }
+                        else
+                        {
+                            inverseProperty.SetValue(parent, child);
+                            Console.WriteLine($"  🔗 Fixup: {parent.GetType().Name}.{inverseProperty.Name} → {child.GetType().Name}");
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
+        {
+            var childEntityType = navigation.ForeignKey.DeclaringEntityType;
+
+            // Pluralizar el nombre del tipo de entidad
+            return Pluralize(childEntityType.ClrType.Name);
+        }
+
         private static string GetCollectionNameForEntityType(IEntityType entityType)
         {
-            // Buscar atributo [Table] en el tipo
             var tableAttribute = entityType.ClrType
                 .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
 
             if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
                 return tableAttribute.Name;
 
-            // Fallback: usar el nombre del tipo pluralizado
-            var entityName = entityType.ClrType.Name;
-            return Pluralize(entityName);
+            return Pluralize(entityType.ClrType.Name);
         }
 
-        /// <summary>
-        /// Pluraliza un nombre de entidad
-        /// </summary>
         private static string Pluralize(string name)
         {
             if (string.IsNullOrEmpty(name))
@@ -1020,31 +824,89 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             return name + "s";
         }
 
-        /// <summary>
-        /// Verifica si un carácter es vocal
-        /// </summary>
         private static bool IsVowel(char c)
         {
             c = char.ToLowerInvariant(c);
             return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
         }
 
-        /// <summary>
-        /// Obtiene el nombre de la subcollection desde la navegación
-        /// </summary>
-        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
+        private void PrintIncludesSummary(Query.FirestoreQueryExpression queryExpression)
         {
-            // Usar el nombre de la propiedad en minúsculas como nombre de la subcollection
-            //var name = navigation.Name;
-            //return char.ToLowerInvariant(name[0]) + name.Substring(1);
-            return navigation.Name;
+            Console.WriteLine("\n╔═══════════════════════════════════════════════════════╗");
+            Console.WriteLine("║         RESUMEN DE INCLUDES DETECTADOS                ║");
+            Console.WriteLine("╚═══════════════════════════════════════════════════════╝");
+            Console.WriteLine($"Total PendingIncludes: {queryExpression.PendingIncludes.Count}\n");
+
+            if (queryExpression.PendingIncludes.Count == 0)
+            {
+                Console.WriteLine("⚠ ⚠ ⚠  NO SE DETECTÓ NINGÚN INCLUDE  ⚠ ⚠ ⚠\n");
+            }
+            else
+            {
+                var grouped = queryExpression.PendingIncludes
+                    .GroupBy(n => n.DeclaringEntityType.ClrType.Name)
+                    .OrderBy(g => g.Key);
+
+                foreach (var group in grouped)
+                {
+                    Console.WriteLine($"  📁 {group.Key}:");
+                    foreach (var nav in group)
+                    {
+                        var typeIndicator = nav.IsCollection ? "[Collection]" : "[Reference]";
+                        var isSubColl = nav.IsSubCollection() ? "✓ SubCollection" : "⚠ NOT SubCollection";
+                        Console.WriteLine($"    └─{typeIndicator} {nav.Name} → {nav.TargetEntityType.ClrType.Name} ({isSubColl})");
+                    }
+                }
+
+                Console.WriteLine($"\n  📊 Árbol de carga esperado:");
+                PrintLoadingTree(queryExpression.PendingIncludes);
+            }
+
+            Console.WriteLine($"\n═══════════════════════════════════════════════════════\n");
         }
 
+        private void PrintLoadingTree(List<IReadOnlyNavigation> navigations)
+        {
+            var allTargetTypes = new HashSet<IReadOnlyEntityType>(
+                navigations.Select(n => n.TargetEntityType));
+
+            var rootTypes = navigations
+                .Select(n => n.DeclaringEntityType)
+                .Distinct()
+                .Where(t => !allTargetTypes.Contains(t))
+                .ToList();
+
+            foreach (var rootType in rootTypes)
+            {
+                Console.WriteLine($"  {rootType.ClrType.Name}");
+                PrintNavigationChildren(rootType, navigations, indent: "    ");
+            }
+        }
+
+        private void PrintNavigationChildren(
+            IReadOnlyEntityType entityType,
+            List<IReadOnlyNavigation> allNavigations,
+            string indent)
+        {
+            var children = allNavigations
+                .Where(n => n.DeclaringEntityType == entityType)
+                .ToList();
+
+            foreach (var child in children)
+            {
+                var indicator = child.IsCollection ? "└─[1:N]" : "└─[N:1]";
+                Console.WriteLine($"{indent}{indicator} {child.Name} → {child.TargetEntityType.ClrType.Name}");
+
+                PrintNavigationChildren(child.TargetEntityType, allNavigations, indent + "    ");
+            }
+        }
+
+        #endregion
     }
 
-    /// <summary>
-    /// Visitor que reemplaza ParameterExpression de runtime (__p_0) con acceso a QueryContext.ParameterValues
-    /// </summary>
+    #endregion
+
+    #region Support Classes
 
     internal class RuntimeParameterReplacer : ExpressionVisitor
     {
@@ -1057,17 +919,11 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
         protected override Expression VisitParameter(ParameterExpression node)
         {
-            // Detectar parámetros de runtime como __p_0, __p_1, etc.
             if (node.Name != null && node.Name.StartsWith("__p_"))
             {
-                // Crear una expresión que accede a QueryContext.ParameterValues["{node.Name}"]
-                // En tiempo de compilación: QueryContext.ParameterValues["__p_0"]
-                // En tiempo de ejecución: esto se evaluará al valor real
                 var queryContextParam = QueryCompilationContext.QueryContextParameter;
                 var parameterValuesProperty = Expression.Property(queryContextParam, "ParameterValues");
                 var indexer = Expression.Property(parameterValuesProperty, "Item", Expression.Constant(node.Name));
-
-                // Convertir al tipo correcto
                 var converted = Expression.Convert(indexer, node.Type);
 
                 return converted;
@@ -1077,36 +933,28 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         }
     }
 
-    /// <summary>
-    /// Traductor de expresiones LINQ a filtros de Firestore (WhereClause).
-    /// </summary>
     internal class FirestoreWhereTranslator
     {
         public Query.FirestoreWhereClause? Translate(Expression expression)
         {
-            // Manejar expresiones binarias (==, !=, <, >, <=, >=)
             if (expression is BinaryExpression binaryExpression)
             {
                 return TranslateBinaryExpression(binaryExpression);
             }
 
-            // Manejar llamadas a métodos (Contains, StartsWith, etc.)
             if (expression is MethodCallExpression methodCallExpression)
             {
                 return TranslateMethodCallExpression(methodCallExpression);
             }
 
-            // No podemos traducir esta expresión
             return null;
         }
 
         private Query.FirestoreWhereClause? TranslateBinaryExpression(BinaryExpression binary)
         {
-            // Extraer el nombre de la propiedad y el valor
             string? propertyName = null;
             Expression? valueExpression = null;
 
-            // Determinar qué lado es la propiedad y qué lado es el valor
             if (binary.Left is MemberExpression leftMember && leftMember.Member is PropertyInfo leftProp)
             {
                 propertyName = leftProp.Name;
@@ -1117,7 +965,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 propertyName = rightProp.Name;
                 valueExpression = binary.Left;
             }
-            // Manejar EF.Property<T>(entity, "PropertyName")
             else if (binary.Left is MethodCallExpression leftMethod &&
                      leftMethod.Method.Name == "Property" &&
                      leftMethod.Method.DeclaringType?.Name == "EF")
@@ -1132,16 +979,10 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 propertyName = GetPropertyNameFromEFProperty(rightMethod);
                 valueExpression = binary.Left;
             }
-            else
-            {
-                // No podemos traducir esta expresión
-                return null;
-            }
 
             if (propertyName == null || valueExpression == null)
                 return null;
 
-            // Mapear el operador de C# a operador de Firestore
             var firestoreOperator = binary.NodeType switch
             {
                 ExpressionType.Equal => Query.FirestoreOperator.EqualTo,
@@ -1156,17 +997,13 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             if (!firestoreOperator.HasValue)
                 return null;
 
-            // 🔥 NUEVO: La valueExpression puede ser un acceso a QueryContext.ParameterValues
-            // Lo dejamos como una expresión que se evaluará en runtime
             return new Query.FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression);
         }
 
         private Query.FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
         {
-            // Soportar Contains para operador "In"
             if (methodCall.Method.Name == "Contains")
             {
-                // Caso 1: list.Contains(property) -> WhereIn
                 if (methodCall.Object != null && methodCall.Arguments.Count == 1)
                 {
                     if (methodCall.Arguments[0] is MemberExpression member && member.Member is PropertyInfo prop)
@@ -1176,7 +1013,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                     }
                 }
 
-                // Caso 2: property.Contains(value) -> Array-Contains
                 if (methodCall.Object is MemberExpression objMember &&
                     objMember.Member is PropertyInfo objProp &&
                     methodCall.Arguments.Count == 1)
@@ -1186,16 +1022,11 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 }
             }
 
-            // No podemos traducir este método
             return null;
         }
 
-        /// <summary>
-        /// Extrae el nombre de la propiedad de una llamada a EF.Property (entity, "PropertyName")
-        /// </summary>
         private string? GetPropertyNameFromEFProperty(MethodCallExpression methodCall)
         {
-            // EF.Property tiene 2 argumentos: entity y propertyName (string constante)
             if (methodCall.Arguments.Count >= 2 && methodCall.Arguments[1] is ConstantExpression constant)
             {
                 return constant.Value as string;
@@ -1208,45 +1039,29 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
     {
     }
 
+    #endregion
+
+    #region Interfaces
+
     public interface IFirestoreClientWrapper
     {
         FirestoreDb Database { get; }
-
-        Task<DocumentSnapshot> GetDocumentAsync(
-            string collection, string documentId, CancellationToken cancellationToken = default);
-
-        Task<bool> DocumentExistsAsync(
-            string collection, string documentId, CancellationToken cancellationToken = default);
-
-        Task<QuerySnapshot> GetCollectionAsync(
-            string collection, CancellationToken cancellationToken = default);
-
-        Task<WriteResult> SetDocumentAsync(
-            string collection, string documentId, Dictionary<string, object> data,
-            CancellationToken cancellationToken = default);
-
-        Task<WriteResult> UpdateDocumentAsync(
-            string collection, string documentId, Dictionary<string, object> data,
-            CancellationToken cancellationToken = default);
-
-        Task<WriteResult> DeleteDocumentAsync(
-            string collection, string documentId, CancellationToken cancellationToken = default);
-
-        Task<QuerySnapshot> ExecuteQueryAsync(
-            Google.Cloud.Firestore.Query query, CancellationToken cancellationToken = default);
-
-        Task<T> RunTransactionAsync<T>(
-            Func<Transaction, Task<T>> callback,
-            CancellationToken cancellationToken = default);
-
+        Task<DocumentSnapshot> GetDocumentAsync(string collection, string documentId, CancellationToken cancellationToken = default);
+        Task<bool> DocumentExistsAsync(string collection, string documentId, CancellationToken cancellationToken = default);
+        Task<QuerySnapshot> GetCollectionAsync(string collection, CancellationToken cancellationToken = default);
+        Task<WriteResult> SetDocumentAsync(string collection, string documentId, Dictionary<string, object> data, CancellationToken cancellationToken = default);
+        Task<WriteResult> UpdateDocumentAsync(string collection, string documentId, Dictionary<string, object> data, CancellationToken cancellationToken = default);
+        Task<WriteResult> DeleteDocumentAsync(string collection, string documentId, CancellationToken cancellationToken = default);
+        Task<QuerySnapshot> ExecuteQueryAsync(Google.Cloud.Firestore.Query query, CancellationToken cancellationToken = default);
+        Task<T> RunTransactionAsync<T>(Func<Transaction, Task<T>> callback, CancellationToken cancellationToken = default);
         WriteBatch CreateBatch();
-
         CollectionReference GetCollection(string collection);
-
         DocumentReference GetDocument(string collection, string documentId);
     }
 
     public interface IFirestoreIdGenerator { string GenerateId(); }
     public interface IFirestoreDocumentSerializer { }
     public interface IFirestoreCollectionManager { string GetCollectionName(Type entityType); }
+
+    #endregion
 }
