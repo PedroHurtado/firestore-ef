@@ -134,7 +134,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         /// Clona la extensión (patrón immutable)
         /// </summary>
         protected virtual FirestoreOptionsExtension Clone()
-            => new FirestoreOptionsExtension(this);
+            => new(this);
 
         /// <summary>
         /// Registra los servicios necesarios para el proveedor de Firestore

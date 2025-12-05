@@ -8,6 +8,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Firestore.EntityFrameworkCo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "firestore-test", "firestore-test\firestore-test.csproj", "{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{329D1111-C116-4FF0-83D9-5914D7088FA9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fudie.Firestore.UnitTest", "tests\Fudie.Firestore.UnitTest\Fudie.Firestore.UnitTest.csproj", "{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -22,12 +26,17 @@ Global
 		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5326A9EA-F4EB-4DED-93D1-C89A56EADD82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{156A14F8-4BD1-A161-B91C-10D0E1F23415} = {6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}
+		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68} = {329D1111-C116-4FF0-83D9-5914D7088FA9}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {19F8FB2C-EFA1-42F6-B1BA-330749DE2C49}
