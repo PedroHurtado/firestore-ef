@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -48,7 +47,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// Si la query es solo por ID, contiene la expresión del ID.
         /// En este caso, se usará GetDocumentAsync en lugar de ExecuteQueryAsync.
         /// </summary>
-        public System.Linq.Expressions.Expression? IdValueExpression { get; set; }
+        public Expression? IdValueExpression { get; set; }
 
         /// <summary>
         /// Lista de navegaciones a cargar (Include/ThenInclude)
@@ -94,7 +93,7 @@ namespace Firestore.EntityFrameworkCore.Query
             List<FirestoreOrderByClause>? orderByClauses = null,
             int? limit = null,
             DocumentSnapshot? startAfterDocument = null,
-            System.Linq.Expressions.Expression? idValueExpression = null,
+            Expression? idValueExpression = null,
             List<IReadOnlyNavigation>? pendingIncludes = null)
         {
             return new FirestoreQueryExpression(
@@ -184,214 +183,6 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             return string.Join(" | ", parts);
-        }
-    }
-
-    /// <summary>
-    /// Representa una cláusula WHERE en una query de Firestore
-    /// </summary>
-    public class FirestoreWhereClause
-    {
-        /// <summary>
-        /// Nombre de la propiedad/campo a filtrar (ej: "Precio", "Categoria")
-        /// </summary>
-        public string PropertyName { get; set; }
-
-        /// <summary>
-        /// Operador de comparación (==, !=, &gt;, &lt;, etc.)
-        /// </summary>
-        public FirestoreOperator Operator { get; set; }
-
-        /// <summary>
-        /// Expresión que representa el valor con el que comparar.
-        /// Puede ser una ConstantExpression o una expresión que accede a QueryContext.ParameterValues
-        /// </summary>
-        public System.Linq.Expressions.Expression ValueExpression { get; set; }
-
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, System.Linq.Expressions.Expression valueExpression)
-        {
-            PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
-            Operator = @operator;
-            ValueExpression = valueExpression ?? throw new ArgumentNullException(nameof(valueExpression));
-        }
-
-        /// <summary>
-        /// Evalúa la expresión del valor en runtime usando el QueryContext proporcionado
-        /// </summary>
-        public object? EvaluateValue(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
-        {
-            // Si es una ConstantExpression, retornar su valor directamente
-            if (ValueExpression is System.Linq.Expressions.ConstantExpression constant)
-            {
-                return constant.Value;
-            }
-
-            // Para cualquier otra expresión (incluyendo accesos a QueryContext.ParameterValues),
-            // compilarla y ejecutarla con el QueryContext como parámetro
-            try
-            {
-                // Reemplazar el parámetro queryContext en la expresión con el valor real
-                var replacer = new QueryContextParameterReplacer(queryContext);
-                var replacedExpression = replacer.Visit(ValueExpression);
-
-                // Compilar y evaluar
-                var lambda = System.Linq.Expressions.Expression.Lambda<Func<object>>(
-                    System.Linq.Expressions.Expression.Convert(replacedExpression, typeof(object)));
-
-                var compiled = lambda.Compile();
-                var result = compiled();
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Failed to evaluate filter value expression: {ex.Message}", ex);
-            }
-        }
-
-        /// <summary>
-        /// Visitor que reemplaza referencias al parámetro QueryContext con el valor real
-        /// </summary>
-        private class QueryContextParameterReplacer : System.Linq.Expressions.ExpressionVisitor
-        {
-            private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
-
-            public QueryContextParameterReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
-            {
-                _queryContext = queryContext;
-            }
-
-            protected override System.Linq.Expressions.Expression VisitParameter(System.Linq.Expressions.ParameterExpression node)
-            {
-                // Si es el parámetro "queryContext", reemplazarlo con una constante que contiene el QueryContext real
-                if (node.Name == "queryContext" && node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
-                {
-                    return System.Linq.Expressions.Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
-                }
-
-                return base.VisitParameter(node);
-            }
-        }
-
-        /// <summary>
-        /// Representación en string para debugging
-        /// </summary>
-        public override string ToString()
-        {
-            var operatorSymbol = Operator switch
-            {
-                FirestoreOperator.EqualTo => "==",
-                FirestoreOperator.NotEqualTo => "!=",
-                FirestoreOperator.LessThan => "<",
-                FirestoreOperator.LessThanOrEqualTo => "<=",
-                FirestoreOperator.GreaterThan => ">",
-                FirestoreOperator.GreaterThanOrEqualTo => ">=",
-                FirestoreOperator.ArrayContains => "array-contains",
-                FirestoreOperator.In => "in",
-                FirestoreOperator.ArrayContainsAny => "array-contains-any",
-                FirestoreOperator.NotIn => "not-in",
-                _ => Operator.ToString()
-            };
-
-            return $"{PropertyName} {operatorSymbol} <Expression: {ValueExpression}>";
-        }
-    }
-
-    /// <summary>
-    /// Operadores de comparación soportados por Firestore
-    /// </summary>
-    public enum FirestoreOperator
-    {
-        /// <summary>
-        /// Igual a (==) - WhereEqualTo
-        /// </summary>
-        EqualTo,
-
-        /// <summary>
-        /// No igual a (!=) - WhereNotEqualTo
-        /// </summary>
-        NotEqualTo,
-
-        /// <summary>
-        /// Menor que (&lt;) - WhereLessThan
-        /// </summary>
-        LessThan,
-
-        /// <summary>
-        /// Menor o igual que (&lt;=) - WhereLessThanOrEqualTo
-        /// </summary>
-        LessThanOrEqualTo,
-
-        /// <summary>
-        /// Mayor que (&gt;) - WhereGreaterThan
-        /// </summary>
-        GreaterThan,
-
-        /// <summary>
-        /// Mayor o igual que (&gt;=) - WhereGreaterThanOrEqualTo
-        /// </summary>
-        GreaterThanOrEqualTo,
-
-        /// <summary>
-        /// Array contiene (array-contains) - WhereArrayContains
-        /// Ejemplo: p.Tags.Contains("nuevo")
-        /// </summary>
-        ArrayContains,
-
-        /// <summary>
-        /// Valor en lista (in) - WhereIn
-        /// Ejemplo: ids.Contains(p.Id)
-        /// NOTA: Firestore limita a 30 elementos máximo
-        /// </summary>
-        In,
-
-        /// <summary>
-        /// Array contiene cualquiera (array-contains-any) - WhereArrayContainsAny
-        /// Ejemplo: p.Tags intersecta con ["nuevo", "destacado"]
-        /// NOTA: Firestore limita a 30 elementos máximo
-        /// </summary>
-        ArrayContainsAny,
-
-        /// <summary>
-        /// Valor NO en lista (not-in) - WhereNotIn
-        /// NOTA: Firestore limita a 10 elementos máximo
-        /// </summary>
-        NotIn
-    }
-
-    /// <summary>
-    /// Representa una cláusula ORDER BY en una query de Firestore
-    /// </summary>
-    public class FirestoreOrderByClause
-    {
-        /// <summary>
-        /// Nombre de la propiedad/campo por el cual ordenar (ej: "Nombre", "Precio")
-        /// </summary>
-        public string PropertyName { get; set; }
-
-        /// <summary>
-        /// Si es orden descendente (true) o ascendente (false)
-        /// </summary>
-        public bool Descending { get; set; }
-
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        public FirestoreOrderByClause(string propertyName, bool descending = false)
-        {
-            PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
-            Descending = descending;
-        }
-
-        /// <summary>
-        /// Representación en string para debugging
-        /// </summary>
-        public override string ToString()
-        {
-            return $"{PropertyName} {(Descending ? "DESC" : "ASC")}";
         }
     }
 }

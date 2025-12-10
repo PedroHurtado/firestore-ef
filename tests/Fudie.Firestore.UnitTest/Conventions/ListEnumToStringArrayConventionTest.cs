@@ -1,3 +1,6 @@
+using Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Firestore.EntityFrameworkCore.Metadata.Converters;
+
 namespace Fudie.Firestore.UnitTest.Conventions;
 
 public class ListEnumToStringArrayConventionTest

@@ -4,16 +4,6 @@ using Grpc.Core;
 
 namespace Firestore.EntityFrameworkCore.Storage
 {
-    public class FirestoreExecutionStrategyFactory(ExecutionStrategyDependencies dependencies) : IExecutionStrategyFactory
-    {
-        private readonly ExecutionStrategyDependencies _dependencies = dependencies;
-
-        public IExecutionStrategy Create()
-        {
-            return new FirestoreExecutionStrategy(_dependencies);
-        }
-    }
-
     public class FirestoreExecutionStrategy : ExecutionStrategy
     {
         // Error 3 y 4: Usar 'new' para ocultar intencionalmente los miembros heredados

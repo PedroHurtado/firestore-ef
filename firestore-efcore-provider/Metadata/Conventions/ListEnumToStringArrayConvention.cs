@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using Firestore.EntityFrameworkCore.Metadata.Converters;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -42,31 +42,5 @@ public class ListEnumToStringArrayConvention : IPropertyAddedConvention
                 propertyBuilder.HasConversion(converter);
             }
         }
-    }
-}
-
-// Converter para List<TEnum> → List<string>
-public class ListEnumToStringConverter<TEnum> : ValueConverter<List<TEnum>, List<string>>
-    where TEnum : struct, Enum
-{
-    public ListEnumToStringConverter()
-        : base(
-            v => v.Select(e => e.ToString()).ToList(),
-            v => v.Select(s => Enum.Parse<TEnum>(s)).ToList()
-        )
-    {
-    }
-}
-
-// Converter para List<TEnum?> → List<string?>
-public class ListNullableEnumToStringConverter<TEnum> : ValueConverter<List<TEnum?>, List<string?>>
-    where TEnum : struct, Enum
-{
-    public ListNullableEnumToStringConverter()
-        : base(
-            v => v.Select(e => e.HasValue ? e.Value.ToString() : null).ToList(),
-            v => v.Select(s => string.IsNullOrEmpty(s) ? (TEnum?)null : Enum.Parse<TEnum>(s)).ToList()
-        )
-    {
     }
 }
