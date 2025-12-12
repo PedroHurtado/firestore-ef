@@ -149,6 +149,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <summary>
         /// Visitor que reemplaza referencias al parámetro QueryContext con el valor real
+        /// y resuelve parámetros desde QueryContext.ParameterValues
         /// </summary>
         private class IdExpressionParameterReplacer : System.Linq.Expressions.ExpressionVisitor
         {
@@ -165,6 +166,13 @@ namespace Firestore.EntityFrameworkCore.Query
                 if (node.Name == "queryContext" && node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
                 {
                     return System.Linq.Expressions.Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
+                }
+
+                // Si es un parámetro que existe en QueryContext.ParameterValues (variables capturadas),
+                // reemplazarlo con su valor real
+                if (node.Name != null && _queryContext.ParameterValues.TryGetValue(node.Name, out var parameterValue))
+                {
+                    return System.Linq.Expressions.Expression.Constant(parameterValue, node.Type);
                 }
 
                 return base.VisitParameter(node);
