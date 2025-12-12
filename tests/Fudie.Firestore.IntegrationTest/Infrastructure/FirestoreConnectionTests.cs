@@ -1,6 +1,6 @@
 using Google.Api.Gax;
 
-namespace Fudie.Firestore.IntegrationTest;
+namespace Fudie.Firestore.IntegrationTest.Infrastructure;
 
 /// <summary>
 /// Tests de conexión al emulador de Firestore.
