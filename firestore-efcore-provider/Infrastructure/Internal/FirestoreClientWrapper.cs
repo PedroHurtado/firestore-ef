@@ -1,3 +1,4 @@
+using Google.Api.Gax;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging;
@@ -21,14 +22,14 @@ namespace Firestore.EntityFrameworkCore.Infrastructure.Internal
             ILogger<FirestoreClientWrapper> logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            
-            _options = contextOptions.FindExtension<FirestoreOptionsExtension>() 
+
+            _options = contextOptions.FindExtension<FirestoreOptionsExtension>()
                 ?? throw new InvalidOperationException("FirestoreOptionsExtension no encontrada.");
 
             _db = InitializeFirestoreDb();
 
             _logger.LogInformation(
-                "Cliente de Firestore inicializado para proyecto: {ProjectId}", 
+                "Cliente de Firestore inicializado para proyecto: {ProjectId}",
                 _options.ProjectId);
         }
 
@@ -41,7 +42,9 @@ namespace Firestore.EntityFrameworkCore.Infrastructure.Internal
                 var builder = new FirestoreDbBuilder
                 {
                     ProjectId = _options.ProjectId,
-                    DatabaseId = _options.DatabaseId ?? "(default)"
+                    DatabaseId = _options.DatabaseId ?? "(default)",
+                    // Detectar automáticamente si hay un emulador configurado
+                    EmulatorDetection = EmulatorDetection.EmulatorOrProduction
                 };
 
                 if (!string.IsNullOrEmpty(_options.CredentialsPath))
