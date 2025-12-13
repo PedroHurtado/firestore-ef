@@ -15,6 +15,7 @@ public class TestDbContext : DbContext
     // Entidades raíz (colecciones principales)
     public DbSet<Producto> Productos => Set<Producto>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
+    public DbSet<ProductoCompleto> ProductosCompletos => Set<ProductoCompleto>();
 
     // Entidades subcollection (necesarias para que EF Core las reconozca)
     public DbSet<Pedido> Pedidos => Set<Pedido>();
@@ -53,6 +54,25 @@ public class TestDbContext : DbContext
         modelBuilder.Entity<LineaPedido>(entity =>
         {
             entity.HasKey(e => e.Id);
+        });
+
+        // Configuración de ProductoCompleto (para tests de conventions)
+        modelBuilder.Entity<ProductoCompleto>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+
+            // ComplexType: Ubicacion (GeoPoint directo)
+            entity.ComplexProperty(e => e.Ubicacion);
+
+            // ComplexType: Direccion con Coordenadas anidadas
+            entity.ComplexProperty(e => e.Direccion, direccion =>
+            {
+                direccion.ComplexProperty(d => d.Coordenadas, coordenadas =>
+                {
+                    coordenadas.ComplexProperty(c => c.Posicion);  // GeoPoint anidado
+                });
+            });
         });
     }
 }

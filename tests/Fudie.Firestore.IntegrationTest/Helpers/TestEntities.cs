@@ -68,3 +68,69 @@ public class LineaPedido
     // Navegación a Producto (referencia)
     public Producto? Producto { get; set; }
 }
+
+// ============================================================================
+// ENTIDADES PARA TESTS DE CONVENTIONS
+// ============================================================================
+
+/// <summary>
+/// Record para GeoPoint. Detectado por estructura (Latitude + Longitude).
+/// </summary>
+public record GeoLocation(double Latitude, double Longitude);
+
+/// <summary>
+/// Record con GeoPoint anidado para tests de ComplexType.
+/// </summary>
+public record Coordenadas
+{
+    public double Altitud { get; init; }
+    public required GeoLocation Posicion { get; init; }
+}
+
+/// <summary>
+/// ComplexType con Coordenadas anidadas.
+/// </summary>
+public record Direccion
+{
+    public required string Calle { get; init; }
+    public required string Ciudad { get; init; }
+    public required string CodigoPostal { get; init; }
+    public required Coordenadas Coordenadas { get; init; }
+}
+
+/// <summary>
+/// Enum para tests de EnumToStringConvention.
+/// </summary>
+public enum CategoriaProducto
+{
+    Electronica,
+    Ropa,
+    Alimentos,
+    Hogar
+}
+
+/// <summary>
+/// Entidad con TODAS las conventions para tests completos.
+/// - DecimalToDouble: Precio
+/// - EnumToString: Categoria
+/// - ListDecimalToDouble: Precios
+/// - ListEnumToString: Tags
+/// - ArrayConvention: Cantidades, Etiquetas
+/// - GeoPoint: Ubicacion (directo)
+/// - ComplexType: Direccion (con GeoPoint anidado)
+/// - Timestamp: FechaCreacion
+/// </summary>
+public class ProductoCompleto
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public decimal Precio { get; set; }
+    public CategoriaProducto Categoria { get; set; }
+    public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
+    public required GeoLocation Ubicacion { get; set; }
+    public required Direccion Direccion { get; set; }
+    public List<decimal> Precios { get; set; } = [];
+    public List<CategoriaProducto> Tags { get; set; } = [];
+    public List<int> Cantidades { get; set; } = [];
+    public List<string> Etiquetas { get; set; } = [];
+}
