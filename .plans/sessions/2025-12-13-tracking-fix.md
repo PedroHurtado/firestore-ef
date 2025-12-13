@@ -243,11 +243,12 @@ Este modo especial requiere identity resolution pero sin tracking. Considerar im
 11. [x] Actualizar `LoadSubCollectionAsync` para trackear entidades
 12. [x] Actualizar `LoadReferenceAsync` para trackear entidades
 13. [x] **Ejecutar tests y verificar** ✅
-**Commit:** (pendiente)
+**Commit:** `dbd7997`
 
-### Fase 5: Tests Adicionales
-14. [ ] Agregar test `Query_SameEntity_ShouldReturnSameInstance`
-15. [ ] Agregar test `AsNoTracking_ShouldNotTrackEntities`
+### Fase 5: Tests Adicionales ✅ COMPLETADA
+14. [x] Agregar test `Query_SameEntity_ShouldReturnSameInstance`
+15. [x] Agregar test `AsNoTracking_ShouldNotTrackEntities`
+**Commit:** `006f944`
 
 ## Comandos de Verificación
 

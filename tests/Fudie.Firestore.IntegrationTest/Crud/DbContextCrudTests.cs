@@ -1,4 +1,5 @@
 using Fudie.Firestore.IntegrationTest.Helpers;
+using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.IntegrationTest.Crud;
 
@@ -156,5 +157,61 @@ public class DbContextCrudTests
         var productoEliminado = await readContext.Productos.FindAsync(producto.Id);
 
         productoEliminado.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Query_SameEntity_ShouldReturnSameInstance()
+    {
+        // Arrange - Crear y guardar una entidad
+        using var context = _fixture.CreateContext<SimpleTestDbContext>();
+        var producto = new Producto
+        {
+            Id = FirestoreTestFixture.GenerateId("prod"),
+            Nombre = "Producto Identity",
+            Precio = 100m
+        };
+
+        context.Productos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Act - Consultar la misma entidad dos veces en el mismo contexto
+        using var readContext = _fixture.CreateContext<SimpleTestDbContext>();
+        var primerQuery = await readContext.Productos.FindAsync(producto.Id);
+        var segundoQuery = await readContext.Productos.FindAsync(producto.Id);
+
+        // Assert - Identity Resolution: ambas referencias deben apuntar a la misma instancia
+        primerQuery.Should().NotBeNull();
+        segundoQuery.Should().NotBeNull();
+        ReferenceEquals(primerQuery, segundoQuery).Should().BeTrue(
+            "Identity Resolution debe retornar la misma instancia cuando se consulta la misma entidad");
+    }
+
+    [Fact]
+    public async Task AsNoTracking_ShouldNotTrackEntities()
+    {
+        // Arrange - Crear y guardar una entidad
+        using var context = _fixture.CreateContext<SimpleTestDbContext>();
+        var producto = new Producto
+        {
+            Id = FirestoreTestFixture.GenerateId("prod"),
+            Nombre = "Producto NoTracking",
+            Precio = 100m
+        };
+
+        context.Productos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Act - Consultar con AsNoTracking
+        using var readContext = _fixture.CreateContext<SimpleTestDbContext>();
+        var productoNoTracking = await readContext.Productos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == producto.Id);
+
+        // Assert - La entidad no debe estar trackeada
+        productoNoTracking.Should().NotBeNull();
+
+        var entry = readContext.Entry(productoNoTracking!);
+        entry.State.Should().Be(EntityState.Detached,
+            "AsNoTracking debe retornar entidades en estado Detached");
     }
 }
