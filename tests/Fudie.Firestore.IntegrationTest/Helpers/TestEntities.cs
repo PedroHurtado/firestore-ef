@@ -49,4 +49,22 @@ public class Pedido
     public decimal Total { get; set; }
     public DateTime FechaPedido { get; set; } = DateTime.UtcNow;
     public EstadoPedido Estado { get; set; } = EstadoPedido.Pendiente;
+
+    // Subcollection anidada
+    public List<LineaPedido> Lineas { get; set; } = [];
+}
+
+/// <summary>
+/// Entidad subcollection anidada de Pedido.
+/// Path: /clientes/{clienteId}/pedidos/{pedidoId}/lineas/{lineaId}
+/// </summary>
+public class LineaPedido
+{
+    public string? Id { get; set; }
+    public int Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
+    public string? ProductoId { get; set; }
+
+    // Navegación a Producto (referencia)
+    public Producto? Producto { get; set; }
 }

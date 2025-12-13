@@ -16,8 +16,9 @@ public class TestDbContext : DbContext
     public DbSet<Producto> Productos => Set<Producto>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
 
-    // Entidad subcollection (necesaria para que EF Core la reconozca)
+    // Entidades subcollection (necesarias para que EF Core las reconozca)
     public DbSet<Pedido> Pedidos => Set<Pedido>();
+    public DbSet<LineaPedido> LineasPedido => Set<LineaPedido>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,15 +30,16 @@ public class TestDbContext : DbContext
             entity.Property(e => e.Precio);
         });
 
-        // Configuración de Cliente con subcollection de Pedidos
+        // Configuración de Cliente con subcollections anidadas
         modelBuilder.Entity<Cliente>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Nombre).IsRequired();
             entity.Property(e => e.Email).IsRequired();
 
-            // Configurar Pedidos como subcollection
-            entity.SubCollection(c => c.Pedidos);
+            // Configurar Pedidos como subcollection con Lineas anidadas
+            entity.SubCollection(c => c.Pedidos)
+                  .SubCollection(p => p.Lineas);
         });
 
         // Configuración de Pedido
@@ -45,6 +47,12 @@ public class TestDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.NumeroOrden).IsRequired();
+        });
+
+        // Configuración de LineaPedido
+        modelBuilder.Entity<LineaPedido>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
     }
 }
