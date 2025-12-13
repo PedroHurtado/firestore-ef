@@ -177,13 +177,16 @@ public class ProductoCompleto
 - DeserializeGeoPoint soporta positional records (constructor con parámetros)
 - Annotation corregido de `"Firestore:GeoPoint"` a `"Firestore:IsGeoPoint"`
 
-### Fase 6: Tests de ComplexType
-20. [ ] Crear `Conventions/ComplexTypeConventionTests.cs`
-21. [ ] Implementar tests de ComplexType
-22. [ ] **Ejecutar tests y verificar**
+### Fase 6: Tests de ComplexType ✅ COMPLETADA
+**Commit:** `c026e2f`
+20. [x] Crear `Conventions/ComplexTypeConventionTests.cs`
+21. [x] Implementar tests de ComplexType
+22. [x] **Ejecutar tests y verificar** (4 tests pasando)
 
-### Fase 7: Commit
-23. [ ] Commit con mensaje descriptivo
+### Fase 7: Verificación Final ✅ COMPLETADA
+23. [x] Todos los tests de integración pasando: **40 tests**
+    - 20 tests de Conventions (4 Decimal + 4 Enum + 4 Array + 4 GeoPoint + 4 ComplexType)
+    - 20 tests existentes (CRUD, SubCollections, Tracking, etc.)
 
 ## Comandos de Verificación
 
