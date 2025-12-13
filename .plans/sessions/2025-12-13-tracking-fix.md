@@ -239,10 +239,11 @@ Este modo especial requiere identity resolution pero sin tracking. Considerar im
 10. [x] **Ejecutar tests y verificar** ✅
 **Commit:** `2c4c6c6`
 
-### Fase 4: Tracking de Includes
-11. [ ] Actualizar `LoadSubCollectionAsync` para trackear entidades
-12. [ ] Actualizar `LoadReferenceAsync` para trackear entidades
-13. [ ] **Ejecutar tests y verificar**
+### Fase 4: Tracking de Includes ✅ COMPLETADA
+11. [x] Actualizar `LoadSubCollectionAsync` para trackear entidades
+12. [x] Actualizar `LoadReferenceAsync` para trackear entidades
+13. [x] **Ejecutar tests y verificar** ✅
+**Commit:** (pendiente)
 
 ### Fase 5: Tests Adicionales
 14. [ ] Agregar test `Query_SameEntity_ShouldReturnSameInstance`

@@ -134,7 +134,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Cargar includes
             if (queryExpression.PendingIncludes.Count > 0)
             {
-                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model)
+                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model, isTracking, dbContext)
                     .GetAwaiter().GetResult();
             }
 
@@ -178,7 +178,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         /// Convierte el ID de Firestore (siempre string) al tipo de la clave primaria.
         /// Soporta ValueConverters configurados en el modelo.
         /// </summary>
-        private static object ConvertKeyValue(string firestoreId, IProperty keyProperty)
+        private static object ConvertKeyValue(string firestoreId, IReadOnlyProperty keyProperty)
         {
             var targetType = keyProperty.ClrType;
 
@@ -198,6 +198,29 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return Convert.ChangeType(firestoreId, targetType);
         }
 
+        /// <summary>
+        /// Identity Resolution para entidades incluidas (versión no genérica).
+        /// Busca si la entidad ya está siendo trackeada usando IStateManager.
+        /// </summary>
+        private static object? TryGetTrackedEntity(DbContext dbContext, IReadOnlyEntityType entityType, string documentId)
+        {
+            var key = entityType.FindPrimaryKey();
+            if (key == null) return null;
+
+            if (key.Properties.Count == 0) return null;
+            var keyProperty = key.Properties[0];
+
+            // Convertir el ID del documento al tipo de la PK
+            var convertedKey = ConvertKeyValue(documentId, keyProperty);
+            var keyValues = new object[] { convertedKey };
+
+            // Usar IStateManager para lookup O(1)
+            var stateManager = dbContext.GetService<IStateManager>();
+            var entry = stateManager.TryGetEntry((IKey)key, keyValues);
+
+            return entry?.Entity;
+        }
+
         #endregion
 
         #region Include Loading
@@ -208,14 +231,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             List<IReadOnlyNavigation> allIncludes,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
-            IModel model) where T : class
+            IModel model,
+            bool isTracking,
+            DbContext dbContext) where T : class
         {
             var rootNavigations = allIncludes
                 .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
                 .ToList();
 
             var tasks = rootNavigations.Select(navigation =>
-                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model));
+                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext));
 
             await Task.WhenAll(tasks);
         }
@@ -227,15 +252,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             List<IReadOnlyNavigation> allIncludes,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
-            IModel model)
+            IModel model,
+            bool isTracking,
+            DbContext dbContext)
         {
             if (navigation.IsCollection)
             {
-                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
+                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext);
             }
             else
             {
-                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model);
+                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext);
             }
         }
 
@@ -246,7 +273,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             List<IReadOnlyNavigation> allIncludes,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
-            IModel model)
+            IModel model,
+            bool isTracking,
+            DbContext dbContext)
         {
             if (!navigation.IsSubCollection())
             {
@@ -273,26 +302,43 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (!doc.Exists)
                     continue;
 
-                var childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
-                if (childEntity == null)
-                    continue;
-
-                var childIncludes = allIncludes
-                    .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
-                    .ToList();
-
-                if (childIncludes.Count > 0)
+                // Identity Resolution: verificar si la entidad ya está trackeada
+                object? childEntity = null;
+                if (isTracking)
                 {
-                    Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for {navigation.TargetEntityType.ClrType.Name}");
+                    childEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, doc.Id);
+                }
 
-                    var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
-                        .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+                // Si no está trackeada, deserializar
+                if (childEntity == null)
+                {
+                    childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
+                    if (childEntity == null)
+                        continue;
 
-                    await (Task)loadIncludesMethod.Invoke(null, new object[]
+                    var childIncludes = allIncludes
+                        .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+                        .ToList();
+
+                    if (childIncludes.Count > 0)
                     {
-                        childEntity, doc, allIncludes, clientWrapper, deserializer, model
-                    })!;
+                        Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for {navigation.TargetEntityType.ClrType.Name}");
+
+                        var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                            .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
+                            .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+                        await (Task)loadIncludesMethod.Invoke(null, new object[]
+                        {
+                            childEntity, doc, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext
+                        })!;
+                    }
+
+                    // Adjuntar al ChangeTracker como Unchanged
+                    if (isTracking)
+                    {
+                        dbContext.Attach(childEntity);
+                    }
                 }
 
                 ApplyFixup(parentEntity, childEntity, navigation);
@@ -311,7 +357,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             List<IReadOnlyNavigation> allIncludes,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
-            IModel model)
+            IModel model,
+            bool isTracking,
+            DbContext dbContext)
         {
             Console.WriteLine($"🔗 Loading reference: {navigation.Name}");
 
@@ -334,15 +382,47 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return;
             }
 
+            // Obtener el ID de la referencia para identity resolution
+            string? referencedId = null;
             DocumentSnapshot? referencedDoc = null;
 
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
                 Console.WriteLine($"  → Found DocumentReference: {docRef.Path}");
+                referencedId = docRef.Id;
+
+                // Identity Resolution: verificar si la entidad ya está trackeada
+                if (isTracking)
+                {
+                    var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
+                    if (existingEntity != null)
+                    {
+                        ApplyFixup(entity, existingEntity, navigation);
+                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
+                        Console.WriteLine($"✅ Loaded reference {navigation.Name} (from ChangeTracker)");
+                        return;
+                    }
+                }
+
                 referencedDoc = await docRef.GetSnapshotAsync();
             }
             else if (referenceValue is string id)
             {
+                referencedId = id;
+
+                // Identity Resolution: verificar si la entidad ya está trackeada
+                if (isTracking)
+                {
+                    var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
+                    if (existingEntity != null)
+                    {
+                        ApplyFixup(entity, existingEntity, navigation);
+                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
+                        Console.WriteLine($"✅ Loaded reference {navigation.Name} (from ChangeTracker)");
+                        return;
+                    }
+                }
+
                 var targetEntityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
                 if (targetEntityType != null)
                 {
@@ -381,8 +461,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                     await (Task)loadIncludesMethod.Invoke(null, new object[]
                     {
-                        referencedEntity, referencedDoc, allIncludes, clientWrapper, deserializer, model
+                        referencedEntity, referencedDoc, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext
                     })!;
+                }
+
+                // Adjuntar al ChangeTracker como Unchanged
+                if (isTracking)
+                {
+                    dbContext.Attach(referencedEntity);
                 }
 
                 ApplyFixup(entity, referencedEntity, navigation);
