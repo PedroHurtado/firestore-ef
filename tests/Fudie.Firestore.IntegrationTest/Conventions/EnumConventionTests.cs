@@ -1,0 +1,188 @@
+using Fudie.Firestore.IntegrationTest.Helpers;
+using Microsoft.EntityFrameworkCore;
+
+namespace Fudie.Firestore.IntegrationTest.Conventions;
+
+/// <summary>
+/// Tests de integración para EnumToStringConvention.
+/// Verifica que enum se persiste como string en Firestore.
+/// </summary>
+[Collection(nameof(FirestoreTestCollection))]
+public class EnumConventionTests
+{
+    private readonly FirestoreTestFixture _fixture;
+
+    public EnumConventionTests(FirestoreTestFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [Fact]
+    public async Task Add_EntityWithEnum_ShouldPersistAsString()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var id = FirestoreTestFixture.GenerateId("prod");
+
+        var producto = new ProductoCompleto
+        {
+            Id = id,
+            Nombre = "Test Enum",
+            Precio = 100m,
+            Categoria = CategoriaProducto.Electronica,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        // Act
+        context.ProductosCompletos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Assert - Leer y verificar
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productoLeido = await readContext.ProductosCompletos
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        productoLeido.Should().NotBeNull();
+        productoLeido!.Categoria.Should().Be(CategoriaProducto.Electronica);
+    }
+
+    [Fact]
+    public async Task Add_EntityWithListEnum_ShouldPersistAsStringArray()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var id = FirestoreTestFixture.GenerateId("prod");
+
+        var producto = new ProductoCompleto
+        {
+            Id = id,
+            Nombre = "Test List Enum",
+            Precio = 100m,
+            Categoria = CategoriaProducto.Ropa,
+            Tags = [CategoriaProducto.Electronica, CategoriaProducto.Hogar, CategoriaProducto.Alimentos],
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        // Act
+        context.ProductosCompletos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Assert
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productoLeido = await readContext.ProductosCompletos
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        productoLeido.Should().NotBeNull();
+        productoLeido!.Tags.Should().HaveCount(3);
+        productoLeido.Tags.Should().BeEquivalentTo([
+            CategoriaProducto.Electronica,
+            CategoriaProducto.Hogar,
+            CategoriaProducto.Alimentos
+        ]);
+    }
+
+    [Fact]
+    public async Task Query_EntityWithEnum_ShouldReturnCorrectValue()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var id = FirestoreTestFixture.GenerateId("prod");
+
+        var producto = new ProductoCompleto
+        {
+            Id = id,
+            Nombre = "Test Query Enum",
+            Precio = 50m,
+            Categoria = CategoriaProducto.Alimentos,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        context.ProductosCompletos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Act - Consultar
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productoLeido = await readContext.ProductosCompletos
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        // Assert
+        productoLeido.Should().NotBeNull();
+        productoLeido!.Categoria.Should().Be(CategoriaProducto.Alimentos);
+    }
+
+    [Fact]
+    public async Task Update_EnumProperty_ShouldPersistChanges()
+    {
+        // Arrange - Crear producto
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var id = FirestoreTestFixture.GenerateId("prod");
+
+        var producto = new ProductoCompleto
+        {
+            Id = id,
+            Nombre = "Test Update Enum",
+            Precio = 200m,
+            Categoria = CategoriaProducto.Electronica,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        context.ProductosCompletos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Act - Actualizar categoría usando la misma instancia
+        producto.Categoria = CategoriaProducto.Hogar;
+        await context.SaveChangesAsync();
+
+        // Assert - Leer con nuevo contexto
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productoActualizado = await readContext.ProductosCompletos
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        productoActualizado.Should().NotBeNull();
+        productoActualizado!.Categoria.Should().Be(CategoriaProducto.Hogar);
+    }
+}
