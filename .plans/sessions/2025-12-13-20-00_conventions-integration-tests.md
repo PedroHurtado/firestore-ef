@@ -161,7 +161,7 @@ public class ProductoCompleto
 13. [x] **Ejecutar tests y verificar** (4 tests pasando)
 
 ### Fase 4: Tests de Array Convention ✅ COMPLETADA
-**Commit:** `7fa6fa7`
+**Commit:** `0c83998`
 14. [x] Crear `Conventions/ArrayConventionTests.cs`
 15. [x] Implementar tests de arrays (int, string)
 16. [x] **Ejecutar tests y verificar** (4 tests pasando)
