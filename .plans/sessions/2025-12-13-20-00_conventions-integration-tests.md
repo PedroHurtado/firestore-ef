@@ -155,15 +155,17 @@ public class ProductoCompleto
 10. [x] **Ejecutar tests y verificar** (4 tests pasando)
 
 ### Fase 3: Tests de Enum Convention ✅ COMPLETADA
-**Commit:** `eae206f`
+**Commit:** `18552b9`
 11. [x] Crear `Conventions/EnumConventionTests.cs`
 12. [x] Implementar tests de enum
 13. [x] **Ejecutar tests y verificar** (4 tests pasando)
 
-### Fase 4: Tests de Array Convention
-14. [ ] Crear `Conventions/ArrayConventionTests.cs`
-15. [ ] Implementar tests de arrays (int, string)
-16. [ ] **Ejecutar tests y verificar**
+### Fase 4: Tests de Array Convention ✅ COMPLETADA
+**Commit:** `7fa6fa7`
+14. [x] Crear `Conventions/ArrayConventionTests.cs`
+15. [x] Implementar tests de arrays (int, string)
+16. [x] **Ejecutar tests y verificar** (4 tests pasando)
+**Fix:** Agregado soporte de deserialización para `List<int>`, `List<string>`, `List<double>`, `List<long>` en `FirestoreDocumentDeserializer.cs`
 
 ### Fase 5: Tests de GeoPoint Convention
 17. [ ] Crear `Conventions/GeoPointConventionTests.cs`

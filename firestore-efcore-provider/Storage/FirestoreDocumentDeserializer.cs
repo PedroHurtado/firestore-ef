@@ -217,7 +217,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             if (elementType == null)
                 return collection;
 
-            // Conversión: double[] → List&lt;decimal&gt;
+            // Conversión: double[] → List<decimal>
             if (elementType == typeof(decimal))
             {
                 var decimals = collection.Cast<object>()
@@ -226,7 +226,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                 return decimals;
             }
 
-            // Conversión: string[] → List&lt;enum&gt;
+            // Conversión: string[] → List<enum>
             if (elementType.IsEnum)
             {
                 var enums = collection.Cast<object>()
@@ -241,6 +241,42 @@ namespace Firestore.EntityFrameworkCore.Storage
                     list.Add(item);
                 }
                 return list;
+            }
+
+            // Conversión: object[] → List<int> (Firestore devuelve long)
+            if (elementType == typeof(int))
+            {
+                var ints = collection.Cast<object>()
+                    .Select(item => Convert.ToInt32(item))
+                    .ToList();
+                return ints;
+            }
+
+            // Conversión: object[] → List<long>
+            if (elementType == typeof(long))
+            {
+                var longs = collection.Cast<object>()
+                    .Select(item => Convert.ToInt64(item))
+                    .ToList();
+                return longs;
+            }
+
+            // Conversión: object[] → List<string>
+            if (elementType == typeof(string))
+            {
+                var strings = collection.Cast<object>()
+                    .Select(item => item?.ToString() ?? string.Empty)
+                    .ToList();
+                return strings;
+            }
+
+            // Conversión: object[] → List<double>
+            if (elementType == typeof(double))
+            {
+                var doubles = collection.Cast<object>()
+                    .Select(item => Convert.ToDouble(item))
+                    .ToList();
+                return doubles;
             }
 
             return collection;
