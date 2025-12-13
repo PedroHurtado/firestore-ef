@@ -168,7 +168,7 @@ public class ProductoCompleto
 **Fix:** Agregado soporte de deserialización para `List<int>`, `List<string>`, `List<double>`, `List<long>` en `FirestoreDocumentDeserializer.cs`
 
 ### Fase 5: Tests de GeoPoint Convention ✅ COMPLETADA
-**Commit:** `765b48d`
+**Commit:** `20b6a64`
 17. [x] Crear `Conventions/GeoPointConventionTests.cs`
 18. [x] Implementar tests de GeoPoint
 19. [x] **Ejecutar tests y verificar** (4 tests pasando)
