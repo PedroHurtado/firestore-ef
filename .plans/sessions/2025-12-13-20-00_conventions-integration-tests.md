@@ -167,10 +167,15 @@ public class ProductoCompleto
 16. [x] **Ejecutar tests y verificar** (4 tests pasando)
 **Fix:** Agregado soporte de deserialización para `List<int>`, `List<string>`, `List<double>`, `List<long>` en `FirestoreDocumentDeserializer.cs`
 
-### Fase 5: Tests de GeoPoint Convention
-17. [ ] Crear `Conventions/GeoPointConventionTests.cs`
-18. [ ] Implementar tests de GeoPoint
-19. [ ] **Ejecutar tests y verificar**
+### Fase 5: Tests de GeoPoint Convention ✅ COMPLETADA
+**Commit:** `765b48d`
+17. [x] Crear `Conventions/GeoPointConventionTests.cs`
+18. [x] Implementar tests de GeoPoint
+19. [x] **Ejecutar tests y verificar** (4 tests pasando)
+**Fixes:**
+- GeoPointConvention ahora detecta por ESTRUCTURA (Latitude+Longitude), no por nombre
+- DeserializeGeoPoint soporta positional records (constructor con parámetros)
+- Annotation corregido de `"Firestore:GeoPoint"` a `"Firestore:IsGeoPoint"`
 
 ### Fase 6: Tests de ComplexType
 20. [ ] Crear `Conventions/ComplexTypeConventionTests.cs`

@@ -350,17 +350,54 @@ namespace Firestore.EntityFrameworkCore.Storage
                     $"Expected GeoPoint but got {value.GetType().Name}");
             }
 
-            // Crear instancia del ComplexType (ej: Ubicacion)
-            var instance = Activator.CreateInstance(complexType.ClrType);
+            var clrType = complexType.ClrType;
+
+            // Buscar propiedades Latitude/Longitude
+            var latProp = FindLatitudeProperty(clrType);
+            var lonProp = FindLongitudeProperty(clrType);
+
+            // Intentar crear usando constructor con parámetros (para records)
+            var constructor = clrType.GetConstructors()
+                .FirstOrDefault(c =>
+                {
+                    var parameters = c.GetParameters();
+                    return parameters.Length == 2 &&
+                           parameters.All(p => p.ParameterType == typeof(double));
+                });
+
+            if (constructor != null)
+            {
+                // Determinar el orden de los parámetros según el nombre
+                var parameters = constructor.GetParameters();
+                var args = new object[2];
+
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    var paramName = parameters[i].Name;
+                    if (paramName != null &&
+                        (paramName.Equals("latitude", StringComparison.OrdinalIgnoreCase) ||
+                         paramName.Equals("lat", StringComparison.OrdinalIgnoreCase) ||
+                         paramName.Equals("latitud", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        args[i] = geoPoint.Latitude;
+                    }
+                    else
+                    {
+                        args[i] = geoPoint.Longitude;
+                    }
+                }
+
+                return constructor.Invoke(args);
+            }
+
+            // Fallback: usar constructor sin parámetros y setear propiedades
+            var instance = Activator.CreateInstance(clrType);
             if (instance == null)
             {
                 throw new InvalidOperationException(
-                    $"Could not create instance of {complexType.ClrType.Name}");
+                    $"Could not create instance of {clrType.Name}. " +
+                    "Ensure it has a parameterless constructor or a constructor with (double, double) parameters.");
             }
-
-            // Buscar propiedades Latitude/Longitude
-            var latProp = FindLatitudeProperty(complexType.ClrType);
-            var lonProp = FindLongitudeProperty(complexType.ClrType);
 
             latProp.SetValue(instance, geoPoint.Latitude);
             lonProp.SetValue(instance, geoPoint.Longitude);
