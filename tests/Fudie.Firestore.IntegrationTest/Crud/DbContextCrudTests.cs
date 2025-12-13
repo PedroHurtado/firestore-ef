@@ -96,7 +96,8 @@ public class DbContextCrudTests
         productosConTag.Should().AllSatisfy(p => p.Nombre.Should().Be(uniqueTag));
     }
 
-    [Fact(Skip = "Update tracking pendiente de verificar en el provider")]
+    //[Fact(Skip = "Update tracking pendiente de verificar en el provider")]
+    [Fact]
     public async Task Update_ExistingEntity_ShouldPersistChanges()
     {
         // Arrange
@@ -112,10 +113,14 @@ public class DbContextCrudTests
         await context.SaveChangesAsync();
 
         // Act - Leer, modificar y guardar
-        using var updateContext = _fixture.CreateContext<SimpleTestDbContext>();
-        var productoParaActualizar = await updateContext.Productos.FindAsync(producto.Id);
+        using var updateContext = _fixture.CreateContext<SimpleTestDbContext>();        
+        var productoParaActualizar = await updateContext.Productos.FindAsync(producto.Id);               
         productoParaActualizar!.Nombre = "Producto Modificado";
         productoParaActualizar.Precio = 150m;
+        if (productoParaActualizar!=null)
+        {
+            var estate = updateContext.Entry(productoParaActualizar).State;    
+        } 
         await updateContext.SaveChangesAsync();
 
         // Assert
