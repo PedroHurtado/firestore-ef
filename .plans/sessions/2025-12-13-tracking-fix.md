@@ -220,16 +220,18 @@ Este modo especial requiere identity resolution pero sin tracking. Considerar im
 
 ## Orden de Implementación (Incremental)
 
-### Fase 1: Tracking Básico (MVP)
-1. [ ] Verificar que `QueryContext` está disponible en `DeserializeEntity` ✓ (ya lo está)
-2. [ ] Añadir tracking básico con `Attach()` directamente (sin pasar isTracking por ahora)
-3. [ ] **Ejecutar test `Update_ExistingEntity` y verificar que pasa**
+### Fase 1: Tracking Básico (MVP) ✅ COMPLETADA
+1. [x] Verificar que `QueryContext` está disponible en `DeserializeEntity` ✓ (ya lo está)
+2. [x] Añadir tracking básico con `Attach()` directamente (sin pasar isTracking por ahora)
+3. [x] **Ejecutar test `Update_ExistingEntity` y verificar que pasa** ✅
+**Commit:** `102d038`
 
-### Fase 2: Respetar QueryTrackingBehavior
-4. [ ] Modificar `FirestoreQueryingEnumerable` para aceptar `isTracking`
-5. [ ] Modificar `VisitShapedQuery` para pasar `isTracking` desde `QueryCompilationContext`
-6. [ ] Condicionar el `Attach()` a `isTracking == true`
-7. [ ] **Ejecutar tests y verificar**
+### Fase 2: Respetar QueryTrackingBehavior ✅ COMPLETADA
+4. [x] Modificar `FirestoreQueryingEnumerable` para aceptar `isTracking`
+5. [x] Modificar `VisitShapedQuery` para pasar `isTracking` desde `QueryCompilationContext`
+6. [x] Condicionar el `Attach()` a `isTracking == true`
+7. [x] **Ejecutar tests y verificar** ✅
+**Commit:** `262463b`
 
 ### Fase 3: Identity Resolution
 8. [ ] Añadir conversión de tipo de ID (`ConvertKeyValue`)

@@ -34,26 +34,33 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
+            // Determinar si debemos trackear las entidades
+            var isTracking = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
+
             var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
             var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
+            var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
 
             var shaperExpression = CreateShaperExpression(
                 queryContextParameter,
                 documentSnapshotParameter,
+                isTrackingParameter,
                 firestoreQueryExpression);
 
             var shaperLambda = Expression.Lambda(
                 shaperExpression,
                 queryContextParameter,
-                documentSnapshotParameter);
+                documentSnapshotParameter,
+                isTrackingParameter);
 
             var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(entityType);
             var constructor = enumerableType.GetConstructor(new[]
             {
                 typeof(QueryContext),
                 typeof(FirestoreQueryExpression),
-                typeof(Func<,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), entityType),
-                typeof(Type)
+                typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), entityType),
+                typeof(Type),
+                typeof(bool)
             })!;
 
             var newExpression = Expression.New(
@@ -61,7 +68,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 QueryCompilationContext.QueryContextParameter,
                 Expression.Constant(firestoreQueryExpression),
                 Expression.Constant(shaperLambda.Compile()),
-                Expression.Constant(entityType));
+                Expression.Constant(entityType),
+                Expression.Constant(isTracking));
 
             return newExpression;
         }
@@ -71,6 +79,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         private Expression CreateShaperExpression(
             ParameterExpression queryContextParameter,
             ParameterExpression documentSnapshotParameter,
+            ParameterExpression isTrackingParameter,
             FirestoreQueryExpression queryExpression)
         {
             var entityType = queryExpression.EntityType.ClrType;
@@ -82,12 +91,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 deserializeMethod,
                 queryContextParameter,
                 documentSnapshotParameter,
+                isTrackingParameter,
                 Expression.Constant(queryExpression));
         }
 
         private static T DeserializeEntity<T>(
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
+            bool isTracking,
             FirestoreQueryExpression queryExpression) where T : class, new()
         {
             var dbContext = queryContext.Context;
@@ -116,8 +127,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
 
             // Adjuntar al ChangeTracker como Unchanged para habilitar tracking de cambios
-            // TODO: Condicionar a QueryTrackingBehavior en Fase 2
-            dbContext.Attach(entity);
+            // Solo si QueryTrackingBehavior es TrackAll (no NoTracking)
+            if (isTracking)
+            {
+                dbContext.Attach(entity);
+            }
 
             return entity;
         }

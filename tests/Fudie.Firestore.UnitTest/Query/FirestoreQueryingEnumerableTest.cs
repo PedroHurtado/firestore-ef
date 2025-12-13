@@ -38,12 +38,12 @@ public class FirestoreQueryingEnumerableTest
     #region Constructor Signature Tests
 
     [Fact]
-    public void Constructor_Has_Four_Parameters()
+    public void Constructor_Has_Five_Parameters()
     {
         var constructors = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors();
 
         constructors.Should().HaveCount(1);
-        constructors[0].GetParameters().Should().HaveCount(4);
+        constructors[0].GetParameters().Should().HaveCount(5);
     }
 
     [Fact]
@@ -68,7 +68,8 @@ public class FirestoreQueryingEnumerableTest
     public void Constructor_Third_Parameter_Is_Shaper_Func()
     {
         var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
-        var shaperType = typeof(Func<QueryContext, DocumentSnapshot, TestEntity>);
+        // Shaper ahora incluye bool isTracking: Func<QueryContext, DocumentSnapshot, bool, T>
+        var shaperType = typeof(Func<QueryContext, DocumentSnapshot, bool, TestEntity>);
 
         constructor.GetParameters()[2].ParameterType.Should().Be(shaperType);
         constructor.GetParameters()[2].Name.Should().Be("shaper");
@@ -81,6 +82,15 @@ public class FirestoreQueryingEnumerableTest
 
         constructor.GetParameters()[3].ParameterType.Should().Be(typeof(Type));
         constructor.GetParameters()[3].Name.Should().Be("contextType");
+    }
+
+    [Fact]
+    public void Constructor_Fifth_Parameter_Is_IsTracking_Bool()
+    {
+        var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
+
+        constructor.GetParameters()[4].ParameterType.Should().Be(typeof(bool));
+        constructor.GetParameters()[4].Name.Should().Be("isTracking");
     }
 
     #endregion

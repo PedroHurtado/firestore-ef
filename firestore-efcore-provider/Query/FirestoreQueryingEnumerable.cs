@@ -18,19 +18,22 @@ namespace Firestore.EntityFrameworkCore.Query
     {
         private readonly QueryContext _queryContext;
         private readonly FirestoreQueryExpression _queryExpression;
-        private readonly Func<QueryContext, DocumentSnapshot, T> _shaper;
+        private readonly Func<QueryContext, DocumentSnapshot, bool, T> _shaper;
         private readonly Type _contextType;
+        private readonly bool _isTracking;
 
         public FirestoreQueryingEnumerable(
             QueryContext queryContext,
             FirestoreQueryExpression queryExpression,
-            Func<QueryContext, DocumentSnapshot, T> shaper,
-            Type contextType)
+            Func<QueryContext, DocumentSnapshot, bool, T> shaper,
+            Type contextType,
+            bool isTracking)
         {
             _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             _queryExpression = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
             _shaper = shaper ?? throw new ArgumentNullException(nameof(shaper));
             _contextType = contextType ?? throw new ArgumentNullException(nameof(contextType));
+            _isTracking = isTracking;
         }
 
         public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
@@ -64,7 +67,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 if (_enumerator!.MoveNext())
                 {
                     var document = _enumerator.Current;
-                    Current = _enumerable._shaper(_enumerable._queryContext, document);
+                    Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
                     return true;
                 }
 
