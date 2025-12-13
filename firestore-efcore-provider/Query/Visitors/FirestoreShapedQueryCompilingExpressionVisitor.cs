@@ -3,6 +3,7 @@ using Firestore.EntityFrameworkCore.Metadata;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
@@ -105,6 +106,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
 
             var model = dbContext.Model;
+
+            // Identity Resolution: verificar si la entidad ya está trackeada antes de deserializar
+            if (isTracking)
+            {
+                var existingEntity = TryGetTrackedEntity<T>(dbContext, documentSnapshot.Id);
+                if (existingEntity != null)
+                {
+                    return existingEntity;
+                }
+            }
+
             var typeMappingSource = (ITypeMappingSource)serviceProvider.GetService(typeof(ITypeMappingSource))!;
             var collectionManager = (IFirestoreCollectionManager)serviceProvider.GetService(typeof(IFirestoreCollectionManager))!;
             var loggerFactory = (Microsoft.Extensions.Logging.ILoggerFactory)serviceProvider.GetService(typeof(Microsoft.Extensions.Logging.ILoggerFactory))!;
@@ -134,6 +146,56 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
 
             return entity;
+        }
+
+        /// <summary>
+        /// Identity Resolution: busca si la entidad ya está siendo trackeada usando IStateManager.
+        /// Usa O(1) lookup por clave primaria.
+        /// </summary>
+        private static T? TryGetTrackedEntity<T>(DbContext dbContext, string documentId) where T : class
+        {
+            var entityType = dbContext.Model.FindEntityType(typeof(T));
+            if (entityType == null) return null;
+
+            var key = entityType.FindPrimaryKey();
+            if (key == null) return null;
+
+            if (key.Properties.Count == 0) return null;
+            var keyProperty = key.Properties[0];
+
+            // Convertir el ID del documento al tipo de la PK
+            var convertedKey = ConvertKeyValue(documentId, keyProperty);
+            var keyValues = new object[] { convertedKey };
+
+            // Usar IStateManager para lookup O(1)
+            var stateManager = dbContext.GetService<IStateManager>();
+            var entry = stateManager.TryGetEntry(key, keyValues);
+
+            return entry?.Entity as T;
+        }
+
+        /// <summary>
+        /// Convierte el ID de Firestore (siempre string) al tipo de la clave primaria.
+        /// Soporta ValueConverters configurados en el modelo.
+        /// </summary>
+        private static object ConvertKeyValue(string firestoreId, IProperty keyProperty)
+        {
+            var targetType = keyProperty.ClrType;
+
+            // Usar ValueConverter si está configurado
+            var converter = keyProperty.GetValueConverter();
+            if (converter != null)
+            {
+                return converter.ConvertFromProvider(firestoreId)!;
+            }
+
+            // Conversión estándar por tipo
+            if (targetType == typeof(string)) return firestoreId;
+            if (targetType == typeof(int)) return int.Parse(firestoreId);
+            if (targetType == typeof(long)) return long.Parse(firestoreId);
+            if (targetType == typeof(Guid)) return Guid.Parse(firestoreId);
+
+            return Convert.ChangeType(firestoreId, targetType);
         }
 
         #endregion
