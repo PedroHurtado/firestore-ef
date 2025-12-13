@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Update;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -182,32 +183,49 @@ namespace Firestore.EntityFrameworkCore.Storage
             IList<IUpdateEntry> allEntries)
         {
             var childEntity = childEntry.ToEntityEntry().Entity;
-            var parentEntityType = parentNavigation.DeclaringEntityType;
+            var parentClrType = parentNavigation.DeclaringEntityType.ClrType;
 
-            // Buscar en todas las entidades trackeadas del tipo padre
+            // 1. Buscar primero en allEntries (entidades con cambios pendientes)
             foreach (var entry in allEntries)
             {
-                if (entry.EntityType != parentEntityType)
+                // Usar IsAssignableTo para soportar herencia
+                if (!entry.EntityType.ClrType.IsAssignableTo(parentClrType))
                     continue;
 
-                var parentEntity = entry.ToEntityEntry().Entity;
+                if (IsChildInParentCollection(childEntity, entry.ToEntityEntry().Entity, parentNavigation))
+                    return entry;
+            }
 
-                // Obtener la colección de hijos del padre
-                var childrenCollection = parentNavigation.PropertyInfo?.GetValue(parentEntity) as IEnumerable;
-                if (childrenCollection == null)
+            // 2. Si no encontró, buscar en el ChangeTracker completo (incluye Unchanged)
+            var dbContext = childEntry.ToEntityEntry().Context;
+            foreach (var trackedEntry in dbContext.ChangeTracker.Entries())
+            {
+                // Usar IsAssignableTo para soportar herencia
+                if (!trackedEntry.Metadata.ClrType.IsAssignableTo(parentClrType))
                     continue;
 
-                // Verificar si nuestro hijo está en esa colección
-                foreach (var item in childrenCollection)
-                {
-                    if (ReferenceEquals(item, childEntity))
-                    {
-                        return entry;
-                    }
-                }
+                if (IsChildInParentCollection(childEntity, trackedEntry.Entity, parentNavigation))
+                    return trackedEntry.GetInfrastructure();
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Verifica si una entidad hijo está contenida en la colección de navegación del padre
+        /// </summary>
+        private static bool IsChildInParentCollection(
+            object childEntity,
+            object parentEntity,
+            INavigation parentNavigation)
+        {
+            var childrenCollection = parentNavigation.PropertyInfo?.GetValue(parentEntity) as IEnumerable;
+            if (childrenCollection == null)
+                return false;
+
+            return childrenCollection
+                .Cast<object>()
+                .Any(item => ReferenceEquals(item, childEntity));
         }
 
         // ========================================================================

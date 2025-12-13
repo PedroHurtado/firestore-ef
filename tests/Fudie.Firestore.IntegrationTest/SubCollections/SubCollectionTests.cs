@@ -298,8 +298,6 @@ public class SubCollectionTests
         await context.SaveChangesAsync();
 
         // Act - Leer y actualizar el pedido
-        // Nota: El provider requiere que el padre esté en el ChangeTracker
-        // para poder construir el path de la subcollection
         using var updateContext = _fixture.CreateContext<TestDbContext>();
         var clienteParaActualizar = await updateContext.Clientes
             .Include(c => c.Pedidos)
@@ -309,9 +307,7 @@ public class SubCollectionTests
         pedidoParaActualizar.Total = 250.00m;
         pedidoParaActualizar.Estado = EstadoPedido.Confirmado;
 
-        // Marcar el padre como modificado para que el provider pueda construir el path
-        updateContext.Entry(clienteParaActualizar).State = EntityState.Modified;
-
+        // El provider ahora busca automáticamente el padre en el ChangeTracker
         await updateContext.SaveChangesAsync();
 
         // Assert - Verificar cambios
@@ -360,7 +356,6 @@ public class SubCollectionTests
         await context.SaveChangesAsync();
 
         // Act - Eliminar un pedido
-        // Nota: El provider requiere que el padre esté en el ChangeTracker
         using var deleteContext = _fixture.CreateContext<TestDbContext>();
         var clienteParaEliminar = await deleteContext.Clientes
             .Include(c => c.Pedidos)
@@ -368,8 +363,7 @@ public class SubCollectionTests
 
         var pedidoAEliminar = clienteParaEliminar!.Pedidos.First(p => p.Id == pedidoAEliminarId);
 
-        // Marcar el padre como modificado para que el provider pueda construir el path
-        deleteContext.Entry(clienteParaEliminar).State = EntityState.Modified;
+        // El provider ahora busca automáticamente el padre en el ChangeTracker
         deleteContext.Pedidos.Remove(pedidoAEliminar);
 
         await deleteContext.SaveChangesAsync();
