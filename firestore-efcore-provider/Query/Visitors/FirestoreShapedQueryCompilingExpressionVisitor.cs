@@ -115,6 +115,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     .GetAwaiter().GetResult();
             }
 
+            // Adjuntar al ChangeTracker como Unchanged para habilitar tracking de cambios
+            // TODO: Condicionar a QueryTrackingBehavior en Fase 2
+            dbContext.Attach(entity);
+
             return entity;
         }
 

@@ -115,11 +115,7 @@ public class DbContextCrudTests
         using var updateContext = _fixture.CreateContext<SimpleTestDbContext>();
         var productoParaActualizar = await updateContext.Productos.FindAsync(producto.Id);
 
-        // WORKAROUND: El provider aún no trackea automáticamente las entidades leídas.
-        // Las entidades se devuelven en estado Detached en lugar de Unchanged.
-        // TODO: Remover Attach() cuando se implemente tracking automático (ver plan 2025-12-13-tracking-fix.md)
-        updateContext.Attach(productoParaActualizar!);
-
+        // El provider ahora trackea automáticamente las entidades como Unchanged
         productoParaActualizar!.Nombre = "Producto Modificado";
         productoParaActualizar.Precio = 150m;
 
