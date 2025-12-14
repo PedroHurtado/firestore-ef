@@ -42,28 +42,29 @@ Modificar `FirestoreWhereTranslator` para detectar comparaciones de enum y tradu
 
 ## Pasos de Implementación
 
-### Fase 1: Análisis del Query Translator
-1. [ ] Revisar `FirestoreWhereTranslator.cs` y entender el flujo actual
-2. [ ] Identificar dónde se procesan las comparaciones binarias (==, !=, etc.)
-3. [ ] Determinar cómo detectar que un operando es enum
+### Fase 1: Análisis del Query Translator ✅ COMPLETADA
+1. [x] Revisar `FirestoreWhereTranslator.cs` y entender el flujo actual
+2. [x] Identificar dónde se procesan las comparaciones binarias (==, !=, etc.)
+3. [x] Determinar cómo detectar que un operando es enum
 
-### Fase 2: Implementar Traducción de Enum
-4. [ ] Modificar el visitor para detectar `EnumProperty == EnumValue`
-5. [ ] Convertir `EnumValue` a su representación string (`.ToString()`)
-6. [ ] Generar cláusula where con el string en lugar del int
+### Fase 2: Implementar Traducción de Enum ✅ COMPLETADA
+4. [x] Modificar el visitor para detectar `EnumProperty == EnumValue`
+5. [x] Convertir `EnumValue` a su representación string (`.ToString()`)
+6. [x] Generar cláusula where con el string en lugar del int
 
-### Fase 3: Tests
-7. [ ] Crear test `Query_FilterByEnum_ShouldWork` en `EnumConventionTests.cs`
-8. [ ] Test con operador `==`
-9. [ ] Test con operador `!=`
-10. [ ] Test con múltiples condiciones de enum
+### Fase 3: Tests ✅ COMPLETADA
+7. [x] Crear test `Query_FilterByEnum_ShouldWork` en `EnumConventionTests.cs`
+8. [x] Test con operador `==`
+9. [x] Test con operador `!=`
+10. [x] Test con variable de enum
 
-### Fase 4: Verificación
-11. [ ] Ejecutar todos los tests de conventions
-12. [ ] Verificar que no se rompió nada existente
+### Fase 4: Verificación ✅ COMPLETADA
+11. [x] Ejecutar todos los tests de conventions
+12. [x] Verificar que no se rompió nada existente (43 tests pasando)
 
-### Fase 5: Commit
-13. [ ] Commit con mensaje descriptivo
+### Fase 5: Commit ✅ COMPLETADA
+**Commit:** `e02decc`
+13. [x] Commit con mensaje descriptivo
 
 ## Ejemplo de Traducción Esperada
 
