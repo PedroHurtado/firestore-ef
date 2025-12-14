@@ -185,4 +185,171 @@ public class EnumConventionTests
         productoActualizado.Should().NotBeNull();
         productoActualizado!.Categoria.Should().Be(CategoriaProducto.Hogar);
     }
+
+    [Fact]
+    public async Task Query_FilterByEnumEquals_ShouldWork()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var idHogar = FirestoreTestFixture.GenerateId("prod");
+        var idElectronica = FirestoreTestFixture.GenerateId("prod");
+
+        var productoHogar = new ProductoCompleto
+        {
+            Id = idHogar,
+            Nombre = "Test Filter Enum Hogar",
+            Precio = 200m,
+            Categoria = CategoriaProducto.Hogar,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        var productoElectronica = new ProductoCompleto
+        {
+            Id = idElectronica,
+            Nombre = "Test Filter Enum Electronica",
+            Precio = 300m,
+            Categoria = CategoriaProducto.Electronica,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        context.ProductosCompletos.Add(productoHogar);
+        context.ProductosCompletos.Add(productoElectronica);
+        await context.SaveChangesAsync();
+
+        // Act - Filtrar por categoría Hogar
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productosHogar = await readContext.ProductosCompletos
+            .Where(p => p.Categoria == CategoriaProducto.Hogar)
+            .ToListAsync();
+
+        // Assert
+        productosHogar.Should().Contain(p => p.Id == idHogar);
+        productosHogar.Should().NotContain(p => p.Id == idElectronica);
+    }
+
+    [Fact]
+    public async Task Query_FilterByEnumNotEquals_ShouldWork()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var idRopa = FirestoreTestFixture.GenerateId("prod");
+        var idAlimentos = FirestoreTestFixture.GenerateId("prod");
+
+        var productoRopa = new ProductoCompleto
+        {
+            Id = idRopa,
+            Nombre = "Test NotEquals Ropa",
+            Precio = 150m,
+            Categoria = CategoriaProducto.Ropa,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        var productoAlimentos = new ProductoCompleto
+        {
+            Id = idAlimentos,
+            Nombre = "Test NotEquals Alimentos",
+            Precio = 50m,
+            Categoria = CategoriaProducto.Alimentos,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        context.ProductosCompletos.Add(productoRopa);
+        context.ProductosCompletos.Add(productoAlimentos);
+        await context.SaveChangesAsync();
+
+        // Act - Filtrar por categoría != Ropa
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productosNoRopa = await readContext.ProductosCompletos
+            .Where(p => p.Categoria != CategoriaProducto.Ropa)
+            .ToListAsync();
+
+        // Assert
+        productosNoRopa.Should().Contain(p => p.Id == idAlimentos);
+        productosNoRopa.Should().NotContain(p => p.Id == idRopa);
+    }
+
+    [Fact]
+    public async Task Query_FilterByEnumWithVariable_ShouldWork()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var id = FirestoreTestFixture.GenerateId("prod");
+
+        var producto = new ProductoCompleto
+        {
+            Id = id,
+            Nombre = "Test Variable Enum",
+            Precio = 100m,
+            Categoria = CategoriaProducto.Electronica,
+            Ubicacion = new GeoLocation(0, 0),
+            Direccion = new Direccion
+            {
+                Calle = "Test",
+                Ciudad = "Test",
+                CodigoPostal = "00000",
+                Coordenadas = new Coordenadas
+                {
+                    Altitud = 0,
+                    Posicion = new GeoLocation(0, 0)
+                }
+            }
+        };
+
+        context.ProductosCompletos.Add(producto);
+        await context.SaveChangesAsync();
+
+        // Act - Filtrar usando variable
+        var categoriaFiltro = CategoriaProducto.Electronica;
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var productos = await readContext.ProductosCompletos
+            .Where(p => p.Categoria == categoriaFiltro)
+            .ToListAsync();
+
+        // Assert
+        productos.Should().Contain(p => p.Id == id);
+    }
 }

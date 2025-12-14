@@ -229,7 +229,13 @@ namespace Firestore.EntityFrameworkCore.Query
         {
             // Evaluar el valor en runtime usando el QueryContext
             var value = clause.EvaluateValue(queryContext);
-            
+
+            // Si hay un tipo de enum, convertir el valor numérico a string del enum
+            if (clause.EnumType != null && value != null)
+            {
+                value = ConvertToEnumString(value, clause.EnumType);
+            }
+
             // Convertir valor al tipo esperado por Firestore
             var convertedValue = ConvertValueForFirestore(value);
 
@@ -364,6 +370,31 @@ namespace Firestore.EntityFrameworkCore.Query
             return orderBy.Descending
                 ? query.OrderByDescending(orderBy.PropertyName)
                 : query.OrderBy(orderBy.PropertyName);
+        }
+
+        /// <summary>
+        /// Convierte un valor numérico al nombre string del enum correspondiente.
+        /// Se usa cuando la query tiene un cast de enum a int.
+        /// </summary>
+        private object ConvertToEnumString(object value, Type enumType)
+        {
+            // Si ya es el tipo enum, convertir a string
+            if (value.GetType() == enumType)
+            {
+                return value.ToString()!;
+            }
+
+            // Si es un valor numérico, convertir a enum y luego a string
+            try
+            {
+                var enumValue = Enum.ToObject(enumType, value);
+                return enumValue.ToString()!;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to convert value '{value}' to enum type '{enumType.Name}': {ex.Message}", ex);
+            }
         }
 
         /// <summary>

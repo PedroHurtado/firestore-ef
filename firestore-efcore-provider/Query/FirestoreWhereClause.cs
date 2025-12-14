@@ -25,6 +25,13 @@ namespace Firestore.EntityFrameworkCore.Query
         public Expression ValueExpression { get; set; }
 
         /// <summary>
+        /// Tipo del enum original cuando la comparación involucra un enum.
+        /// Se usa para convertir el valor numérico a string.
+        /// Null si no es una comparación de enum.
+        /// </summary>
+        public Type? EnumType { get; set; }
+
+        /// <summary>
         /// Constructor
         /// </summary>
         public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, Expression valueExpression)
@@ -32,6 +39,15 @@ namespace Firestore.EntityFrameworkCore.Query
             PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
             Operator = @operator;
             ValueExpression = valueExpression ?? throw new ArgumentNullException(nameof(valueExpression));
+        }
+
+        /// <summary>
+        /// Constructor con tipo de enum
+        /// </summary>
+        public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, Expression valueExpression, Type? enumType)
+            : this(propertyName, @operator, valueExpression)
+        {
+            EnumType = enumType;
         }
 
         /// <summary>

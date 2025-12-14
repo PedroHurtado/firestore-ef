@@ -1,3 +1,4 @@
+using System;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -24,30 +25,45 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             string? propertyName = null;
             Expression? valueExpression = null;
+            Type? enumType = null;
 
-            if (binary.Left is MemberExpression leftMember && leftMember.Member is PropertyInfo leftProp)
+            // Intentar extraer propiedad del lado izquierdo
+            var leftResult = ExtractPropertyInfo(binary.Left);
+            if (leftResult.HasValue)
             {
-                propertyName = leftProp.Name;
+                propertyName = leftResult.Value.PropertyName;
+                enumType = leftResult.Value.EnumType;
                 valueExpression = binary.Right;
             }
-            else if (binary.Right is MemberExpression rightMember && rightMember.Member is PropertyInfo rightProp)
+            else
             {
-                propertyName = rightProp.Name;
-                valueExpression = binary.Left;
+                // Intentar extraer propiedad del lado derecho
+                var rightResult = ExtractPropertyInfo(binary.Right);
+                if (rightResult.HasValue)
+                {
+                    propertyName = rightResult.Value.PropertyName;
+                    enumType = rightResult.Value.EnumType;
+                    valueExpression = binary.Left;
+                }
             }
-            else if (binary.Left is MethodCallExpression leftMethod &&
-                     leftMethod.Method.Name == "Property" &&
-                     leftMethod.Method.DeclaringType?.Name == "EF")
+
+            // Fallback: EF.Property<T>()
+            if (propertyName == null)
             {
-                propertyName = GetPropertyNameFromEFProperty(leftMethod);
-                valueExpression = binary.Right;
-            }
-            else if (binary.Right is MethodCallExpression rightMethod &&
-                     rightMethod.Method.Name == "Property" &&
-                     rightMethod.Method.DeclaringType?.Name == "EF")
-            {
-                propertyName = GetPropertyNameFromEFProperty(rightMethod);
-                valueExpression = binary.Left;
+                if (binary.Left is MethodCallExpression leftMethod &&
+                    leftMethod.Method.Name == "Property" &&
+                    leftMethod.Method.DeclaringType?.Name == "EF")
+                {
+                    propertyName = GetPropertyNameFromEFProperty(leftMethod);
+                    valueExpression = binary.Right;
+                }
+                else if (binary.Right is MethodCallExpression rightMethod &&
+                         rightMethod.Method.Name == "Property" &&
+                         rightMethod.Method.DeclaringType?.Name == "EF")
+                {
+                    propertyName = GetPropertyNameFromEFProperty(rightMethod);
+                    valueExpression = binary.Left;
+                }
             }
 
             if (propertyName == null || valueExpression == null)
@@ -67,7 +83,45 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (!firestoreOperator.HasValue)
                 return null;
 
-            return new FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression);
+            return new FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression, enumType);
+        }
+
+        /// <summary>
+        /// Extrae información de propiedad de una expresión, manejando casts de enum.
+        /// Retorna el nombre de la propiedad y opcionalmente el tipo de enum si hay cast.
+        /// </summary>
+        private (string PropertyName, Type? EnumType)? ExtractPropertyInfo(Expression expression)
+        {
+            // Caso 1: MemberExpression directo (p.Nombre, p.Precio)
+            if (expression is MemberExpression memberExpr && memberExpr.Member is PropertyInfo propInfo)
+            {
+                // Verificar si la propiedad es de tipo enum
+                Type? enumType = null;
+                if (propInfo.PropertyType.IsEnum)
+                {
+                    enumType = propInfo.PropertyType;
+                }
+                return (propInfo.Name, enumType);
+            }
+
+            // Caso 2: UnaryExpression con cast - típico de enums: (int)p.Categoria
+            if (expression is UnaryExpression unaryExpr &&
+                (unaryExpr.NodeType == ExpressionType.Convert || unaryExpr.NodeType == ExpressionType.ConvertChecked))
+            {
+                // Verificar si el operando es un MemberExpression
+                if (unaryExpr.Operand is MemberExpression innerMember && innerMember.Member is PropertyInfo innerProp)
+                {
+                    // Verificar si la propiedad original es enum
+                    Type? enumType = null;
+                    if (innerProp.PropertyType.IsEnum)
+                    {
+                        enumType = innerProp.PropertyType;
+                    }
+                    return (innerProp.Name, enumType);
+                }
+            }
+
+            return null;
         }
 
         private FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
