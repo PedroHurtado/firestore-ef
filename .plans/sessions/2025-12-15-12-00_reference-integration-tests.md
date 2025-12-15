@@ -1,7 +1,7 @@
 # Plan: Reference - TDD Real
 
 **Fecha:** 2025-12-15
-**Estado:** EN PROGRESO (Ciclos 1-5 completados)
+**Estado:** EN PROGRESO (Ciclos 1-6 completados)
 **Enfoque:** TDD (Test First, commits por ciclo)
 
 ---
@@ -188,7 +188,7 @@ feat(ref): implementar include para reference en entity
 
 ---
 
-### Ciclo 6: Include carga Reference en ComplexType
+### Ciclo 6: Include carga Reference en ComplexType ✅ `dd73bbf`
 
 **Commit 6.1 (RED):**
 ```
@@ -267,3 +267,23 @@ private async Task<Dictionary<string, object>> GetRawDocument(string collection,
 - Los tests verifican **comportamiento observable** (datos en Firestore, entidades cargadas)
 - NO verifican detalles internos (anotaciones, métodos privados)
 - Los archivos se crean cuando el test los exige, no antes
+
+---
+
+## ⚠️ Deuda Técnica: AsyncLocal en Ciclo 6
+
+**Archivo:** `ComplexTypeIncludeExtractorVisitor.cs`
+
+**Problema:** Se usa `AsyncLocal<List<LambdaExpression>>` para pasar los ComplexType Includes desde el `QueryTranslationPreprocessor` hasta el `ShapedQueryCompilingExpressionVisitor`.
+
+**Por qué existe:**
+- El `QueryTranslationPreprocessorDependencies` de EF Core solo expone `QueryCompilationContext` (tipo base)
+- No podemos acceder a `FirestoreQueryCompilationContext` desde el preprocessor
+- AsyncLocal es un workaround para comunicar datos entre etapas del pipeline desacopladas
+
+**Solución correcta (TODO):**
+1. Investigar si se puede extender `QueryTranslationPreprocessorDependencies`
+2. O crear nuestro propio `IQueryTranslationPreprocessorDependencies` que incluya `FirestoreQueryCompilationContext`
+3. O usar otro punto de extensión del pipeline de EF Core
+
+**Riesgo:** AsyncLocal puede tener comportamiento inesperado en escenarios de paralelismo complejo.
