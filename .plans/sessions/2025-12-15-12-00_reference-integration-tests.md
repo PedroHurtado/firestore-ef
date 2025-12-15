@@ -52,12 +52,15 @@ nivel1.Reference(d => d.SucursalCercana);  // ← NUEVA API
 
 ## Pasos de Implementación
 
-### Fase 1: Nueva API `ComplexPropertyBuilder.Reference()`
+### Fase 1: Nueva API `ComplexPropertyBuilder.Reference()` ✅ COMPLETADA
 
-1. [ ] **Verificación previa:** Confirmar que `ComplexPropertyBuilder<T>.Metadata.SetAnnotation()` funciona correctamente
-2. [ ] Agregar método `Reference<TComplex, TRelated>()` en `FirestorePropertyBuilderExtensions.cs`
-3. [ ] Usar anotación `Firestore:NestedReferences` para guardar lista de propiedades
-4. [ ] Verificar que compila correctamente
+**Commit:** `7f0bbcb`
+
+1. [x] **Verificación previa:** Confirmar que `ComplexPropertyBuilder<T>.Metadata.SetAnnotation()` funciona correctamente
+2. [x] Agregar método `Reference<TComplex, TRelated>()` en `FirestorePropertyBuilderExtensions.cs`
+3. [x] Usar anotación `Firestore:NestedReferences` para guardar lista de propiedades
+4. [x] Verificar que compila correctamente
+5. [x] Fix: Corregir GeoPointConventionTest (usar `Firestore:IsGeoPoint` en lugar de `Firestore:GeoPoint`)
 
 **Código a implementar:**
 ```csharp
