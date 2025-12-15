@@ -220,20 +220,101 @@ feat(ref): implementar include para reference en complextype
 
 ---
 
-### Ciclo 7: Lazy Loading (OPCIONAL)
+### Ciclo 7: Lazy Loading para References y SubCollections
 
-**Evaluar primero:** ¿Se necesita lazy loading o Include es suficiente?
+**Objetivo:** Implementar carga perezosa que se active al acceder a la propiedad sin necesidad de `.Include()`.
 
-Si se necesita:
+#### 7.1: Lazy Loading para References
 
-**Commit 7.1 (RED):**
+**Commit 7.1.1 (RED):**
 ```
-test(ref): verificar lazy loading carga reference al acceder
+test(lazy): verificar lazy loading carga reference al acceder
 ```
 
-**Commit 7.2 (GREEN):**
+```csharp
+[Fact]
+public async Task LazyLoading_Reference_ShouldLoadWhenAccessed()
+{
+    // Arrange - Articulo con Categoria ya guardado
+
+    // Act - Query SIN Include, pero acceder a la propiedad
+    var articulo = await context.Articulos
+        .FirstOrDefaultAsync(a => a.Id == articuloId);
+
+    // Acceder a la propiedad dispara lazy loading
+    var categoria = articulo!.Categoria;
+
+    // Assert - Categoria se cargó automáticamente
+    categoria.Should().NotBeNull();
+    categoria!.Id.Should().Be(categoriaId);
+}
 ```
-feat(ref): implementar lazy loading para references
+
+**Commit 7.1.2 (GREEN):**
+```
+feat(lazy): implementar lazy loading para references
+```
+
+#### 7.2: Lazy Loading para SubCollections
+
+**Commit 7.2.1 (RED):**
+```
+test(lazy): verificar lazy loading carga subcollection al acceder
+```
+
+```csharp
+[Fact]
+public async Task LazyLoading_SubCollection_ShouldLoadWhenAccessed()
+{
+    // Arrange - Pedido con LineaPedidos en subcollection
+
+    // Act - Query SIN Include
+    var pedido = await context.Pedidos
+        .FirstOrDefaultAsync(p => p.Id == pedidoId);
+
+    // Acceder a la colección dispara lazy loading
+    var lineas = pedido!.Lineas;
+
+    // Assert - SubCollection se cargó automáticamente
+    lineas.Should().NotBeNull();
+    lineas.Should().HaveCount(2);
+}
+```
+
+**Commit 7.2.2 (GREEN):**
+```
+feat(lazy): implementar lazy loading para subcollections
+```
+
+#### 7.3: Lazy Loading para References en ComplexTypes
+
+**Commit 7.3.1 (RED):**
+```
+test(lazy): verificar lazy loading carga reference en complextype al acceder
+```
+
+```csharp
+[Fact]
+public async Task LazyLoading_ReferenceInComplexType_ShouldLoadWhenAccessed()
+{
+    // Arrange - Empresa con DireccionPrincipal.SucursalCercana
+
+    // Act - Query SIN Include
+    var empresa = await context.Empresas
+        .FirstOrDefaultAsync(e => e.Id == empresaId);
+
+    // Acceder a la propiedad en ComplexType dispara lazy loading
+    var sucursal = empresa!.DireccionPrincipal.SucursalCercana;
+
+    // Assert
+    sucursal.Should().NotBeNull();
+    sucursal!.Id.Should().Be(sucursalId);
+}
+```
+
+**Commit 7.3.2 (GREEN):**
+```
+feat(lazy): implementar lazy loading para references en complextype
 ```
 
 ---
@@ -244,7 +325,6 @@ feat(ref): implementar lazy loading para references
 2. **No planificar archivos antes de tener tests**
 3. **Cada ciclo termina con commit(s)**
 4. **Si el test pasa en verde de inmediato** → el comportamiento ya existe, siguiente ciclo
-5. **Lazy Loading es OPCIONAL** → evaluar si realmente se necesita
 
 ---
 
