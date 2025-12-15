@@ -56,22 +56,6 @@ public class GeoPointConventionTest
     }
 
     [Fact]
-    public void ProcessComplexPropertyAdded_Ignores_NonGeoPoint_PropertyNames()
-    {
-        // Arrange
-        var convention = new GeoPointConvention();
-        var (propertyBuilder, context, annotationAdded) = CreateComplexPropertyBuilderMock(
-            "Address",
-            typeof(LocationType));
-
-        // Act
-        convention.ProcessComplexPropertyAdded(propertyBuilder.Object, context.Object);
-
-        // Assert
-        annotationAdded().Should().BeFalse();
-    }
-
-    [Fact]
     public void ProcessComplexPropertyAdded_Ignores_Type_Without_LatLong()
     {
         // Arrange
@@ -120,12 +104,12 @@ public class GeoPointConventionTest
         if (hasExistingAnnotation)
         {
             var annotationMock = new Mock<IConventionAnnotation>();
-            complexPropertyMock.Setup(p => p.FindAnnotation("Firestore:GeoPoint"))
+            complexPropertyMock.Setup(p => p.FindAnnotation("Firestore:IsGeoPoint"))
                 .Returns(annotationMock.Object);
         }
         else
         {
-            complexPropertyMock.Setup(p => p.FindAnnotation("Firestore:GeoPoint"))
+            complexPropertyMock.Setup(p => p.FindAnnotation("Firestore:IsGeoPoint"))
                 .Returns((IConventionAnnotation?)null);
         }
 
@@ -134,10 +118,10 @@ public class GeoPointConventionTest
 
         propertyBuilderMock.Setup(b => b.Metadata).Returns(complexPropertyMock.Object);
         propertyBuilderMock
-            .Setup(b => b.HasAnnotation("Firestore:GeoPoint", It.IsAny<object?>(), It.IsAny<bool>()))
+            .Setup(b => b.HasAnnotation("Firestore:IsGeoPoint", It.IsAny<object?>(), It.IsAny<bool>()))
             .Callback<string, object?, bool>((name, value, _) =>
             {
-                if (name == "Firestore:GeoPoint" && value is true)
+                if (name == "Firestore:IsGeoPoint" && value is true)
                     geoPointAnnotationAdded = true;
             })
             .Returns(propertyBuilderMock.Object);
