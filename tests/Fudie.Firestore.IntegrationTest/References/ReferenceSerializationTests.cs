@@ -359,6 +359,103 @@ public class ReferenceSerializationTests
         empresaLeida.DireccionPrincipal.SucursalCercana.Nombre.Should().Be("Sucursal Centro");
     }
 
+    /// <summary>
+    /// CICLO 7.1 TDD: Verificar que Lazy Loading carga automáticamente
+    /// una Reference cuando se accede a la propiedad (sin Include).
+    /// </summary>
+    [Fact]
+    public async Task LazyLoading_Reference_ShouldLoadWhenAccessed()
+    {
+        // Arrange - Crear y guardar entidades
+        var categoriaId = FirestoreTestFixture.GenerateId("cat");
+        var articuloId = FirestoreTestFixture.GenerateId("art");
+
+        using (var setupContext = _fixture.CreateContextWithLazyLoading<LazyLoadingTestDbContext>())
+        {
+            var categoria = new CategoriaLazy
+            {
+                Id = categoriaId,
+                Nombre = "Electrónica"
+            };
+
+            var articulo = new ArticuloLazy
+            {
+                Id = articuloId,
+                Nombre = "Laptop",
+                Categoria = categoria
+            };
+
+            setupContext.Categorias.Add(categoria);
+            setupContext.Articulos.Add(articulo);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer el artículo SIN Include, pero con lazy loading habilitado
+        using var readContext = _fixture.CreateContextWithLazyLoading<LazyLoadingTestDbContext>();
+        var articuloLeido = await readContext.Articulos
+            .AsTracking()  // Lazy loading requiere tracking
+            .FirstOrDefaultAsync(a => a.Id == articuloId);
+
+        // Verificar que se creó un proxy
+        var actualType = articuloLeido!.GetType();
+        actualType.BaseType.Should().Be(typeof(ArticuloLazy), "Entity should be a Castle proxy");
+
+        // Acceder a la propiedad dispara lazy loading automáticamente
+        var categoriaLeida = articuloLeido!.Categoria;
+
+        // Assert - La referencia debe haberse cargado automáticamente
+        categoriaLeida.Should().NotBeNull("Lazy loading debe cargar la referencia al acceder");
+        categoriaLeida!.Id.Should().Be(categoriaId);
+        categoriaLeida.Nombre.Should().Be("Electrónica");
+    }
+
+    [Fact]
+    public async Task ExplicitLoading_Reference_ShouldLoadWhenRequested()
+    {
+        // Arrange - Crear y guardar entidades
+        var categoriaId = FirestoreTestFixture.GenerateId("cat");
+        var articuloId = FirestoreTestFixture.GenerateId("art");
+
+        using (var setupContext = _fixture.CreateContext<LazyLoadingTestDbContext>())
+        {
+            var categoria = new CategoriaLazy
+            {
+                Id = categoriaId,
+                Nombre = "Electrónica"
+            };
+
+            var articulo = new ArticuloLazy
+            {
+                Id = articuloId,
+                Nombre = "Laptop",
+                Categoria = categoria
+            };
+
+            setupContext.Categorias.Add(categoria);
+            setupContext.Articulos.Add(articulo);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer el artículo CON TRACKING habilitado
+        using var readContext = _fixture.CreateContext<LazyLoadingTestDbContext>();
+        var articuloLeido = await readContext.Articulos
+            .AsTracking()  // <-- Forzar tracking explícitamente
+            .FirstOrDefaultAsync(a => a.Id == articuloId);
+
+        // Verificar que está siendo tracked
+        var entry = readContext.Entry(articuloLeido!);
+        entry.State.Should().NotBe(EntityState.Detached, "La entidad debe estar tracked");
+
+        // Explicit Loading
+        await entry.Reference<CategoriaLazy>(nameof(ArticuloLazy.Categoria)).LoadAsync();
+
+        // Assert
+        var categoriaLeida = articuloLeido!.Categoria;
+        categoriaLeida.Should().NotBeNull("Explicit loading debe cargar la referencia");
+        categoriaLeida!.Id.Should().Be(categoriaId);
+        categoriaLeida.Nombre.Should().Be("Electrónica");
+    }
+
     private async Task<FirestoreDb> GetFirestoreDbAsync()
     {
         return await new FirestoreDbBuilder
@@ -561,6 +658,58 @@ public class ReferenceTestDbContext : DbContext
             entity.Property(e => e.Nombre).IsRequired();
 
             // ✅ Configurar Reference (debe serializar como DocumentReference)
+            entity.Reference(a => a.Categoria);
+        });
+    }
+}
+
+// ============================================================================
+// ENTIDADES PARA TEST DE LAZY LOADING
+// ============================================================================
+
+public class CategoriaLazy
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+}
+
+public class ArticuloLazy
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+
+    // Reference con virtual para lazy loading
+    public virtual CategoriaLazy? Categoria { get; set; }
+}
+
+// ============================================================================
+// DBCONTEXT PARA TEST DE LAZY LOADING
+// ============================================================================
+
+public class LazyLoadingTestDbContext : DbContext
+{
+    public LazyLoadingTestDbContext(DbContextOptions<LazyLoadingTestDbContext> options)
+        : base(options)
+    {
+    }
+
+    public DbSet<CategoriaLazy> Categorias => Set<CategoriaLazy>();
+    public DbSet<ArticuloLazy> Articulos => Set<ArticuloLazy>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CategoriaLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+        });
+
+        modelBuilder.Entity<ArticuloLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+
+            // ✅ Configurar Reference para lazy loading
             entity.Reference(a => a.Categoria);
         });
     }

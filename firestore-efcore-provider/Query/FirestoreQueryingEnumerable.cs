@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore.Query;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,10 +12,11 @@ using Google.Cloud.Firestore;
 namespace Firestore.EntityFrameworkCore.Query
 {
     /// <summary>
-    /// Implementa IAsyncEnumerable para ejecutar queries de Firestore de forma asíncrona.
+    /// Implementa IAsyncEnumerable e IEnumerable para ejecutar queries de Firestore.
+    /// IEnumerable es necesario para lazy loading sincrónico.
     /// Basado en el patrón de CosmosDB Provider.
     /// </summary>
-    public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>
+    public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>, IEnumerable<T>
     {
         private readonly QueryContext _queryContext;
         private readonly FirestoreQueryExpression _queryExpression;
@@ -39,6 +41,96 @@ namespace Firestore.EntityFrameworkCore.Query
         public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
         {
             return new AsyncEnumerator(this, cancellationToken);
+        }
+
+        /// <summary>
+        /// Synchronous enumeration for lazy loading support.
+        /// Blocks on async calls - use async version when possible.
+        /// </summary>
+        public IEnumerator<T> GetEnumerator()
+        {
+            return new SyncEnumerator(this);
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        /// <summary>
+        /// Synchronous enumerator that blocks on async initialization.
+        /// Required for EF Core's lazy loading which uses synchronous queries.
+        /// </summary>
+        private sealed class SyncEnumerator : IEnumerator<T>
+        {
+            private readonly FirestoreQueryingEnumerable<T> _enumerable;
+            private IEnumerator<DocumentSnapshot>? _enumerator;
+            private bool _initialized;
+
+            public SyncEnumerator(FirestoreQueryingEnumerable<T> enumerable)
+            {
+                _enumerable = enumerable;
+            }
+
+            public T Current { get; private set; } = default!;
+            object IEnumerator.Current => Current!;
+
+            public bool MoveNext()
+            {
+                if (!_initialized)
+                {
+                    InitializeEnumerator();
+                    _initialized = true;
+                }
+
+                if (_enumerator!.MoveNext())
+                {
+                    var document = _enumerator.Current;
+                    Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
+                    return true;
+                }
+
+                return false;
+            }
+
+            private void InitializeEnumerator()
+            {
+                var dbContext = _enumerable._queryContext.Context;
+                var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)dbContext).Instance;
+
+                // Obtener dependencias
+                var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
+                var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
+
+                // Crear executor
+                var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
+                var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
+
+                // Ejecutar query síncronamente (bloquea en async)
+                if (_enumerable._queryExpression.IsIdOnlyQuery)
+                {
+                    var documentSnapshot = executor.ExecuteIdQueryAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        CancellationToken.None).GetAwaiter().GetResult();
+
+                    var documents = new List<DocumentSnapshot>();
+                    if (documentSnapshot != null && documentSnapshot.Exists)
+                    {
+                        documents.Add(documentSnapshot);
+                    }
+                    _enumerator = documents.GetEnumerator();
+                }
+                else
+                {
+                    var snapshot = executor.ExecuteQueryAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        CancellationToken.None).GetAwaiter().GetResult();
+
+                    _enumerator = snapshot.Documents.GetEnumerator();
+                }
+            }
+
+            public void Reset() => throw new NotSupportedException();
+            public void Dispose() => _enumerator?.Dispose();
         }
 
         private sealed class AsyncEnumerator : IAsyncEnumerator<T>

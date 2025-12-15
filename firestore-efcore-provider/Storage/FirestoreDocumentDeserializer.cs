@@ -41,6 +41,16 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         public T DeserializeEntity<T>(DocumentSnapshot document) where T : class, new()
         {
+            var entity = new T();
+            return DeserializeIntoEntity(document, entity);
+        }
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot en una instancia de entidad existente.
+        /// Útil para poblar proxies de lazy loading.
+        /// </summary>
+        public T DeserializeIntoEntity<T>(DocumentSnapshot document, T entity) where T : class
+        {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -54,7 +64,6 @@ namespace Firestore.EntityFrameworkCore.Storage
             _logger.LogTrace("Deserializing document {DocumentId} to entity {EntityType}",
                 document.Id, typeof(T).Name);
 
-            var entity = new T();
             var data = document.ToDictionary();
 
             // 1. Deserializar clave primaria (ID del documento)

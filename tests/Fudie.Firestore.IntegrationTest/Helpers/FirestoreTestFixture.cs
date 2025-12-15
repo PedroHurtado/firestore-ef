@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace Fudie.Firestore.IntegrationTest.Helpers;
 
 /// <summary>
@@ -32,11 +34,31 @@ public class FirestoreTestFixture : IAsyncLifetime
     }
 
     /// <summary>
+    /// Crea las opciones de DbContext con lazy loading proxies habilitados.
+    /// </summary>
+    public DbContextOptions<TContext> CreateOptionsWithLazyLoading<TContext>() where TContext : DbContext
+    {
+        return new DbContextOptionsBuilder<TContext>()
+            .UseFirestore(ProjectId)
+            .UseLazyLoadingProxies()
+            .Options;
+    }
+
+    /// <summary>
     /// Crea una instancia del DbContext especificado.
     /// </summary>
     public TContext CreateContext<TContext>() where TContext : DbContext
     {
         var options = CreateOptions<TContext>();
+        return (TContext)Activator.CreateInstance(typeof(TContext), options)!;
+    }
+
+    /// <summary>
+    /// Crea una instancia del DbContext con lazy loading proxies habilitados.
+    /// </summary>
+    public TContext CreateContextWithLazyLoading<TContext>() where TContext : DbContext
+    {
+        var options = CreateOptionsWithLazyLoading<TContext>();
         return (TContext)Activator.CreateInstance(typeof(TContext), options)!;
     }
 
