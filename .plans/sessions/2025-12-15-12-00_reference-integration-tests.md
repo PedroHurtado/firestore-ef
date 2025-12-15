@@ -39,7 +39,7 @@ Cada ciclo = 1 comportamiento observable = commit(s)
 
 ---
 
-### Ciclo 1: Serialización Reference en Collection Principal ✅
+### Ciclo 1: Serialización Reference en Collection Principal ✅ `0b38dbb`
 
 **Commit 1.1 (RED):**
 ```
@@ -82,7 +82,7 @@ feat(ref): implementar serialización reference en collection principal
 
 ---
 
-### Ciclo 2: Serialización Reference en SubCollection ✅
+### Ciclo 2: Serialización Reference en SubCollection ✅ `0b38dbb`
 
 **Commit 2.1 (RED):**
 ```
@@ -105,7 +105,7 @@ public async Task Serialization_Reference_InSubCollection_ShouldStoreAsDocumentR
 
 ---
 
-### Ciclo 3: Serialización Reference en ComplexType Nivel 1 ✅
+### Ciclo 3: Serialización Reference en ComplexType Nivel 1 ✅ `0b38dbb`
 
 **Commit 3.1 (RED):**
 ```
@@ -128,7 +128,7 @@ public async Task Serialization_Reference_InComplexType_Level1_ShouldStoreAsDocu
 
 ---
 
-### Ciclo 4: Deserialización sin Include retorna null ✅
+### Ciclo 4: Deserialización sin Include retorna null ✅ `0b38dbb`
 
 **Commit 4.1 (RED):**
 ```
@@ -155,7 +155,7 @@ public async Task Deserialization_WithoutInclude_ShouldReturnNull()
 
 ---
 
-### Ciclo 5: Include carga Reference en Entity ✅
+### Ciclo 5: Include carga Reference en Entity ✅ `0b38dbb`
 
 **Commit 5.1 (RED):**
 ```
