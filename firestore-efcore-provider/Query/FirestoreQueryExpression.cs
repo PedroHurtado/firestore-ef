@@ -2,6 +2,7 @@ using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 
 namespace Firestore.EntityFrameworkCore.Query
@@ -144,10 +145,17 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
-        /// Agrega una navegación a cargar con Include
+        /// Agrega una navegación a cargar con Include (evita duplicados)
         /// </summary>
         public FirestoreQueryExpression AddInclude(IReadOnlyNavigation navigation)
         {
+            // Evitar duplicados - verificar si ya existe la misma navegación
+            if (PendingIncludes.Any(n => n.Name == navigation.Name &&
+                                         n.DeclaringEntityType == navigation.DeclaringEntityType))
+            {
+                return this; // Ya existe, no agregar duplicado
+            }
+
             var newIncludes = new List<IReadOnlyNavigation>(PendingIncludes) { navigation };
             return Update(pendingIncludes: newIncludes);
         }

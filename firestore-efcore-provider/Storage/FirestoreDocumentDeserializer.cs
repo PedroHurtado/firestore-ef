@@ -320,13 +320,13 @@ namespace Firestore.EntityFrameworkCore.Storage
                     // Complex Type simple (map en Firestore)
                     if (value is IDictionary<string, object> map)
                     {
-                        var complexObject = DeserializeComplexType(map, complexProperty.ComplexType);
+                        var complexObject = DeserializeComplexType(map, complexProperty);
                         complexProperty.PropertyInfo?.SetValue(entity, complexObject);
                     }
                     // Colección de Complex Types (array de maps)
                     else if (value is IEnumerable<object> enumerable)
                     {
-                        var list = DeserializeComplexTypeCollection(enumerable, complexProperty.ComplexType);
+                        var list = DeserializeComplexTypeCollection(enumerable, complexProperty);
                         complexProperty.PropertyInfo?.SetValue(entity, list);
                     }
                 }
@@ -410,8 +410,9 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private object DeserializeComplexType(
             IDictionary<string, object> data,
-            IComplexType complexType)
+            IComplexProperty complexProperty)
         {
+            var complexType = complexProperty.ComplexType;
             var instance = Activator.CreateInstance(complexType.ClrType);
             if (instance == null)
             {
@@ -425,7 +426,42 @@ namespace Firestore.EntityFrameworkCore.Storage
             // Deserializar Complex Properties anidados (recursivo)
             DeserializeComplexProperties(instance, data, complexType);
 
+            // Deserializar referencias a entidades dentro del ComplexType
+            DeserializeNestedEntityReferences(instance, data, complexProperty);
+
             return instance;
+        }
+
+        /// <summary>
+        /// Deserializa referencias a entidades dentro de un ComplexType.
+        /// Por ahora solo loggea. Requiere Include o Lazy Loading para cargar.
+        /// </summary>
+        private void DeserializeNestedEntityReferences(
+            object instance,
+            IDictionary<string, object> data,
+            IComplexProperty complexProperty)
+        {
+            // Obtener lista de propiedades marcadas como Reference
+            var nestedRefs = complexProperty.FindAnnotation("Firestore:NestedReferences")?.Value as List<string>;
+            if (nestedRefs == null || nestedRefs.Count == 0)
+                return;
+
+            var clrType = complexProperty.ComplexType.ClrType;
+
+            foreach (var refPropertyName in nestedRefs)
+            {
+                if (!data.TryGetValue(refPropertyName, out var value))
+                    continue;
+
+                if (value is not DocumentReference docRef)
+                    continue;
+
+                _logger.LogTrace(
+                    "Found nested reference {PropertyName} in ComplexType {ComplexTypeName} pointing to {DocumentPath}",
+                    refPropertyName, clrType.Name, docRef.Path);
+
+                // TODO: Implementar con Include o Lazy Loading
+            }
         }
 
         /// <summary>
@@ -433,8 +469,9 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private object DeserializeComplexTypeCollection(
             IEnumerable<object> collection,
-            IComplexType complexType)
+            IComplexProperty complexProperty)
         {
+            var complexType = complexProperty.ComplexType;
             var listType = typeof(List<>).MakeGenericType(complexType.ClrType);
             var list = (IList)Activator.CreateInstance(listType)!;
 
@@ -442,7 +479,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             {
                 if (item is IDictionary<string, object> map)
                 {
-                    var complexObject = DeserializeComplexType(map, complexType);
+                    var complexObject = DeserializeComplexType(map, complexProperty);
                     list.Add(complexObject);
                 }
             }

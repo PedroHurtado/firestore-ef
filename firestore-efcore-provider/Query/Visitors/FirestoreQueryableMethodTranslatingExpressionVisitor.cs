@@ -1,8 +1,10 @@
+using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -104,32 +106,24 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             ShapedQueryExpression source,
             LambdaExpression selector)
         {
-            Console.WriteLine($"🔍 TranslateSelect - selector.Body type: {selector.Body.GetType().Name}");
-
-            // CRÍTICO: Procesar includes aquí donde SÍ llegan
+            // Procesar includes
             if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
             {
-                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                Console.WriteLine("✓ Detected IncludeExpression in TranslateSelect");
-                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-                // Usar el visitor especializado para extraer TODOS los includes
                 var includeVisitor = new IncludeExtractionVisitor();
                 includeVisitor.Visit(includeExpression);
 
-                // Agregar todos los includes detectados al query
                 var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
 
-                Console.WriteLine($"\n📋 Includes detectados por el visitor:");
                 foreach (var navigation in includeVisitor.DetectedNavigations)
                 {
-                    Console.WriteLine($"  → {navigation.DeclaringEntityType.ClrType.Name}.{navigation.Name} " +
-                                    $"(IsCollection: {navigation.IsCollection}, Target: {navigation.TargetEntityType.ClrType.Name})");
-                    firestoreQueryExpression.PendingIncludes.Add(navigation);
+                    // Evitar duplicados
+                    if (!firestoreQueryExpression.PendingIncludes.Any(n =>
+                        n.Name == navigation.Name &&
+                        n.DeclaringEntityType == navigation.DeclaringEntityType))
+                    {
+                        firestoreQueryExpression.PendingIncludes.Add(navigation);
+                    }
                 }
-
-                Console.WriteLine($"\n✅ Total includes capturados: {includeVisitor.DetectedNavigations.Count}");
-                Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
             }
 
             // Proyección de identidad (x => x)
@@ -264,8 +258,58 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         protected override ShapedQueryExpression? TranslateLastOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
             => throw new NotImplementedException();
 
-        protected override ShapedQueryExpression? TranslateLeftJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
-            => throw new NotImplementedException();
+        protected override ShapedQueryExpression? TranslateLeftJoin(
+            ShapedQueryExpression outer,
+            ShapedQueryExpression inner,
+            LambdaExpression outerKeySelector,
+            LambdaExpression innerKeySelector,
+            LambdaExpression resultSelector)
+        {
+            // En Firestore NO hacemos joins reales.
+            // LeftJoin se usa internamente por EF Core para Include de navegaciones.
+            // Estrategia: extraer la navegación y agregarla a PendingIncludes
+            // para que el executor la cargue después.
+
+            var outerQueryExpression = (FirestoreQueryExpression)outer.QueryExpression;
+            var innerQueryExpression = (FirestoreQueryExpression)inner.QueryExpression;
+
+            // Intentar extraer la navegación del outerKeySelector
+            IReadOnlyNavigation? navigation = null;
+
+            if (outerKeySelector.Body is MemberExpression memberExpression)
+            {
+                var memberName = memberExpression.Member.Name;
+                navigation = outerQueryExpression.EntityType.FindNavigation(memberName);
+            }
+
+            // Si encontramos una navegación, agregarla a PendingIncludes
+            if (navigation != null)
+            {
+                var newQueryExpression = outerQueryExpression.AddInclude(navigation);
+                return outer.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // Si no pudimos extraer la navegación, intentar detectarla desde el inner
+            var innerEntityType = innerQueryExpression.EntityType;
+            var outerEntityType = outerQueryExpression.EntityType;
+
+            // Buscar navegación en outer que apunte a inner
+            foreach (var nav in outerEntityType.GetNavigations())
+            {
+                if (nav.TargetEntityType == innerEntityType)
+                {
+                    var newQueryExpression = outerQueryExpression.AddInclude(nav);
+                    return outer.UpdateQueryExpression(newQueryExpression);
+                }
+            }
+
+            // Si llegamos aquí, no pudimos identificar la navegación
+            throw new NotSupportedException(
+                $"Firestore does not support real joins. " +
+                $"Could not identify navigation for LeftJoin between " +
+                $"'{outerEntityType.ClrType.Name}' and '{innerEntityType.ClrType.Name}'. " +
+                $"Use .Reference() to configure DocumentReference navigations.");
+        }
 
         protected override ShapedQueryExpression? TranslateLongCount(ShapedQueryExpression source, LambdaExpression? predicate)
             => throw new NotImplementedException();

@@ -30,9 +30,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             var firestoreQueryExpression = (FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
 
-            // Los includes ya fueron capturados en TranslateSelect
-            PrintIncludesSummary(firestoreQueryExpression);
-
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
             // Determinar si debemos trackear las entidades
@@ -278,15 +275,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             DbContext dbContext)
         {
             if (!navigation.IsSubCollection())
-            {
-                Console.WriteLine($"⚠ Navigation '{navigation.Name}' is not a subcollection, skipping");
                 return;
-            }
 
             var subCollectionName = GetSubCollectionName(navigation);
             var subCollectionRef = parentDoc.Reference.Collection(subCollectionName);
-
-            Console.WriteLine($"📂 Loading subcollection: {parentDoc.Reference.Path}/{subCollectionName}");
 
             var snapshot = await subCollectionRef.GetSnapshotAsync();
 
@@ -322,8 +314,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                     if (childIncludes.Count > 0)
                     {
-                        Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for {navigation.TargetEntityType.ClrType.Name}");
-
                         var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
                             .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
                             .MakeGenericMethod(navigation.TargetEntityType.ClrType);
@@ -347,7 +337,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
 
             navigation.PropertyInfo?.SetValue(parentEntity, list);
-            Console.WriteLine($"✅ Loaded {list.Count} item(s) for {navigation.Name}");
         }
 
         private static async Task LoadReferenceAsync(
@@ -361,8 +350,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             bool isTracking,
             DbContext dbContext)
         {
-            Console.WriteLine($"🔗 Loading reference: {navigation.Name}");
-
             var data = documentSnapshot.ToDictionary();
 
             object? referenceValue = null;
@@ -377,10 +364,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
 
             if (referenceValue == null)
-            {
-                Console.WriteLine($"⚠ Reference field not found for {navigation.Name}");
                 return;
-            }
 
             // Obtener el ID de la referencia para identity resolution
             string? referencedId = null;
@@ -388,7 +372,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
-                Console.WriteLine($"  → Found DocumentReference: {docRef.Path}");
                 referencedId = docRef.Id;
 
                 // Identity Resolution: verificar si la entidad ya está trackeada
@@ -399,7 +382,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     {
                         ApplyFixup(entity, existingEntity, navigation);
                         navigation.PropertyInfo?.SetValue(entity, existingEntity);
-                        Console.WriteLine($"✅ Loaded reference {navigation.Name} (from ChangeTracker)");
                         return;
                     }
                 }
@@ -418,7 +400,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     {
                         ApplyFixup(entity, existingEntity, navigation);
                         navigation.PropertyInfo?.SetValue(entity, existingEntity);
-                        Console.WriteLine($"✅ Loaded reference {navigation.Name} (from ChangeTracker)");
                         return;
                     }
                 }
@@ -428,16 +409,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
                     var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
-                    Console.WriteLine($"  → Constructed reference from ID: {docRefFromId.Path}");
                     referencedDoc = await docRefFromId.GetSnapshotAsync();
                 }
             }
 
             if (referencedDoc == null || !referencedDoc.Exists)
-            {
-                Console.WriteLine($"⚠ Referenced document not found");
                 return;
-            }
 
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
                 .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
@@ -453,8 +430,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                 if (childIncludes.Count > 0)
                 {
-                    Console.WriteLine($"  🔁 Loading {childIncludes.Count} nested include(s) for reference {navigation.Name}");
-
                     var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
                         .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
                         .MakeGenericMethod(navigation.TargetEntityType.ClrType);
@@ -474,7 +449,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 ApplyFixup(entity, referencedEntity, navigation);
 
                 navigation.PropertyInfo?.SetValue(entity, referencedEntity);
-                Console.WriteLine($"✅ Loaded reference {navigation.Name}");
             }
         }
 
@@ -491,7 +465,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     if (navigation.IsCollection)
                     {
                         inverseProperty.SetValue(child, parent);
-                        Console.WriteLine($"  🔗 Fixup: {child.GetType().Name}.{inverseProperty.Name} → {parent.GetType().Name}");
                     }
                     else
                     {
@@ -501,13 +474,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                             if (collection != null && !collection.Contains(child))
                             {
                                 collection.Add(child);
-                                Console.WriteLine($"  🔗 Fixup: Added to {parent.GetType().Name}.{inverseProperty.Name}");
                             }
                         }
                         else
                         {
                             inverseProperty.SetValue(parent, child);
-                            Console.WriteLine($"  🔗 Fixup: {parent.GetType().Name}.{inverseProperty.Name} → {child.GetType().Name}");
                         }
                     }
                 }
@@ -559,77 +530,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             c = char.ToLowerInvariant(c);
             return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
-        }
-
-        private void PrintIncludesSummary(FirestoreQueryExpression queryExpression)
-        {
-            Console.WriteLine("\n╔═══════════════════════════════════════════════════════╗");
-            Console.WriteLine("║         RESUMEN DE INCLUDES DETECTADOS                ║");
-            Console.WriteLine("╚═══════════════════════════════════════════════════════╝");
-            Console.WriteLine($"Total PendingIncludes: {queryExpression.PendingIncludes.Count}\n");
-
-            if (queryExpression.PendingIncludes.Count == 0)
-            {
-                Console.WriteLine("⚠ ⚠ ⚠  NO SE DETECTÓ NINGÚN INCLUDE  ⚠ ⚠ ⚠\n");
-            }
-            else
-            {
-                var grouped = queryExpression.PendingIncludes
-                    .GroupBy(n => n.DeclaringEntityType.ClrType.Name)
-                    .OrderBy(g => g.Key);
-
-                foreach (var group in grouped)
-                {
-                    Console.WriteLine($"  📁 {group.Key}:");
-                    foreach (var nav in group)
-                    {
-                        var typeIndicator = nav.IsCollection ? "[Collection]" : "[Reference]";
-                        var isSubColl = nav.IsSubCollection() ? "✓ SubCollection" : "⚠ NOT SubCollection";
-                        Console.WriteLine($"    └─{typeIndicator} {nav.Name} → {nav.TargetEntityType.ClrType.Name} ({isSubColl})");
-                    }
-                }
-
-                Console.WriteLine($"\n  📊 Árbol de carga esperado:");
-                PrintLoadingTree(queryExpression.PendingIncludes);
-            }
-
-            Console.WriteLine($"\n═══════════════════════════════════════════════════════\n");
-        }
-
-        private void PrintLoadingTree(List<IReadOnlyNavigation> navigations)
-        {
-            var allTargetTypes = new HashSet<IReadOnlyEntityType>(
-                navigations.Select(n => n.TargetEntityType));
-
-            var rootTypes = navigations
-                .Select(n => n.DeclaringEntityType)
-                .Distinct()
-                .Where(t => !allTargetTypes.Contains(t))
-                .ToList();
-
-            foreach (var rootType in rootTypes)
-            {
-                Console.WriteLine($"  {rootType.ClrType.Name}");
-                PrintNavigationChildren(rootType, navigations, indent: "    ");
-            }
-        }
-
-        private void PrintNavigationChildren(
-            IReadOnlyEntityType entityType,
-            List<IReadOnlyNavigation> allNavigations,
-            string indent)
-        {
-            var children = allNavigations
-                .Where(n => n.DeclaringEntityType == entityType)
-                .ToList();
-
-            foreach (var child in children)
-            {
-                var indicator = child.IsCollection ? "└─[1:N]" : "└─[N:1]";
-                Console.WriteLine($"{indent}{indicator} {child.Name} → {child.TargetEntityType.ClrType.Name}");
-
-                PrintNavigationChildren(child.TargetEntityType, allNavigations, indent + "    ");
-            }
         }
 
         #endregion
