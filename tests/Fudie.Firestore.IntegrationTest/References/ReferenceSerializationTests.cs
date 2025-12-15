@@ -307,6 +307,58 @@ public class ReferenceSerializationTests
             "Sin Include, la propiedad de navegación debe ser null");
     }
 
+    /// <summary>
+    /// CICLO 6 TDD: Verificar que al leer una entidad con Reference en ComplexType
+    /// USANDO Include, la propiedad de navegación se carga.
+    /// </summary>
+    [Fact]
+    public async Task Include_Reference_InComplexType_ShouldLoadReferencedEntity()
+    {
+        // Arrange - Crear y guardar entidades
+        var sucursalId = FirestoreTestFixture.GenerateId("suc");
+        var empresaId = FirestoreTestFixture.GenerateId("emp");
+
+        using (var setupContext = _fixture.CreateContext<ComplexTypeReferenceTestDbContext>())
+        {
+            var sucursal = new Sucursal
+            {
+                Id = sucursalId,
+                Nombre = "Sucursal Centro"
+            };
+
+            var empresa = new Empresa
+            {
+                Id = empresaId,
+                Nombre = "ACME Corp",
+                DireccionPrincipal = new DireccionConRef
+                {
+                    Calle = "Av. Principal 123",
+                    Ciudad = "Ciudad Central",
+                    SucursalCercana = sucursal
+                }
+            };
+
+            setupContext.Sucursales.Add(sucursal);
+            setupContext.Empresas.Add(empresa);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer la empresa CON Include del Reference en ComplexType
+        using var readContext = _fixture.CreateContext<ComplexTypeReferenceTestDbContext>();
+        var empresaLeida = await readContext.Empresas
+            .Include(e => e.DireccionPrincipal.SucursalCercana)
+            .FirstOrDefaultAsync(e => e.Id == empresaId);
+
+        // Assert - La referencia dentro del ComplexType debe estar cargada
+        empresaLeida.Should().NotBeNull("La empresa debe existir");
+        empresaLeida!.Nombre.Should().Be("ACME Corp");
+        empresaLeida.DireccionPrincipal.Should().NotBeNull("El ComplexType debe existir");
+        empresaLeida.DireccionPrincipal.SucursalCercana.Should().NotBeNull(
+            "Con Include, la referencia en el ComplexType debe estar cargada");
+        empresaLeida.DireccionPrincipal.SucursalCercana!.Id.Should().Be(sucursalId);
+        empresaLeida.DireccionPrincipal.SucursalCercana.Nombre.Should().Be("Sucursal Centro");
+    }
+
     private async Task<FirestoreDb> GetFirestoreDbAsync()
     {
         return await new FirestoreDbBuilder

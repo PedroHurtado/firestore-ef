@@ -37,14 +37,19 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                 .TryAdd<IDatabase, FirestoreDatabase>()
                 .TryAdd<IDbContextTransactionManager, FirestoreTransactionManager>()
                 .TryAdd<IQueryContextFactory, FirestoreQueryContextFactory>()
-                .TryAdd<IQueryCompilationContextFactory, FirestoreQueryCompilationContextFactory>()
                 .TryAdd<IQueryableMethodTranslatingExpressionVisitorFactory, FirestoreQueryableMethodTranslatingExpressionVisitorFactory>()
                 .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()
                 .TryAdd<ITypeMappingSource, FirestoreTypeMappingSource>()
                 .TryAdd<IModelValidator, FirestoreModelValidator>()
                 .TryAdd<IDatabaseCreator, FirestoreDatabaseCreator>()
-                .TryAdd<IExecutionStrategyFactory, FirestoreExecutionStrategyFactory>()
-                .TryAddProviderSpecificServices(b => b
+                .TryAdd<IExecutionStrategyFactory, FirestoreExecutionStrategyFactory>();
+
+            // Override services that need to replace defaults from TryAddCoreServices
+            // Must use AddScoped (not TryAdd) since TryAddCoreServices already registered defaults
+            serviceCollection.AddScoped<IQueryCompilationContextFactory, FirestoreQueryCompilationContextFactory>();
+            serviceCollection.AddScoped<IQueryTranslationPreprocessorFactory, FirestoreQueryTranslationPreprocessorFactory>();
+
+            builder.TryAddProviderSpecificServices(b => b
                     .TryAddScoped<IUpdateSqlGenerator, FirestoreUpdateSqlGenerator>()
                     .TryAddScoped<IModificationCommandBatchFactory, FirestoreModificationCommandBatchFactory>()
                     .TryAddScoped<IFirestoreClientWrapper, FirestoreClientWrapper>()

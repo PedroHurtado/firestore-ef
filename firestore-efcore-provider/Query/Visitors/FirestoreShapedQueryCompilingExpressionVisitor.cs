@@ -1,6 +1,7 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Firestore.EntityFrameworkCore.Query;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
@@ -29,6 +30,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
         {
             var firestoreQueryExpression = (FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
+
+            // Copy ComplexType Includes from AsyncLocal storage to FirestoreQueryExpression
+            var complexTypeIncludes = ComplexTypeIncludeExtractorVisitor.CurrentComplexTypeIncludes;
+            if (complexTypeIncludes.Count > 0)
+            {
+                firestoreQueryExpression = firestoreQueryExpression.Update(
+                    complexTypeIncludes: new List<System.Linq.Expressions.LambdaExpression>(complexTypeIncludes));
+            }
 
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
@@ -128,10 +137,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var entity = deserializer.DeserializeEntity<T>(documentSnapshot);
 
-            // Cargar includes
+            // Cargar includes de navegaciones normales
             if (queryExpression.PendingIncludes.Count > 0)
             {
                 LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model, isTracking, dbContext)
+                    .GetAwaiter().GetResult();
+            }
+
+            // Cargar includes en ComplexTypes (ej: .Include(e => e.DireccionPrincipal.SucursalCercana))
+            if (queryExpression.ComplexTypeIncludes.Count > 0)
+            {
+                LoadComplexTypeIncludes(entity, documentSnapshot, queryExpression.ComplexTypeIncludes, clientWrapper, deserializer, model, isTracking, dbContext)
                     .GetAwaiter().GetResult();
             }
 
@@ -482,6 +498,135 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         }
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Loads references inside ComplexTypes based on extracted Include expressions.
+        /// Example: .Include(e => e.DireccionPrincipal.SucursalCercana)
+        /// </summary>
+        private static async Task LoadComplexTypeIncludes<T>(
+            T entity,
+            DocumentSnapshot documentSnapshot,
+            List<LambdaExpression> complexTypeIncludes,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext) where T : class
+        {
+            var data = documentSnapshot.ToDictionary();
+
+            foreach (var includeExpr in complexTypeIncludes)
+            {
+                await LoadComplexTypeInclude(entity, data, includeExpr, clientWrapper, deserializer, model, isTracking, dbContext);
+            }
+        }
+
+        /// <summary>
+        /// Loads a single reference inside a ComplexType.
+        /// Parses the expression to get: ComplexTypeProperty.ReferenceProperty
+        /// </summary>
+        private static async Task LoadComplexTypeInclude(
+            object entity,
+            Dictionary<string, object> data,
+            LambdaExpression includeExpr,
+            IFirestoreClientWrapper clientWrapper,
+            Storage.FirestoreDocumentDeserializer deserializer,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext)
+        {
+            // Parse the expression: e => e.DireccionPrincipal.SucursalCercana
+            // We need to extract: ComplexTypeProp = DireccionPrincipal, ReferenceProp = SucursalCercana
+            if (includeExpr.Body is not MemberExpression refMemberExpr)
+                return;
+
+            var referenceProperty = refMemberExpr.Member as PropertyInfo;
+            if (referenceProperty == null)
+                return;
+
+            if (refMemberExpr.Expression is not MemberExpression complexTypeMemberExpr)
+                return;
+
+            var complexTypeProperty = complexTypeMemberExpr.Member as PropertyInfo;
+            if (complexTypeProperty == null)
+                return;
+
+            // Get the ComplexType instance from the entity
+            var complexTypeInstance = complexTypeProperty.GetValue(entity);
+            if (complexTypeInstance == null)
+                return;
+
+            // Get the raw data for the ComplexType from the document
+            if (!data.TryGetValue(complexTypeProperty.Name, out var complexTypeData) ||
+                complexTypeData is not Dictionary<string, object> complexTypeDict)
+                return;
+
+            // Get the DocumentReference from the ComplexType data
+            if (!complexTypeDict.TryGetValue(referenceProperty.Name, out var referenceValue))
+                return;
+
+            if (referenceValue == null)
+                return;
+
+            // Load the referenced entity
+            DocumentSnapshot? referencedDoc = null;
+            string? referencedId = null;
+
+            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+            {
+                referencedId = docRef.Id;
+                referencedDoc = await docRef.GetSnapshotAsync();
+            }
+            else if (referenceValue is string id)
+            {
+                referencedId = id;
+                var targetType = referenceProperty.PropertyType;
+                var targetEntityType = model.FindEntityType(targetType);
+                if (targetEntityType != null)
+                {
+                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
+                    var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
+                    referencedDoc = await docRefFromId.GetSnapshotAsync();
+                }
+            }
+
+            if (referencedDoc == null || !referencedDoc.Exists)
+                return;
+
+            // Identity Resolution
+            if (isTracking && referencedId != null)
+            {
+                var targetEntityType = model.FindEntityType(referenceProperty.PropertyType);
+                if (targetEntityType != null)
+                {
+                    var existingEntity = TryGetTrackedEntity(dbContext, targetEntityType, referencedId);
+                    if (existingEntity != null)
+                    {
+                        referenceProperty.SetValue(complexTypeInstance, existingEntity);
+                        return;
+                    }
+                }
+            }
+
+            // Deserialize the referenced entity
+            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .MakeGenericMethod(referenceProperty.PropertyType);
+
+            var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
+
+            if (referencedEntity != null)
+            {
+                // Track the referenced entity
+                if (isTracking)
+                {
+                    dbContext.Attach(referencedEntity);
+                }
+
+                // Set the reference property on the ComplexType instance
+                referenceProperty.SetValue(complexTypeInstance, referencedEntity);
             }
         }
 

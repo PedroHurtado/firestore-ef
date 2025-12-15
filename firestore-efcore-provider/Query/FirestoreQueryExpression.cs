@@ -56,6 +56,14 @@ namespace Firestore.EntityFrameworkCore.Query
         public List<IReadOnlyNavigation> PendingIncludes { get; set; }
 
         /// <summary>
+        /// Lista de Includes en propiedades de ComplexTypes.
+        /// Ej: .Include(e => e.DireccionPrincipal.SucursalCercana)
+        /// Estas se extraen antes de que EF Core las procese (ya que EF Core no las soporta)
+        /// y se cargan durante la deserialización.
+        /// </summary>
+        public List<LambdaExpression> ComplexTypeIncludes { get; set; }
+
+        /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
         /// </summary>
         public bool IsIdOnlyQuery => IdValueExpression != null;
@@ -72,6 +80,7 @@ namespace Firestore.EntityFrameworkCore.Query
             Filters = new List<FirestoreWhereClause>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             PendingIncludes = new List<IReadOnlyNavigation>();
+            ComplexTypeIncludes = new List<LambdaExpression>();
         }
 
         /// <summary>
@@ -95,7 +104,8 @@ namespace Firestore.EntityFrameworkCore.Query
             int? limit = null,
             DocumentSnapshot? startAfterDocument = null,
             Expression? idValueExpression = null,
-            List<IReadOnlyNavigation>? pendingIncludes = null)
+            List<IReadOnlyNavigation>? pendingIncludes = null,
+            List<LambdaExpression>? complexTypeIncludes = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -106,7 +116,8 @@ namespace Firestore.EntityFrameworkCore.Query
                 Limit = limit ?? Limit,
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
                 IdValueExpression = idValueExpression ?? IdValueExpression,
-                PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes)
+                PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
+                ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes)
             };
         }
 
