@@ -1,7 +1,7 @@
 # Plan: Reference - TDD Real
 
 **Fecha:** 2025-12-15
-**Estado:** EN PROGRESO (Ciclos 1-6 completados)
+**Estado:** EN PROGRESO (Ciclos 1-6 + 7.1 completados)
 **Enfoque:** TDD (Test First, commits por ciclo)
 
 ---
@@ -224,7 +224,15 @@ feat(ref): implementar include para reference en complextype
 
 **Objetivo:** Implementar carga perezosa que se active al acceder a la propiedad sin necesidad de `.Include()`.
 
-#### 7.1: Lazy Loading para References
+#### 7.1: Lazy Loading para References ✅ `af86f67`
+
+**Implementación:**
+- `FirestoreQueryingEnumerable<T>` ahora implementa `IEnumerable<T>` (sync lazy loading)
+- `TryCreateLazyLoadingProxy<T>` crea proxies via reflection (sin dependencia dura)
+- `SetShadowForeignKeys` pobla shadow FK desde DocumentReference
+- `DeserializeIntoEntity` permite poblar proxies existentes
+
+**Documentación arquitectónica:** Ver [.plans/review/LazyLoading.md](../review/LazyLoading.md)
 
 **Commit 7.1.1 (RED):**
 ```
