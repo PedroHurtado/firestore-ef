@@ -20,23 +20,27 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 {
     public class FirestoreShapedQueryCompilingExpressionVisitor : ShapedQueryCompilingExpressionVisitor
     {
+        private readonly FirestoreQueryCompilationContext _firestoreContext;
+
         public FirestoreShapedQueryCompilingExpressionVisitor(
             ShapedQueryCompilingExpressionVisitorDependencies dependencies,
             QueryCompilationContext queryCompilationContext)
             : base(dependencies, queryCompilationContext)
         {
+            // Direct cast - same pattern as Cosmos DB and other official providers
+            _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
         }
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
         {
             var firestoreQueryExpression = (FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
 
-            // Copy ComplexType Includes from AsyncLocal storage to FirestoreQueryExpression
-            var complexTypeIncludes = ComplexTypeIncludeExtractorVisitor.CurrentComplexTypeIncludes;
+            // Copy ComplexType Includes from FirestoreQueryCompilationContext to FirestoreQueryExpression
+            var complexTypeIncludes = _firestoreContext.ComplexTypeIncludes;
             if (complexTypeIncludes.Count > 0)
             {
                 firestoreQueryExpression = firestoreQueryExpression.Update(
-                    complexTypeIncludes: new List<System.Linq.Expressions.LambdaExpression>(complexTypeIncludes));
+                    complexTypeIncludes: new List<LambdaExpression>(complexTypeIncludes));
             }
 
             var entityType = firestoreQueryExpression.EntityType.ClrType;

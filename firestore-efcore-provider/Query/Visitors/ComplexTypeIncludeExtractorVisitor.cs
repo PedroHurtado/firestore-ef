@@ -4,39 +4,26 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Threading;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
     /// <summary>
     /// Visitor that extracts Include expressions targeting ComplexType properties
     /// and removes them from the expression tree to prevent EF Core from rejecting them.
-    /// The extracted includes are stored for later processing during deserialization.
+    /// The extracted includes are stored in FirestoreQueryCompilationContext for later processing.
     /// </summary>
+    /// <remarks>
+    /// Uses direct cast to FirestoreQueryCompilationContext - same pattern used by
+    /// official EF Core providers (Cosmos DB, SQL Server, etc.)
+    /// </remarks>
     internal class ComplexTypeIncludeExtractorVisitor : ExpressionVisitor
     {
-        private readonly QueryCompilationContext _queryCompilationContext;
-
-        /// <summary>
-        /// Thread-safe storage for ComplexType includes during query compilation.
-        /// Used to pass includes from preprocessing to deserialization.
-        /// </summary>
-        private static readonly AsyncLocal<List<LambdaExpression>> _currentComplexTypeIncludes = new();
-
-        /// <summary>
-        /// Gets the current ComplexType includes for this async context.
-        /// </summary>
-        public static List<LambdaExpression> CurrentComplexTypeIncludes
-        {
-            get => _currentComplexTypeIncludes.Value ?? new List<LambdaExpression>();
-            set => _currentComplexTypeIncludes.Value = value;
-        }
+        private readonly FirestoreQueryCompilationContext _firestoreContext;
 
         public ComplexTypeIncludeExtractorVisitor(QueryCompilationContext queryCompilationContext)
         {
-            _queryCompilationContext = queryCompilationContext;
-            // Initialize a new list for this query compilation
-            _currentComplexTypeIncludes.Value = new List<LambdaExpression>();
+            // Direct cast - same pattern as Cosmos DB and other official providers
+            _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
         }
 
         protected override Expression VisitMethodCall(MethodCallExpression node)
@@ -92,7 +79,7 @@ namespace Firestore.EntityFrameworkCore.Query
                     {
                         var rootType = GetRootEntityType(parentMemberExpr);
                         // Check if this property's type is configured as ComplexType in the model
-                        var entityType = _queryCompilationContext.Model.FindEntityType(rootType);
+                        var entityType = _firestoreContext.Model.FindEntityType(rootType);
 
                         if (entityType != null)
                         {
@@ -133,9 +120,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private void StoreComplexTypeInclude(LambdaExpression includeExpression)
         {
-            // Store in AsyncLocal for thread-safe access during deserialization
-            _currentComplexTypeIncludes.Value ??= new List<LambdaExpression>();
-            _currentComplexTypeIncludes.Value.Add(includeExpression);
+            _firestoreContext.AddComplexTypeInclude(includeExpression);
         }
     }
 }

@@ -270,20 +270,10 @@ private async Task<Dictionary<string, object>> GetRawDocument(string collection,
 
 ---
 
-## ⚠️ Deuda Técnica: AsyncLocal en Ciclo 6
+## ✅ Resuelto: AsyncLocal eliminado en Ciclo 6
 
-**Archivo:** `ComplexTypeIncludeExtractorVisitor.cs`
+**Problema inicial:** Se usó `AsyncLocal<List<LambdaExpression>>` como workaround para pasar datos entre etapas del pipeline.
 
-**Problema:** Se usa `AsyncLocal<List<LambdaExpression>>` para pasar los ComplexType Includes desde el `QueryTranslationPreprocessor` hasta el `ShapedQueryCompilingExpressionVisitor`.
+**Solución aplicada:** Cast directo a `FirestoreQueryCompilationContext` - mismo patrón que usan los providers oficiales (Cosmos DB, SQL Server).
 
-**Por qué existe:**
-- El `QueryTranslationPreprocessorDependencies` de EF Core solo expone `QueryCompilationContext` (tipo base)
-- No podemos acceder a `FirestoreQueryCompilationContext` desde el preprocessor
-- AsyncLocal es un workaround para comunicar datos entre etapas del pipeline desacopladas
-
-**Solución correcta (TODO):**
-1. Investigar si se puede extender `QueryTranslationPreprocessorDependencies`
-2. O crear nuestro propio `IQueryTranslationPreprocessorDependencies` que incluya `FirestoreQueryCompilationContext`
-3. O usar otro punto de extensión del pipeline de EF Core
-
-**Riesgo:** AsyncLocal puede tener comportamiento inesperado en escenarios de paralelismo complejo.
+**Documentación completa:** Ver [.plans/review/AsynLocal.md](../review/AsynLocal.md)
