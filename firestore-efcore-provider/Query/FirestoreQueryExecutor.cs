@@ -287,24 +287,25 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var convertedValue = ConvertValueForFirestore(value);
+            var fieldPath = GetFieldPath(clause.PropertyName);
 
             return clause.Operator switch
             {
-                FirestoreOperator.EqualTo => Filter.EqualTo(clause.PropertyName, convertedValue),
-                FirestoreOperator.NotEqualTo => Filter.NotEqualTo(clause.PropertyName, convertedValue),
-                FirestoreOperator.LessThan => Filter.LessThan(clause.PropertyName, convertedValue),
-                FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(clause.PropertyName, convertedValue),
-                FirestoreOperator.GreaterThan => Filter.GreaterThan(clause.PropertyName, convertedValue),
-                FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(clause.PropertyName, convertedValue),
-                FirestoreOperator.ArrayContains => Filter.ArrayContains(clause.PropertyName, convertedValue),
-                FirestoreOperator.In => BuildInFilter(clause.PropertyName, convertedValue),
-                FirestoreOperator.ArrayContainsAny => BuildArrayContainsAnyFilter(clause.PropertyName, convertedValue),
-                FirestoreOperator.NotIn => BuildNotInFilter(clause.PropertyName, convertedValue),
+                FirestoreOperator.EqualTo => Filter.EqualTo(fieldPath, convertedValue),
+                FirestoreOperator.NotEqualTo => Filter.NotEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.LessThan => Filter.LessThan(fieldPath, convertedValue),
+                FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThan => Filter.GreaterThan(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.ArrayContains => Filter.ArrayContains(fieldPath, convertedValue),
+                FirestoreOperator.In => BuildInFilter(fieldPath, convertedValue),
+                FirestoreOperator.ArrayContainsAny => BuildArrayContainsAnyFilter(fieldPath, convertedValue),
+                FirestoreOperator.NotIn => BuildNotInFilter(fieldPath, convertedValue),
                 _ => null
             };
         }
 
-        private Filter BuildInFilter(string propertyName, object? value)
+        private Filter BuildInFilter(FieldPath fieldPath, object? value)
         {
             if (value is not IEnumerable enumerable)
             {
@@ -313,10 +314,10 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var values = ConvertEnumerableToArray(enumerable);
-            return Filter.InArray(propertyName, values);
+            return Filter.InArray(fieldPath, values);
         }
 
-        private Filter BuildArrayContainsAnyFilter(string propertyName, object? value)
+        private Filter BuildArrayContainsAnyFilter(FieldPath fieldPath, object? value)
         {
             if (value is not IEnumerable enumerable)
             {
@@ -325,10 +326,10 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var values = ConvertEnumerableToArray(enumerable);
-            return Filter.ArrayContainsAny(propertyName, values);
+            return Filter.ArrayContainsAny(fieldPath, values);
         }
 
-        private Filter BuildNotInFilter(string propertyName, object? value)
+        private Filter BuildNotInFilter(FieldPath fieldPath, object? value)
         {
             if (value is not IEnumerable enumerable)
             {
@@ -337,7 +338,7 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var values = ConvertEnumerableToArray(enumerable);
-            return Filter.NotInArray(propertyName, values);
+            return Filter.NotInArray(fieldPath, values);
         }
 
         /// <summary>
@@ -360,6 +361,9 @@ namespace Firestore.EntityFrameworkCore.Query
             // Convertir valor al tipo esperado por Firestore
             var convertedValue = ConvertValueForFirestore(value);
 
+            // Determinar el campo a usar (FieldPath.DocumentId para "Id")
+            var fieldPath = GetFieldPath(clause.PropertyName);
+
             _logger.LogTrace("Applying filter: {PropertyName} {Operator} {Value}",
                 clause.PropertyName, clause.Operator, convertedValue);
 
@@ -367,34 +371,34 @@ namespace Firestore.EntityFrameworkCore.Query
             return clause.Operator switch
             {
                 FirestoreOperator.EqualTo =>
-                    query.WhereEqualTo(clause.PropertyName, convertedValue),
+                    query.WhereEqualTo(fieldPath, convertedValue),
 
                 FirestoreOperator.NotEqualTo =>
-                    query.WhereNotEqualTo(clause.PropertyName, convertedValue),
+                    query.WhereNotEqualTo(fieldPath, convertedValue),
 
                 FirestoreOperator.LessThan =>
-                    query.WhereLessThan(clause.PropertyName, convertedValue),
+                    query.WhereLessThan(fieldPath, convertedValue),
 
                 FirestoreOperator.LessThanOrEqualTo =>
-                    query.WhereLessThanOrEqualTo(clause.PropertyName, convertedValue),
+                    query.WhereLessThanOrEqualTo(fieldPath, convertedValue),
 
                 FirestoreOperator.GreaterThan =>
-                    query.WhereGreaterThan(clause.PropertyName, convertedValue),
+                    query.WhereGreaterThan(fieldPath, convertedValue),
 
                 FirestoreOperator.GreaterThanOrEqualTo =>
-                    query.WhereGreaterThanOrEqualTo(clause.PropertyName, convertedValue),
+                    query.WhereGreaterThanOrEqualTo(fieldPath, convertedValue),
 
                 FirestoreOperator.ArrayContains =>
-                    query.WhereArrayContains(clause.PropertyName, convertedValue),
+                    query.WhereArrayContains(fieldPath, convertedValue),
 
                 FirestoreOperator.In =>
-                    ApplyWhereIn(query, clause.PropertyName, convertedValue),
+                    ApplyWhereIn(query, fieldPath, convertedValue),
 
                 FirestoreOperator.ArrayContainsAny =>
-                    ApplyWhereArrayContainsAny(query, clause.PropertyName, convertedValue),
+                    ApplyWhereArrayContainsAny(query, fieldPath, convertedValue),
 
                 FirestoreOperator.NotIn =>
-                    ApplyWhereNotIn(query, clause.PropertyName, convertedValue),
+                    ApplyWhereNotIn(query, fieldPath, convertedValue),
 
                 _ => throw new NotSupportedException(
                     $"Firestore operator {clause.Operator} is not supported")
@@ -406,7 +410,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private Google.Cloud.Firestore.Query ApplyWhereIn(
             Google.Cloud.Firestore.Query query,
-            string propertyName,
+            FieldPath fieldPath,
             object? value)
         {
             if (value is not IEnumerable enumerable)
@@ -425,7 +429,7 @@ namespace Firestore.EntityFrameworkCore.Query
                     "Consider splitting into multiple queries or using a different approach.");
             }
 
-            return query.WhereIn(propertyName, values);
+            return query.WhereIn(fieldPath, values);
         }
 
         /// <summary>
@@ -433,7 +437,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private Google.Cloud.Firestore.Query ApplyWhereArrayContainsAny(
             Google.Cloud.Firestore.Query query,
-            string propertyName,
+            FieldPath fieldPath,
             object? value)
         {
             if (value is not IEnumerable enumerable)
@@ -450,7 +454,7 @@ namespace Firestore.EntityFrameworkCore.Query
                     $"Firestore WhereArrayContainsAny supports a maximum of 30 elements. Got {values.Length} elements.");
             }
 
-            return query.WhereArrayContainsAny(propertyName, values);
+            return query.WhereArrayContainsAny(fieldPath, values);
         }
 
         /// <summary>
@@ -458,7 +462,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private Google.Cloud.Firestore.Query ApplyWhereNotIn(
             Google.Cloud.Firestore.Query query,
-            string propertyName,
+            FieldPath fieldPath,
             object? value)
         {
             if (value is not IEnumerable enumerable)
@@ -475,7 +479,18 @@ namespace Firestore.EntityFrameworkCore.Query
                     $"Firestore WhereNotIn supports a maximum of 10 elements. Got {values.Length} elements.");
             }
 
-            return query.WhereNotIn(propertyName, values);
+            return query.WhereNotIn(fieldPath, values);
+        }
+
+        /// <summary>
+        /// Gets the appropriate FieldPath for a property name.
+        /// Returns FieldPath.DocumentId for "Id" property, otherwise a regular FieldPath.
+        /// </summary>
+        private FieldPath GetFieldPath(string propertyName)
+        {
+            return propertyName == "Id"
+                ? FieldPath.DocumentId
+                : new FieldPath(propertyName);
         }
 
         /// <summary>

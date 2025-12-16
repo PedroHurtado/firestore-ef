@@ -180,7 +180,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return null;
             }
 
-            // Check for ID queries (only valid for single == clause)
+            // Check for ID-only queries (optimization: use GetDocumentAsync instead of query)
+            // Only valid when there's a SINGLE Id == clause with NO other filters
             if (clauses.Count == 1 && clauses[0].PropertyName == "Id")
             {
                 var whereClause = clauses[0];
@@ -190,10 +191,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         $"Firestore ID queries only support the '==' operator.");
                 }
 
+                // If there are already other filters, treat Id as a normal filter
+                // (executor will use FieldPath.DocumentId)
                 if (firestoreQueryExpression.Filters.Count > 0 || firestoreQueryExpression.OrFilterGroups.Count > 0)
                 {
-                    throw new InvalidOperationException(
-                        "Firestore ID queries cannot be combined with other filters.");
+                    var normalQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
+                    return source.UpdateQueryExpression(normalQueryExpression);
                 }
 
                 if (firestoreQueryExpression.IsIdOnlyQuery)
@@ -202,6 +205,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         "Cannot apply multiple ID filters.");
                 }
 
+                // Create IdOnlyQuery (optimization for single document fetch)
                 var newQueryExpression = new FirestoreQueryExpression(
                     firestoreQueryExpression.EntityType,
                     firestoreQueryExpression.CollectionName)
@@ -218,15 +222,35 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return source.UpdateQueryExpression(newQueryExpression);
             }
 
+            // If we already have an IdOnlyQuery and need to add more filters,
+            // convert it to a normal query with FieldPath.DocumentId
             if (firestoreQueryExpression.IsIdOnlyQuery)
             {
-                throw new InvalidOperationException(
-                    "Cannot add filters to an ID-only query.");
+                // Create Id clause from the existing IdValueExpression
+                var idClause = new FirestoreWhereClause(
+                    "Id", FirestoreOperator.EqualTo, firestoreQueryExpression.IdValueExpression!, null);
+
+                // Create new query without IdValueExpression (will use FieldPath.DocumentId)
+                var convertedQuery = new FirestoreQueryExpression(
+                    firestoreQueryExpression.EntityType,
+                    firestoreQueryExpression.CollectionName)
+                {
+                    Filters = new List<FirestoreWhereClause> { idClause },
+                    OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
+                    OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
+                    Limit = firestoreQueryExpression.Limit,
+                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument,
+                    PendingIncludes = firestoreQueryExpression.PendingIncludes
+                };
+
+                // Add the new clauses
+                var convertedWithFilters = convertedQuery.AddFilters(clauses);
+                return source.UpdateQueryExpression(convertedWithFilters);
             }
 
             // Add all AND clauses
-            var normalQueryExpression = firestoreQueryExpression.AddFilters(clauses);
-            return source.UpdateQueryExpression(normalQueryExpression);
+            var resultQuery = firestoreQueryExpression.AddFilters(clauses);
+            return source.UpdateQueryExpression(resultQuery);
         }
 
         #endregion

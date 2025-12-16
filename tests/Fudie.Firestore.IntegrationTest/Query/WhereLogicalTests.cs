@@ -168,4 +168,69 @@ public class WhereLogicalTests
     }
 
     #endregion
+
+    #region ID + Filters (Multi-tenancy)
+
+    [Fact]
+    public async Task Where_IdAndTenantId_ReturnsSecureMatch()
+    {
+        // Arrange - Multi-tenancy scenario: Id + TenantId for secure access
+        using var context = _fixture.CreateContext<QueryTestDbContext>();
+        var targetId = FirestoreTestFixture.GenerateId("tenant");
+        var tenantA = $"tenant-A-{Guid.NewGuid():N}";
+        var tenantB = $"tenant-B-{Guid.NewGuid():N}";
+
+        var entities = new[]
+        {
+            new QueryTestEntity { Id = targetId, Name = "Shared-Resource", TenantId = tenantA },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("tenant"), Name = "Other-Resource", TenantId = tenantA },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("tenant"), Name = "Different-Tenant", TenantId = tenantB }
+        };
+
+        context.QueryTestEntities.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - Query by Id AND TenantId (secure multi-tenant access)
+        using var readContext = _fixture.CreateContext<QueryTestDbContext>();
+        var results = await readContext.QueryTestEntities
+            .Where(e => e.Id == targetId && e.TenantId == tenantA)
+            .ToListAsync();
+
+        // Assert - Should return exactly one entity matching both Id AND TenantId
+        results.Should().HaveCount(1);
+        results[0].Id.Should().Be(targetId);
+        results[0].TenantId.Should().Be(tenantA);
+        results[0].Name.Should().Be("Shared-Resource");
+    }
+
+    [Fact]
+    public async Task Where_IdAndTenantId_WrongTenant_ReturnsEmpty()
+    {
+        // Arrange - Security test: requesting wrong tenant should return nothing
+        using var context = _fixture.CreateContext<QueryTestDbContext>();
+        var targetId = FirestoreTestFixture.GenerateId("sec");
+        var correctTenant = $"correct-{Guid.NewGuid():N}";
+        var wrongTenant = $"wrong-{Guid.NewGuid():N}";
+
+        var entity = new QueryTestEntity
+        {
+            Id = targetId,
+            Name = "Secure-Resource",
+            TenantId = correctTenant
+        };
+
+        context.QueryTestEntities.Add(entity);
+        await context.SaveChangesAsync();
+
+        // Act - Try to access with wrong TenantId
+        using var readContext = _fixture.CreateContext<QueryTestDbContext>();
+        var results = await readContext.QueryTestEntities
+            .Where(e => e.Id == targetId && e.TenantId == wrongTenant)
+            .ToListAsync();
+
+        // Assert - Should return empty (secure access denied)
+        results.Should().BeEmpty();
+    }
+
+    #endregion
 }

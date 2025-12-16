@@ -99,6 +99,7 @@ public class QueryTestEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? Description { get; set; }  // Nullable for null tests
     public List<string> Tags { get; set; } = [];  // For array contains tests
+    public string? TenantId { get; set; }  // For multi-tenancy tests (Id + TenantId)
 }
 
 // ============================================================================
