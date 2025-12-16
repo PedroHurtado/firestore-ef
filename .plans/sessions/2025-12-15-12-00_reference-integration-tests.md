@@ -308,6 +308,8 @@ var sucursal = empresa.DireccionPrincipal.SucursalCercana; // null
 
 **Tests:** Marcados como `Skip` con documentación de la limitación.
 
+**Commit:** `945fc16` - docs: document Ciclo 7.3 lazy loading limitation for ComplexTypes
+
 **Posible implementación futura:**
 1. Crear proxies para ComplexTypes que contienen References
 2. Requiere modificar cómo se crean los ComplexTypes en el shaper
