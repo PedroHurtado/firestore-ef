@@ -19,6 +19,8 @@
 | 9 | Id + Filters (Multi-tenancy) | ✅ | `29a26f8` | `WhereLogicalTests` (2 tests) |
 | 9.1 | AND + OR anidado (`A && (B \|\| C)`) | ✅ | `c82144d` | `WhereLogicalTests` (3 tests) |
 | 9.2 | ComplexType.Property (propiedades anidadas) | ✅ | `f0c1d4c` | `ComplexTypeConventionTests` (2 tests) |
+| 10 | IN (`list.Contains(field)`) | ✅ | `d8dcdac` | `WhereInTests` (3 tests) |
+| 11 | NOT IN (`!list.Contains(field)`) | ✅ | `d8dcdac` | `WhereInTests` (2 tests) |
 
 ---
 
