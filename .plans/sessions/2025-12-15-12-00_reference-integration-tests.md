@@ -1,7 +1,7 @@
 # Plan: Reference - TDD Real
 
 **Fecha:** 2025-12-15
-**Estado:** EN PROGRESO (Ciclos 1-6 + 7.1 completados)
+**Estado:** EN PROGRESO (Ciclos 1-6 + 7.1 completados, 7.2 limitación documentada)
 **Enfoque:** TDD (Test First, commits por ciclo)
 
 ---
@@ -263,36 +263,24 @@ public async Task LazyLoading_Reference_ShouldLoadWhenAccessed()
 feat(lazy): implementar lazy loading para references
 ```
 
-#### 7.2: Lazy Loading para SubCollections
+#### 7.2: Lazy Loading para SubCollections ⚠️ LIMITACIÓN DOCUMENTADA
 
-**Commit 7.2.1 (RED):**
-```
-test(lazy): verificar lazy loading carga subcollection al acceder
-```
+**Estado:** No soportado - Limitación arquitectónica
 
-```csharp
-[Fact]
-public async Task LazyLoading_SubCollection_ShouldLoadWhenAccessed()
-{
-    // Arrange - Pedido con LineaPedidos en subcollection
+**Razón técnica:**
+- SubCollections en Firestore son **path-based**: `/Clientes/{id}/Pedidos/`
+- EF Core Lazy/Explicit Loading crea queries **FK-based**: `WHERE ClienteId = @id`
+- No existe collection global "Pedidos" en Firestore para consultar
 
-    // Act - Query SIN Include
-    var pedido = await context.Pedidos
-        .FirstOrDefaultAsync(p => p.Id == pedidoId);
+**Solución para usuarios:** Usar `Include()` para cargar SubCollections.
 
-    // Acceder a la colección dispara lazy loading
-    var lineas = pedido!.Lineas;
+**Tests:** Marcados como `Skip` con documentación de la limitación.
 
-    // Assert - SubCollection se cargó automáticamente
-    lineas.Should().NotBeNull();
-    lineas.Should().HaveCount(2);
-}
-```
-
-**Commit 7.2.2 (GREEN):**
-```
-feat(lazy): implementar lazy loading para subcollections
-```
+**Posible implementación futura:**
+1. Interceptar queries para entity types que son SubCollections
+2. Extraer parent ID del filtro FK
+3. Traducir a path de subcollection: `/Parents/{parentId}/Children`
+4. Requiere cambios significativos en el query translator
 
 #### 7.3: Lazy Loading para References en ComplexTypes
 

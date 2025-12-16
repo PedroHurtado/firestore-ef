@@ -456,6 +456,125 @@ public class ReferenceSerializationTests
         categoriaLeida.Nombre.Should().Be("Electrónica");
     }
 
+    /// <summary>
+    /// CICLO 7.2: Limitación documentada - Lazy/Explicit Loading para SubCollections
+    /// NO está soportado porque las SubCollections en Firestore son jerárquicas
+    /// (path-based) y no FK-based como espera EF Core.
+    ///
+    /// SOLUCIÓN: Usar Include() para cargar SubCollections.
+    ///
+    /// RAZÓN TÉCNICA:
+    /// - EF Core Lazy/Explicit Loading crea queries FK-based: WHERE ClienteId = @id
+    /// - Firestore SubCollections están en paths: /Clientes/{id}/Pedidos/
+    /// - No existe collection global "Pedidos" para consultar
+    /// </summary>
+    [Fact(Skip = "Limitación conocida: SubCollections requieren Include() - ver documentación")]
+    public async Task ExplicitLoading_SubCollection_ShouldLoadWhenRequested()
+    {
+        // Arrange - Crear y guardar entidades
+        var clienteId = FirestoreTestFixture.GenerateId("cli");
+        var pedido1Id = FirestoreTestFixture.GenerateId("ped");
+
+        using (var setupContext = _fixture.CreateContext<SubCollectionLazyLoadingTestDbContext>())
+        {
+            var cliente = new ClienteLazy
+            {
+                Id = clienteId,
+                Nombre = "Cliente Explicit Test",
+                Pedidos =
+                [
+                    new PedidoLazy
+                    {
+                        Id = pedido1Id,
+                        NumeroOrden = "ORD-EXPL-001",
+                        Total = 150.00m
+                    }
+                ]
+            };
+
+            setupContext.Clientes.Add(cliente);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer el cliente CON TRACKING habilitado
+        using var readContext = _fixture.CreateContext<SubCollectionLazyLoadingTestDbContext>();
+        var clienteLeido = await readContext.Clientes
+            .AsTracking()
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        // Explicit Loading
+        var entry = readContext.Entry(clienteLeido!);
+        entry.State.Should().NotBe(EntityState.Detached, "La entidad debe estar tracked");
+        await entry.Collection(c => c.Pedidos).LoadAsync();
+
+        // Assert
+        var pedidos = clienteLeido!.Pedidos;
+        pedidos.Should().NotBeNull("Explicit loading debe cargar la subcollection");
+        pedidos.Should().HaveCount(1);
+        pedidos.First().NumeroOrden.Should().Be("ORD-EXPL-001");
+    }
+
+    /// <summary>
+    /// CICLO 7.2: Limitación documentada - Lazy Loading para SubCollections
+    /// NO está soportado por la misma razón que Explicit Loading.
+    ///
+    /// SOLUCIÓN: Usar Include() para cargar SubCollections.
+    /// </summary>
+    [Fact(Skip = "Limitación conocida: SubCollections requieren Include() - ver documentación")]
+    public async Task LazyLoading_SubCollection_ShouldLoadWhenAccessed()
+    {
+        // Arrange - Crear y guardar entidades
+        var clienteId = FirestoreTestFixture.GenerateId("cli");
+        var pedido1Id = FirestoreTestFixture.GenerateId("ped");
+        var pedido2Id = FirestoreTestFixture.GenerateId("ped");
+
+        using (var setupContext = _fixture.CreateContext<SubCollectionLazyLoadingTestDbContext>())
+        {
+            var cliente = new ClienteLazy
+            {
+                Id = clienteId,
+                Nombre = "Cliente Lazy Test",
+                Pedidos =
+                [
+                    new PedidoLazy
+                    {
+                        Id = pedido1Id,
+                        NumeroOrden = "ORD-LAZY-001",
+                        Total = 100.00m
+                    },
+                    new PedidoLazy
+                    {
+                        Id = pedido2Id,
+                        NumeroOrden = "ORD-LAZY-002",
+                        Total = 200.00m
+                    }
+                ]
+            };
+
+            setupContext.Clientes.Add(cliente);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer el cliente SIN Include, pero con lazy loading habilitado
+        using var readContext = _fixture.CreateContextWithLazyLoading<SubCollectionLazyLoadingTestDbContext>();
+        var clienteLeido = await readContext.Clientes
+            .AsTracking()  // Lazy loading requiere tracking
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        // Verificar que se creó un proxy
+        var actualType = clienteLeido!.GetType();
+        actualType.BaseType.Should().Be(typeof(ClienteLazy), "Entity should be a Castle proxy");
+
+        // Acceder a la propiedad dispara lazy loading automáticamente
+        var pedidos = clienteLeido!.Pedidos;
+
+        // Assert - La subcollection debe haberse cargado automáticamente
+        pedidos.Should().NotBeNull("Lazy loading debe cargar la subcollection al acceder");
+        pedidos.Should().HaveCount(2);
+        pedidos.Should().Contain(p => p.NumeroOrden == "ORD-LAZY-001");
+        pedidos.Should().Contain(p => p.NumeroOrden == "ORD-LAZY-002");
+    }
+
     private async Task<FirestoreDb> GetFirestoreDbAsync()
     {
         return await new FirestoreDbBuilder
@@ -711,6 +830,59 @@ public class LazyLoadingTestDbContext : DbContext
 
             // ✅ Configurar Reference para lazy loading
             entity.Reference(a => a.Categoria);
+        });
+    }
+}
+
+// ============================================================================
+// ENTIDADES PARA TEST DE LAZY LOADING EN SUBCOLLECTIONS
+// ============================================================================
+
+public class ClienteLazy
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+
+    // SubCollection con virtual para lazy loading
+    public virtual List<PedidoLazy> Pedidos { get; set; } = [];
+}
+
+public class PedidoLazy
+{
+    public string? Id { get; set; }
+    public required string NumeroOrden { get; set; }
+    public decimal Total { get; set; }
+}
+
+// ============================================================================
+// DBCONTEXT PARA TEST DE LAZY LOADING EN SUBCOLLECTIONS
+// ============================================================================
+
+public class SubCollectionLazyLoadingTestDbContext : DbContext
+{
+    public SubCollectionLazyLoadingTestDbContext(DbContextOptions<SubCollectionLazyLoadingTestDbContext> options)
+        : base(options)
+    {
+    }
+
+    public DbSet<ClienteLazy> Clientes => Set<ClienteLazy>();
+    public DbSet<PedidoLazy> Pedidos => Set<PedidoLazy>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ClienteLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+
+            // ✅ Configurar SubCollection para lazy loading
+            entity.SubCollection(c => c.Pedidos);
+        });
+
+        modelBuilder.Entity<PedidoLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.NumeroOrden).IsRequired();
         });
     }
 }
