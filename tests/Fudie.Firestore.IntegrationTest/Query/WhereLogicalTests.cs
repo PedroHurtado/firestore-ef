@@ -233,4 +233,103 @@ public class WhereLogicalTests
     }
 
     #endregion
+
+    #region AND + OR Nested (Optional Filters)
+
+    [Fact]
+    public async Task Where_AndWithNestedOr_OptionalFilter_WithValue()
+    {
+        // Arrange - Optional filter pattern: A && (param == null || x.Field == param)
+        using var context = _fixture.CreateContext<QueryTestDbContext>();
+        var uniquePrefix = $"OptFilter-{Guid.NewGuid():N}";
+        var targetName = $"{uniquePrefix}-Target";
+        var entities = new[]
+        {
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = targetName, IsActive = true },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = $"{uniquePrefix}-Other", IsActive = true },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = targetName, IsActive = false }
+        };
+
+        context.QueryTestEntities.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - Filter with optional name filter (name has value)
+        string? nameFilter = targetName;
+        using var readContext = _fixture.CreateContext<QueryTestDbContext>();
+        var results = await readContext.QueryTestEntities
+            .Where(e => e.IsActive == true && (nameFilter == null || e.Name == nameFilter))
+            .ToListAsync();
+
+        // Assert - Should return only active entity with target name
+        results.Should().HaveCount(1);
+        results[0].Name.Should().Be(targetName);
+        results[0].IsActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Where_AndWithNestedOr_OptionalFilter_WithNull()
+    {
+        // Arrange - When optional param is null, the OR condition (null || ...) is always true
+        // so only the AND condition matters
+        using var context = _fixture.CreateContext<QueryTestDbContext>();
+        var uniqueTenant = $"OptNull-{Guid.NewGuid():N}";
+        var nameA = $"OptNullA-{Guid.NewGuid():N}";
+        var nameB = $"OptNullB-{Guid.NewGuid():N}";
+        var nameC = $"OptNullC-{Guid.NewGuid():N}";
+        var entities = new[]
+        {
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = nameA, TenantId = uniqueTenant, IsActive = true },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = nameB, TenantId = uniqueTenant, IsActive = true },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("opt"), Name = nameC, TenantId = uniqueTenant, IsActive = false }
+        };
+
+        context.QueryTestEntities.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - Filter with null optional filter (should return all active with this tenant)
+        string? nameFilter = null;
+        using var readContext = _fixture.CreateContext<QueryTestDbContext>();
+        var results = await readContext.QueryTestEntities
+            .Where(e => e.TenantId == uniqueTenant && e.IsActive == true && (nameFilter == null || e.Name == nameFilter))
+            .ToListAsync();
+
+        // Assert - Should return all active entities (2 of 3)
+        results.Should().HaveCount(2);
+        results.Should().AllSatisfy(e => e.IsActive.Should().BeTrue());
+    }
+
+    [Fact]
+    public async Task Where_AndWithNestedOr_ComplexCondition()
+    {
+        // Arrange - Complex: A && (B || C) where B and C are different fields
+        using var context = _fixture.CreateContext<QueryTestDbContext>();
+        var uniqueTenant = $"Complex-{Guid.NewGuid():N}";
+        var uniquePrice = 77777.77m + new Random().Next(1, 1000);
+        var entities = new[]
+        {
+            // Matches: TenantId=unique AND (Price>50000 OR IsActive)
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("cplx"), Name = "Match-HighPrice", TenantId = uniqueTenant, Price = uniquePrice, IsActive = false },
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("cplx"), Name = "Match-Active", TenantId = uniqueTenant, Price = 100m, IsActive = true },
+            // Does not match: TenantId=unique but neither condition
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("cplx"), Name = "NoMatch", TenantId = uniqueTenant, Price = 100m, IsActive = false },
+            // Does not match: wrong tenant
+            new QueryTestEntity { Id = FirestoreTestFixture.GenerateId("cplx"), Name = "WrongTenant", TenantId = "other", Price = uniquePrice, IsActive = true }
+        };
+
+        context.QueryTestEntities.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - TenantId == unique && (Price > 50000 || IsActive)
+        using var readContext = _fixture.CreateContext<QueryTestDbContext>();
+        var results = await readContext.QueryTestEntities
+            .Where(e => e.TenantId == uniqueTenant && (e.Price > 50000m || e.IsActive == true))
+            .ToListAsync();
+
+        // Assert - Should return 2 entities
+        results.Should().HaveCount(2);
+        results.Should().Contain(e => e.Name == "Match-HighPrice");
+        results.Should().Contain(e => e.Name == "Match-Active");
+    }
+
+    #endregion
 }

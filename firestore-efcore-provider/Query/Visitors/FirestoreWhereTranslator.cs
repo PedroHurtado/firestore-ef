@@ -40,20 +40,42 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         private FirestoreFilterResult? TranslateAndExpression(BinaryExpression andExpression)
         {
             var clauses = new List<FirestoreWhereClause>();
-            FlattenAndExpression(andExpression, clauses);
+            var nestedOrGroups = new List<FirestoreOrFilterGroup>();
+            FlattenAndExpression(andExpression, clauses, nestedOrGroups);
 
-            return clauses.Count > 0 ? FirestoreFilterResult.FromAndClauses(clauses) : null;
+            if (clauses.Count == 0 && nestedOrGroups.Count == 0)
+                return null;
+
+            var result = new FirestoreFilterResult();
+            result.AndClauses.AddRange(clauses);
+            result.NestedOrGroups.AddRange(nestedOrGroups);
+            return result;
         }
 
-        private void FlattenAndExpression(Expression expression, List<FirestoreWhereClause> clauses)
+        private void FlattenAndExpression(
+            Expression expression,
+            List<FirestoreWhereClause> clauses,
+            List<FirestoreOrFilterGroup> nestedOrGroups)
         {
             if (expression is BinaryExpression binary)
             {
                 if (binary.NodeType == ExpressionType.AndAlso)
                 {
                     // Recursively flatten left and right
-                    FlattenAndExpression(binary.Left, clauses);
-                    FlattenAndExpression(binary.Right, clauses);
+                    FlattenAndExpression(binary.Left, clauses, nestedOrGroups);
+                    FlattenAndExpression(binary.Right, clauses, nestedOrGroups);
+                    return;
+                }
+
+                if (binary.NodeType == ExpressionType.OrElse)
+                {
+                    // Found nested OR within AND - translate it as an OR group
+                    var orClauses = new List<FirestoreWhereClause>();
+                    FlattenOrExpression(binary, orClauses);
+                    if (orClauses.Count > 0)
+                    {
+                        nestedOrGroups.Add(new FirestoreOrFilterGroup(orClauses));
+                    }
                     return;
                 }
 

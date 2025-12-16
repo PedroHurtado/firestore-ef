@@ -173,9 +173,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return source.UpdateQueryExpression(newQueryExpression);
             }
 
-            // Handle AND clauses (single or multiple)
+            // Handle AND clauses (single or multiple) with possible nested OR groups
             var clauses = filterResult.AndClauses;
-            if (clauses.Count == 0)
+            var nestedOrGroups = filterResult.NestedOrGroups;
+
+            if (clauses.Count == 0 && nestedOrGroups.Count == 0)
             {
                 return null;
             }
@@ -250,6 +252,13 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             // Add all AND clauses
             var resultQuery = firestoreQueryExpression.AddFilters(clauses);
+
+            // Add nested OR groups (for patterns like A && (B || C))
+            foreach (var orGroup in nestedOrGroups)
+            {
+                resultQuery = resultQuery.AddOrFilterGroup(orGroup);
+            }
+
             return source.UpdateQueryExpression(resultQuery);
         }
 
