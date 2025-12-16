@@ -9,7 +9,7 @@
 | Ciclo | Comportamiento | Estado | Commit | Tests |
 |-------|----------------|--------|--------|-------|
 | 1 | Igualdad (`==`) | ✅ | `f3be48a` | `WhereEqualTests` (6 tests) |
-| 2 | Desigualdad (`!=`) | ⏳ | | |
+| 2 | Desigualdad (`!=`) | ✅ | `d922f76` | `WhereNotEqualTests` (5 tests) |
 | 3 | Mayor que (`>`) | ⏳ | | |
 | 4 | Mayor o igual (`>=`) | ⏳ | | |
 | 5 | Menor que (`<`) | ⏳ | | |
