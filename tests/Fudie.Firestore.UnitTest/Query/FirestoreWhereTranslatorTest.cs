@@ -34,8 +34,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Name");
-        result.Operator.Should().Be(FirestoreOperator.EqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Name");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.EqualTo);
     }
 
     [Fact]
@@ -48,8 +49,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Age");
-        result.Operator.Should().Be(FirestoreOperator.EqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Age");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.EqualTo);
     }
 
     [Fact]
@@ -62,8 +64,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("IsActive");
-        result.Operator.Should().Be(FirestoreOperator.EqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("IsActive");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.EqualTo);
     }
 
     #endregion
@@ -80,8 +83,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Name");
-        result.Operator.Should().Be(FirestoreOperator.NotEqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Name");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.NotEqualTo);
     }
 
     #endregion
@@ -98,8 +102,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Age");
-        result.Operator.Should().Be(FirestoreOperator.LessThan);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Age");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.LessThan);
     }
 
     [Fact]
@@ -112,8 +117,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Age");
-        result.Operator.Should().Be(FirestoreOperator.LessThanOrEqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Age");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.LessThanOrEqualTo);
     }
 
     [Fact]
@@ -126,8 +132,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Price");
-        result.Operator.Should().Be(FirestoreOperator.GreaterThan);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Price");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.GreaterThan);
     }
 
     [Fact]
@@ -140,8 +147,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Price");
-        result.Operator.Should().Be(FirestoreOperator.GreaterThanOrEqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Price");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.GreaterThanOrEqualTo);
     }
 
     #endregion
@@ -160,8 +168,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(binary);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Name");
-        result.Operator.Should().Be(FirestoreOperator.EqualTo);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Name");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.EqualTo);
     }
 
     #endregion
@@ -182,8 +191,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(methodCall);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Id");
-        result.Operator.Should().Be(FirestoreOperator.In);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Id");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.In);
     }
 
     [Fact]
@@ -199,8 +209,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(methodCall);
 
         result.Should().NotBeNull();
-        result!.PropertyName.Should().Be("Tags");
-        result.Operator.Should().Be(FirestoreOperator.ArrayContains);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].PropertyName.Should().Be("Tags");
+        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.ArrayContains);
     }
 
     #endregion
@@ -246,8 +257,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.ValueExpression.Should().BeOfType<ConstantExpression>();
-        ((ConstantExpression)result.ValueExpression).Value.Should().Be("Test");
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].ValueExpression.Should().BeOfType<ConstantExpression>();
+        ((ConstantExpression)result.AndClauses[0].ValueExpression).Value.Should().Be("Test");
     }
 
     [Fact]
@@ -260,8 +272,9 @@ public class FirestoreWhereTranslatorTest
         var result = _translator.Translate(body);
 
         result.Should().NotBeNull();
-        result!.ValueExpression.Should().BeOfType<ConstantExpression>();
-        ((ConstantExpression)result.ValueExpression).Value.Should().Be(25);
+        result!.AndClauses.Should().HaveCount(1);
+        result.AndClauses[0].ValueExpression.Should().BeOfType<ConstantExpression>();
+        ((ConstantExpression)result.AndClauses[0].ValueExpression).Value.Should().Be(25);
     }
 
     #endregion
