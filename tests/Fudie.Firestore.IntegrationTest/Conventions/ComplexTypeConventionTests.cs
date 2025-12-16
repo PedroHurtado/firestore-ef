@@ -206,4 +206,121 @@ public class ComplexTypeConventionTests
         productoActualizado.Direccion.Coordenadas.Altitud.Should().Be(19);
         productoActualizado.Direccion.Coordenadas.Posicion.Latitude.Should().BeApproximately(43.2630, 0.0001);
     }
+
+    #region Where with ComplexType Properties (Ciclo 9.2)
+
+    [Fact]
+    public async Task Where_ComplexTypeProperty_FiltersByNestedField()
+    {
+        // Arrange - Create entities with different cities
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniquePrefix = $"CplxWhere-{Guid.NewGuid():N}";
+        var entities = new[]
+        {
+            new ProductoCompleto
+            {
+                Id = FirestoreTestFixture.GenerateId("cplx"),
+                Nombre = $"{uniquePrefix}-Madrid",
+                Precio = 100m,
+                Categoria = CategoriaProducto.Electronica,
+                Ubicacion = new GeoLocation(0, 0),
+                Direccion = new Direccion
+                {
+                    Calle = "Calle Mayor",
+                    Ciudad = uniquePrefix + "-Madrid",
+                    CodigoPostal = "28001",
+                    Coordenadas = new Coordenadas { Altitud = 650, Posicion = new GeoLocation(40.4168, -3.7038) }
+                }
+            },
+            new ProductoCompleto
+            {
+                Id = FirestoreTestFixture.GenerateId("cplx"),
+                Nombre = $"{uniquePrefix}-Barcelona",
+                Precio = 200m,
+                Categoria = CategoriaProducto.Ropa,
+                Ubicacion = new GeoLocation(0, 0),
+                Direccion = new Direccion
+                {
+                    Calle = "La Rambla",
+                    Ciudad = uniquePrefix + "-Barcelona",
+                    CodigoPostal = "08002",
+                    Coordenadas = new Coordenadas { Altitud = 12, Posicion = new GeoLocation(41.3851, 2.1734) }
+                }
+            }
+        };
+
+        context.ProductosCompletos.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - Filter by nested property: Direccion.Ciudad
+        var targetCity = uniquePrefix + "-Madrid";
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.ProductosCompletos
+            .Where(p => p.Direccion.Ciudad == targetCity)
+            .ToListAsync();
+
+        // Assert - Should return only the Madrid entity
+        results.Should().HaveCount(1);
+        results[0].Direccion.Ciudad.Should().Be(targetCity);
+        results[0].Nombre.Should().Contain("Madrid");
+    }
+
+    [Fact]
+    public async Task Where_DeepNestedProperty_FiltersByDeepField()
+    {
+        // Arrange - Create entities with different altitudes using unique city
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueCity = $"DeepNest-{Guid.NewGuid():N}";
+        var highAltitude = 1000.0;
+        var lowAltitude = 50.0;
+        var entities = new[]
+        {
+            new ProductoCompleto
+            {
+                Id = FirestoreTestFixture.GenerateId("deep"),
+                Nombre = "High-Altitude",
+                Precio = 100m,
+                Categoria = CategoriaProducto.Electronica,
+                Ubicacion = new GeoLocation(0, 0),
+                Direccion = new Direccion
+                {
+                    Calle = "Mountain Road",
+                    Ciudad = uniqueCity,
+                    CodigoPostal = "00001",
+                    Coordenadas = new Coordenadas { Altitud = highAltitude, Posicion = new GeoLocation(0, 0) }
+                }
+            },
+            new ProductoCompleto
+            {
+                Id = FirestoreTestFixture.GenerateId("deep"),
+                Nombre = "Low-Altitude",
+                Precio = 200m,
+                Categoria = CategoriaProducto.Ropa,
+                Ubicacion = new GeoLocation(0, 0),
+                Direccion = new Direccion
+                {
+                    Calle = "Beach Road",
+                    Ciudad = uniqueCity,
+                    CodigoPostal = "00002",
+                    Coordenadas = new Coordenadas { Altitud = lowAltitude, Posicion = new GeoLocation(0, 0) }
+                }
+            }
+        };
+
+        context.ProductosCompletos.AddRange(entities);
+        await context.SaveChangesAsync();
+
+        // Act - Filter by deep nested property: Direccion.Coordenadas.Altitud > 500 AND Direccion.Ciudad == uniqueCity
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.ProductosCompletos
+            .Where(p => p.Direccion.Ciudad == uniqueCity && p.Direccion.Coordenadas.Altitud > 500)
+            .ToListAsync();
+
+        // Assert - Should return only the high altitude entity
+        results.Should().HaveCount(1);
+        results[0].Direccion.Coordenadas.Altitud.Should().Be(highAltitude);
+        results[0].Nombre.Should().Be("High-Altitude");
+    }
+
+    #endregion
 }

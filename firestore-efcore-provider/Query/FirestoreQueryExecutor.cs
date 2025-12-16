@@ -485,12 +485,16 @@ namespace Firestore.EntityFrameworkCore.Query
         /// <summary>
         /// Gets the appropriate FieldPath for a property name.
         /// Returns FieldPath.DocumentId for "Id" property, otherwise a regular FieldPath.
+        /// Supports nested properties like "Direccion.Ciudad" → FieldPath("Direccion", "Ciudad")
         /// </summary>
         private FieldPath GetFieldPath(string propertyName)
         {
-            return propertyName == "Id"
-                ? FieldPath.DocumentId
-                : new FieldPath(propertyName);
+            if (propertyName == "Id")
+                return FieldPath.DocumentId;
+
+            // Split nested property paths: "Direccion.Ciudad" → ["Direccion", "Ciudad"]
+            var segments = propertyName.Split('.');
+            return new FieldPath(segments);
         }
 
         /// <summary>

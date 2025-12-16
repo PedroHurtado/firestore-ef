@@ -209,21 +209,24 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         }
 
         /// <summary>
-        /// Extrae información de propiedad de una expresión, manejando casts de enum.
-        /// Retorna el nombre de la propiedad y opcionalmente el tipo de enum si hay cast.
+        /// Extrae información de propiedad de una expresión, manejando casts de enum y propiedades anidadas (ComplexType).
+        /// Retorna el path completo de la propiedad (ej: "Direccion.Ciudad") y opcionalmente el tipo de enum si hay cast.
         /// </summary>
         private (string PropertyName, Type? EnumType)? ExtractPropertyInfo(Expression expression)
         {
-            // Caso 1: MemberExpression directo (p.Nombre, p.Precio)
+            // Caso 1: MemberExpression directo o anidado (p.Nombre, p.Direccion.Ciudad)
             if (expression is MemberExpression memberExpr && memberExpr.Member is PropertyInfo propInfo)
             {
+                // Construir el path completo para propiedades anidadas
+                var propertyPath = BuildPropertyPath(memberExpr);
+
                 // Verificar si la propiedad es de tipo enum
                 Type? enumType = null;
                 if (propInfo.PropertyType.IsEnum)
                 {
                     enumType = propInfo.PropertyType;
                 }
-                return (propInfo.Name, enumType);
+                return (propertyPath, enumType);
             }
 
             // Caso 2: UnaryExpression con cast - típico de enums: (int)p.Categoria
@@ -233,17 +236,41 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 // Verificar si el operando es un MemberExpression
                 if (unaryExpr.Operand is MemberExpression innerMember && innerMember.Member is PropertyInfo innerProp)
                 {
+                    // Construir el path completo para propiedades anidadas con cast
+                    var propertyPath = BuildPropertyPath(innerMember);
+
                     // Verificar si la propiedad original es enum
                     Type? enumType = null;
                     if (innerProp.PropertyType.IsEnum)
                     {
                         enumType = innerProp.PropertyType;
                     }
-                    return (innerProp.Name, enumType);
+                    return (propertyPath, enumType);
                 }
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Construye el path completo de una propiedad anidada.
+        /// Para p.Direccion.Ciudad retorna "Direccion.Ciudad".
+        /// Para p.Direccion.Coordenadas.Altitud retorna "Direccion.Coordenadas.Altitud".
+        /// </summary>
+        private string BuildPropertyPath(MemberExpression memberExpr)
+        {
+            var parts = new List<string>();
+            Expression? current = memberExpr;
+
+            while (current is MemberExpression member)
+            {
+                parts.Add(member.Member.Name);
+                current = member.Expression;
+            }
+
+            // Revertir para obtener el orden correcto (de padre a hijo)
+            parts.Reverse();
+            return string.Join(".", parts);
         }
 
         private FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
