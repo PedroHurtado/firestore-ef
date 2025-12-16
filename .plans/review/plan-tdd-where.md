@@ -4,6 +4,21 @@
 
 ---
 
+## Progreso
+
+| Ciclo | Comportamiento | Estado | Commit | Tests |
+|-------|----------------|--------|--------|-------|
+| 1 | Igualdad (`==`) | ✅ | `f3be48a` | `WhereEqualTests` (6 tests) |
+| 2 | Desigualdad (`!=`) | ⏳ | | |
+| 3 | Mayor que (`>`) | ⏳ | | |
+| 4 | Mayor o igual (`>=`) | ⏳ | | |
+| 5 | Menor que (`<`) | ⏳ | | |
+| 6 | Menor o igual (`<=`) | ⏳ | | |
+| 7 | AND (`&&`) | ⏳ | | |
+| 8 | OR (`\|\|`) | ⏳ | | |
+
+---
+
 ## Cotejo: Generator → Firestore
 
 ### Operadores de Comparación
