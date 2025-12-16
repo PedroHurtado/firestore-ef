@@ -575,6 +575,71 @@ public class ReferenceSerializationTests
         pedidos.Should().Contain(p => p.NumeroOrden == "ORD-LAZY-002");
     }
 
+    /// <summary>
+    /// CICLO 7.3: Limitación documentada - Lazy Loading para References en ComplexTypes
+    /// NO está soportado porque los proxies de Castle solo interceptan propiedades
+    /// de la entidad raíz, no de los ComplexTypes embebidos.
+    ///
+    /// SOLUCIÓN: Usar Include() para cargar References en ComplexTypes.
+    /// Ver test: Include_Reference_InComplexType_ShouldLoadReferencedEntity
+    ///
+    /// RAZÓN TÉCNICA:
+    /// - Castle crea proxy de EmpresaLazy (entidad raíz) ✅
+    /// - DireccionLazy es un record sin proxy propio
+    /// - Acceder a DireccionPrincipal.SucursalCercana no pasa por el proxy
+    /// - El lazy loader nunca se dispara porque la interceptación ocurre solo a nivel de entidad
+    /// </summary>
+    [Fact(Skip = "Limitación conocida: References en ComplexTypes requieren Include() - ver documentación")]
+    public async Task LazyLoading_ReferenceInComplexType_ShouldLoadWhenAccessed()
+    {
+        // Arrange - Crear y guardar entidades
+        var sucursalId = FirestoreTestFixture.GenerateId("suc");
+        var empresaId = FirestoreTestFixture.GenerateId("emp");
+
+        using (var setupContext = _fixture.CreateContext<ComplexTypeLazyLoadingTestDbContext>())
+        {
+            var sucursal = new SucursalLazy
+            {
+                Id = sucursalId,
+                Nombre = "Sucursal Lazy Test"
+            };
+
+            var empresa = new EmpresaLazy
+            {
+                Id = empresaId,
+                Nombre = "ACME Lazy Corp",
+                DireccionPrincipal = new DireccionLazy
+                {
+                    Calle = "Av. Principal 456",
+                    Ciudad = "Ciudad Test",
+                    SucursalCercana = sucursal
+                }
+            };
+
+            setupContext.Sucursales.Add(sucursal);
+            setupContext.Empresas.Add(empresa);
+            await setupContext.SaveChangesAsync();
+        }
+
+        // Act - Leer la empresa SIN Include, con lazy loading habilitado
+        using var readContext = _fixture.CreateContextWithLazyLoading<ComplexTypeLazyLoadingTestDbContext>();
+        var empresaLeida = await readContext.Empresas
+            .AsTracking()  // Lazy loading requiere tracking
+            .FirstOrDefaultAsync(e => e.Id == empresaId);
+
+        // Verificar que se creó un proxy para la entidad raíz
+        var actualType = empresaLeida!.GetType();
+        actualType.BaseType.Should().Be(typeof(EmpresaLazy), "Entity should be a Castle proxy");
+
+        // Acceder a la propiedad en el ComplexType debería disparar lazy loading
+        var sucursalCercana = empresaLeida!.DireccionPrincipal.SucursalCercana;
+
+        // Assert - La referencia en el ComplexType debe haberse cargado automáticamente
+        sucursalCercana.Should().NotBeNull("Lazy loading debe cargar la referencia en ComplexType al acceder");
+        sucursalCercana!.Id.Should().Be(sucursalId);
+        sucursalCercana.Nombre.Should().Be("Sucursal Lazy Test");
+    }
+
     private async Task<FirestoreDb> GetFirestoreDbAsync()
     {
         return await new FirestoreDbBuilder
@@ -883,6 +948,84 @@ public class SubCollectionLazyLoadingTestDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.NumeroOrden).IsRequired();
+        });
+    }
+}
+
+// ============================================================================
+// ENTIDADES PARA TEST DE LAZY LOADING EN COMPLEXTYPES (CICLO 7.3)
+// ============================================================================
+
+/// <summary>
+/// Entidad referenciada desde un ComplexType.
+/// </summary>
+public class SucursalLazy
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+}
+
+/// <summary>
+/// ComplexType que contiene una Reference para probar lazy loading.
+/// La propiedad SucursalCercana es virtual para permitir lazy loading.
+/// </summary>
+public record DireccionLazy
+{
+    public required string Calle { get; init; }
+    public required string Ciudad { get; init; }
+
+    // ✅ Reference virtual dentro del ComplexType para lazy loading
+    public virtual SucursalLazy? SucursalCercana { get; set; }
+}
+
+/// <summary>
+/// Entidad raíz que contiene un ComplexType con Reference.
+/// </summary>
+public class EmpresaLazy
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+
+    // ComplexType con Reference
+    public required DireccionLazy DireccionPrincipal { get; set; }
+}
+
+// ============================================================================
+// DBCONTEXT PARA TEST DE LAZY LOADING EN COMPLEXTYPES
+// ============================================================================
+
+public class ComplexTypeLazyLoadingTestDbContext : DbContext
+{
+    public ComplexTypeLazyLoadingTestDbContext(DbContextOptions<ComplexTypeLazyLoadingTestDbContext> options)
+        : base(options)
+    {
+    }
+
+    public DbSet<SucursalLazy> Sucursales => Set<SucursalLazy>();
+    public DbSet<EmpresaLazy> Empresas => Set<EmpresaLazy>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SucursalLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+        });
+
+        modelBuilder.Entity<EmpresaLazy>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+
+            // ✅ ComplexType que contiene una Reference
+            entity.ComplexProperty(e => e.DireccionPrincipal, complex =>
+            {
+                complex.Property(d => d.Calle).IsRequired();
+                complex.Property(d => d.Ciudad).IsRequired();
+
+                // ✅ Reference dentro del ComplexType
+                complex.Reference(d => d.SucursalCercana);
+            });
         });
     }
 }

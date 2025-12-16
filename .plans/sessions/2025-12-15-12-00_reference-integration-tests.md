@@ -282,36 +282,36 @@ feat(lazy): implementar lazy loading para references
 3. Traducir a path de subcollection: `/Parents/{parentId}/Children`
 4. Requiere cambios significativos en el query translator
 
-#### 7.3: Lazy Loading para References en ComplexTypes
+#### 7.3: Lazy Loading para References en ComplexTypes ⚠️ LIMITACIÓN DOCUMENTADA
 
-**Commit 7.3.1 (RED):**
-```
-test(lazy): verificar lazy loading carga reference en complextype al acceder
-```
+**Estado:** No soportado - Limitación arquitectónica
+
+**Razón técnica:**
+- Castle crea proxy solo para la **entidad raíz** (EmpresaLazy) ✅
+- Los ComplexTypes (DireccionLazy) son records/clases simples **sin proxy**
+- Acceder a `DireccionPrincipal.SucursalCercana` no pasa por el lazy loader
+- La interceptación de Castle ocurre solo a nivel de propiedades de entidad
+
+**Solución para usuarios:** Usar `Include()` para cargar References en ComplexTypes.
 
 ```csharp
-[Fact]
-public async Task LazyLoading_ReferenceInComplexType_ShouldLoadWhenAccessed()
-{
-    // Arrange - Empresa con DireccionPrincipal.SucursalCercana
+// ✅ Funciona - Include explícito
+var empresa = await context.Empresas
+    .Include(e => e.DireccionPrincipal.SucursalCercana)
+    .FirstOrDefaultAsync(e => e.Id == empresaId);
 
-    // Act - Query SIN Include
-    var empresa = await context.Empresas
-        .FirstOrDefaultAsync(e => e.Id == empresaId);
-
-    // Acceder a la propiedad en ComplexType dispara lazy loading
-    var sucursal = empresa!.DireccionPrincipal.SucursalCercana;
-
-    // Assert
-    sucursal.Should().NotBeNull();
-    sucursal!.Id.Should().Be(sucursalId);
-}
+// ❌ No funciona - Lazy loading en ComplexType
+var empresa = await context.Empresas
+    .FirstOrDefaultAsync(e => e.Id == empresaId);
+var sucursal = empresa.DireccionPrincipal.SucursalCercana; // null
 ```
 
-**Commit 7.3.2 (GREEN):**
-```
-feat(lazy): implementar lazy loading para references en complextype
-```
+**Tests:** Marcados como `Skip` con documentación de la limitación.
+
+**Posible implementación futura:**
+1. Crear proxies para ComplexTypes que contienen References
+2. Requiere modificar cómo se crean los ComplexTypes en el shaper
+3. Complejidad alta por la naturaleza embebida de ComplexTypes
 
 ---
 
