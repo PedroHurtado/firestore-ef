@@ -16,6 +16,7 @@
 | 6 | Menor o igual (`<=`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
 | 7 | AND (`&&`) | ✅ | `febd561` | `WhereLogicalTests` (3 tests) |
 | 8 | OR (`\|\|`) | ✅ | `febd561` | `WhereLogicalTests` (2 tests) |
+| 9 | Id + Filters (Multi-tenancy) | ✅ | `29a26f8` | `WhereLogicalTests` (2 tests) |
 
 ---
 
@@ -157,7 +158,9 @@ Antes de empezar, verificar qué funciona hoy:
 |-------|----------------|
 | 7 | AND (`&&`) |
 | 8 | OR (`\|\|`) |
-| 9 | AND + OR combinado |
+| 9 | Id + Filters (`FieldPath.DocumentId`) - Multi-tenancy |
+
+**Nota Ciclo 9:** Permite queries como `.Where(e => e.Id == id && e.TenantId == tenantId)` usando `FieldPath.DocumentId` para filtrar por el ID del documento (metadata) combinado con otros campos.
 
 ### Fase 3: IN
 
