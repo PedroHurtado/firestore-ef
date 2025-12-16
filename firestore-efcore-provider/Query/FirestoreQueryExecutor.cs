@@ -189,10 +189,16 @@ namespace Firestore.EntityFrameworkCore.Query
             // Obtener CollectionReference inicial
             Google.Cloud.Firestore.Query query = _client.GetCollection(queryExpression.CollectionName);
 
-            // Aplicar filtros WHERE
+            // Aplicar filtros WHERE (AND implícito)
             foreach (var filter in queryExpression.Filters)
             {
                 query = ApplyWhereClause(query, filter, queryContext);
+            }
+
+            // Aplicar grupos OR
+            foreach (var orGroup in queryExpression.OrFilterGroups)
+            {
+                query = ApplyOrFilterGroup(query, orGroup, queryContext);
             }
 
             // Aplicar ordenamiento ORDER BY
@@ -217,6 +223,121 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             return query;
+        }
+
+        /// <summary>
+        /// Aplica un grupo de filtros OR usando Filter.Or()
+        /// </summary>
+        private Google.Cloud.Firestore.Query ApplyOrFilterGroup(
+            Google.Cloud.Firestore.Query query,
+            FirestoreOrFilterGroup orGroup,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+        {
+            if (orGroup.Clauses.Count == 0)
+            {
+                return query;
+            }
+
+            if (orGroup.Clauses.Count == 1)
+            {
+                // Single clause - no need for OR
+                return ApplyWhereClause(query, orGroup.Clauses[0], queryContext);
+            }
+
+            // Build individual filters for OR
+            var filters = new List<Filter>();
+            foreach (var clause in orGroup.Clauses)
+            {
+                var filter = BuildFilter(clause, queryContext);
+                if (filter != null)
+                {
+                    filters.Add(filter);
+                }
+            }
+
+            if (filters.Count == 0)
+            {
+                return query;
+            }
+
+            if (filters.Count == 1)
+            {
+                return query.Where(filters[0]);
+            }
+
+            // Combine with OR
+            var orFilter = Filter.Or(filters.ToArray());
+            _logger.LogTrace("Applied OR filter with {Count} clauses", filters.Count);
+
+            return query.Where(orFilter);
+        }
+
+        /// <summary>
+        /// Builds a Firestore Filter from a FirestoreWhereClause
+        /// </summary>
+        private Filter? BuildFilter(
+            FirestoreWhereClause clause,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+        {
+            var value = clause.EvaluateValue(queryContext);
+
+            if (clause.EnumType != null && value != null)
+            {
+                value = ConvertToEnumString(value, clause.EnumType);
+            }
+
+            var convertedValue = ConvertValueForFirestore(value);
+
+            return clause.Operator switch
+            {
+                FirestoreOperator.EqualTo => Filter.EqualTo(clause.PropertyName, convertedValue),
+                FirestoreOperator.NotEqualTo => Filter.NotEqualTo(clause.PropertyName, convertedValue),
+                FirestoreOperator.LessThan => Filter.LessThan(clause.PropertyName, convertedValue),
+                FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(clause.PropertyName, convertedValue),
+                FirestoreOperator.GreaterThan => Filter.GreaterThan(clause.PropertyName, convertedValue),
+                FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(clause.PropertyName, convertedValue),
+                FirestoreOperator.ArrayContains => Filter.ArrayContains(clause.PropertyName, convertedValue),
+                FirestoreOperator.In => BuildInFilter(clause.PropertyName, convertedValue),
+                FirestoreOperator.ArrayContainsAny => BuildArrayContainsAnyFilter(clause.PropertyName, convertedValue),
+                FirestoreOperator.NotIn => BuildNotInFilter(clause.PropertyName, convertedValue),
+                _ => null
+            };
+        }
+
+        private Filter BuildInFilter(string propertyName, object? value)
+        {
+            if (value is not IEnumerable enumerable)
+            {
+                throw new InvalidOperationException(
+                    $"WhereIn requires an IEnumerable value");
+            }
+
+            var values = ConvertEnumerableToArray(enumerable);
+            return Filter.InArray(propertyName, values);
+        }
+
+        private Filter BuildArrayContainsAnyFilter(string propertyName, object? value)
+        {
+            if (value is not IEnumerable enumerable)
+            {
+                throw new InvalidOperationException(
+                    $"WhereArrayContainsAny requires an IEnumerable value");
+            }
+
+            var values = ConvertEnumerableToArray(enumerable);
+            return Filter.ArrayContainsAny(propertyName, values);
+        }
+
+        private Filter BuildNotInFilter(string propertyName, object? value)
+        {
+            if (value is not IEnumerable enumerable)
+            {
+                throw new InvalidOperationException(
+                    $"WhereNotIn requires an IEnumerable value");
+            }
+
+            var values = ConvertEnumerableToArray(enumerable);
+            return Filter.NotInArray(propertyName, values);
         }
 
         /// <summary>

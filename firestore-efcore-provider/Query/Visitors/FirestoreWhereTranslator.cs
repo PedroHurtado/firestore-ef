@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -6,19 +7,118 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 {
     internal class FirestoreWhereTranslator
     {
-        public FirestoreWhereClause? Translate(Expression expression)
+        public FirestoreFilterResult? Translate(Expression expression)
         {
             if (expression is BinaryExpression binaryExpression)
             {
-                return TranslateBinaryExpression(binaryExpression);
+                // Handle AND (&&) - flatten into multiple clauses
+                if (binaryExpression.NodeType == ExpressionType.AndAlso)
+                {
+                    return TranslateAndExpression(binaryExpression);
+                }
+
+                // Handle OR (||) - create OR group
+                if (binaryExpression.NodeType == ExpressionType.OrElse)
+                {
+                    return TranslateOrExpression(binaryExpression);
+                }
+
+                // Handle simple comparison
+                var clause = TranslateBinaryExpression(binaryExpression);
+                return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
             }
 
             if (expression is MethodCallExpression methodCallExpression)
             {
-                return TranslateMethodCallExpression(methodCallExpression);
+                var clause = TranslateMethodCallExpression(methodCallExpression);
+                return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
             }
 
             return null;
+        }
+
+        private FirestoreFilterResult? TranslateAndExpression(BinaryExpression andExpression)
+        {
+            var clauses = new List<FirestoreWhereClause>();
+            FlattenAndExpression(andExpression, clauses);
+
+            return clauses.Count > 0 ? FirestoreFilterResult.FromAndClauses(clauses) : null;
+        }
+
+        private void FlattenAndExpression(Expression expression, List<FirestoreWhereClause> clauses)
+        {
+            if (expression is BinaryExpression binary)
+            {
+                if (binary.NodeType == ExpressionType.AndAlso)
+                {
+                    // Recursively flatten left and right
+                    FlattenAndExpression(binary.Left, clauses);
+                    FlattenAndExpression(binary.Right, clauses);
+                    return;
+                }
+
+                // Simple comparison
+                var clause = TranslateBinaryExpression(binary);
+                if (clause != null)
+                {
+                    clauses.Add(clause);
+                }
+                return;
+            }
+
+            if (expression is MethodCallExpression methodCall)
+            {
+                var clause = TranslateMethodCallExpression(methodCall);
+                if (clause != null)
+                {
+                    clauses.Add(clause);
+                }
+            }
+        }
+
+        private FirestoreFilterResult? TranslateOrExpression(BinaryExpression orExpression)
+        {
+            var clauses = new List<FirestoreWhereClause>();
+            FlattenOrExpression(orExpression, clauses);
+
+            if (clauses.Count > 0)
+            {
+                var orGroup = new FirestoreOrFilterGroup(clauses);
+                return FirestoreFilterResult.FromOrGroup(orGroup);
+            }
+
+            return null;
+        }
+
+        private void FlattenOrExpression(Expression expression, List<FirestoreWhereClause> clauses)
+        {
+            if (expression is BinaryExpression binary)
+            {
+                if (binary.NodeType == ExpressionType.OrElse)
+                {
+                    // Recursively flatten left and right
+                    FlattenOrExpression(binary.Left, clauses);
+                    FlattenOrExpression(binary.Right, clauses);
+                    return;
+                }
+
+                // Simple comparison
+                var clause = TranslateBinaryExpression(binary);
+                if (clause != null)
+                {
+                    clauses.Add(clause);
+                }
+                return;
+            }
+
+            if (expression is MethodCallExpression methodCall)
+            {
+                var clause = TranslateMethodCallExpression(methodCall);
+                if (clause != null)
+                {
+                    clauses.Add(clause);
+                }
+            }
         }
 
         private FirestoreWhereClause? TranslateBinaryExpression(BinaryExpression binary)

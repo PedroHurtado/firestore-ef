@@ -25,9 +25,15 @@ namespace Firestore.EntityFrameworkCore.Query
         public string CollectionName { get; set; }
 
         /// <summary>
-        /// Lista de filtros WHERE aplicados a la query
+        /// Lista de filtros WHERE aplicados a la query (AND implícito)
         /// </summary>
         public List<FirestoreWhereClause> Filters { get; set; }
+
+        /// <summary>
+        /// Lista de grupos OR aplicados a la query.
+        /// Each OR group is combined with AND with other filters.
+        /// </summary>
+        public List<FirestoreOrFilterGroup> OrFilterGroups { get; set; }
 
         /// <summary>
         /// Lista de ordenamientos aplicados a la query
@@ -78,6 +84,7 @@ namespace Firestore.EntityFrameworkCore.Query
             EntityType = entityType ?? throw new ArgumentNullException(nameof(entityType));
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
             Filters = new List<FirestoreWhereClause>();
+            OrFilterGroups = new List<FirestoreOrFilterGroup>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             PendingIncludes = new List<IReadOnlyNavigation>();
             ComplexTypeIncludes = new List<LambdaExpression>();
@@ -100,6 +107,7 @@ namespace Firestore.EntityFrameworkCore.Query
             IEntityType? entityType = null,
             string? collectionName = null,
             List<FirestoreWhereClause>? filters = null,
+            List<FirestoreOrFilterGroup>? orFilterGroups = null,
             List<FirestoreOrderByClause>? orderByClauses = null,
             int? limit = null,
             DocumentSnapshot? startAfterDocument = null,
@@ -112,6 +120,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 collectionName ?? CollectionName)
             {
                 Filters = filters ?? new List<FirestoreWhereClause>(Filters),
+                OrFilterGroups = orFilterGroups ?? new List<FirestoreOrFilterGroup>(OrFilterGroups),
                 OrderByClauses = orderByClauses ?? new List<FirestoreOrderByClause>(OrderByClauses),
                 Limit = limit ?? Limit,
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
@@ -128,6 +137,25 @@ namespace Firestore.EntityFrameworkCore.Query
         {
             var newFilters = new List<FirestoreWhereClause>(Filters) { filter };
             return Update(filters: newFilters);
+        }
+
+        /// <summary>
+        /// Agrega múltiples filtros WHERE a la query (para AND)
+        /// </summary>
+        public FirestoreQueryExpression AddFilters(IEnumerable<FirestoreWhereClause> filters)
+        {
+            var newFilters = new List<FirestoreWhereClause>(Filters);
+            newFilters.AddRange(filters);
+            return Update(filters: newFilters);
+        }
+
+        /// <summary>
+        /// Agrega un grupo OR a la query
+        /// </summary>
+        public FirestoreQueryExpression AddOrFilterGroup(FirestoreOrFilterGroup orGroup)
+        {
+            var newOrGroups = new List<FirestoreOrFilterGroup>(OrFilterGroups) { orGroup };
+            return Update(orFilterGroups: newOrGroups);
         }
 
         /// <summary>

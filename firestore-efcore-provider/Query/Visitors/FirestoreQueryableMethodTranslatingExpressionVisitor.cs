@@ -153,23 +153,44 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var evaluatedBody = parameterReplacer.Visit(predicate.Body);
 
             var translator = new FirestoreWhereTranslator();
-            var whereClause = translator.Translate(evaluatedBody);
+            var filterResult = translator.Translate(evaluatedBody);
 
-            if (whereClause == null)
+            if (filterResult == null)
             {
                 return null;
             }
 
-            // Detección de queries por ID
-            if (whereClause.PropertyName == "Id")
+            // Handle OR groups
+            if (filterResult.IsOrGroup)
             {
+                if (firestoreQueryExpression.IsIdOnlyQuery)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot add OR filters to an ID-only query.");
+                }
+
+                var newQueryExpression = firestoreQueryExpression.AddOrFilterGroup(filterResult.OrGroup!);
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // Handle AND clauses (single or multiple)
+            var clauses = filterResult.AndClauses;
+            if (clauses.Count == 0)
+            {
+                return null;
+            }
+
+            // Check for ID queries (only valid for single == clause)
+            if (clauses.Count == 1 && clauses[0].PropertyName == "Id")
+            {
+                var whereClause = clauses[0];
                 if (whereClause.Operator != FirestoreOperator.EqualTo)
                 {
                     throw new InvalidOperationException(
                         $"Firestore ID queries only support the '==' operator.");
                 }
 
-                if (firestoreQueryExpression.Filters.Count > 0)
+                if (firestoreQueryExpression.Filters.Count > 0 || firestoreQueryExpression.OrFilterGroups.Count > 0)
                 {
                     throw new InvalidOperationException(
                         "Firestore ID queries cannot be combined with other filters.");
@@ -187,10 +208,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     IdValueExpression = whereClause.ValueExpression,
                     Filters = new List<FirestoreWhereClause>(firestoreQueryExpression.Filters),
+                    OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
                     OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
                     Limit = firestoreQueryExpression.Limit,
                     StartAfterDocument = firestoreQueryExpression.StartAfterDocument,
-                    PendingIncludes = firestoreQueryExpression.PendingIncludes // MANTENER INCLUDES
+                    PendingIncludes = firestoreQueryExpression.PendingIncludes
                 };
 
                 return source.UpdateQueryExpression(newQueryExpression);
@@ -202,7 +224,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     "Cannot add filters to an ID-only query.");
             }
 
-            var normalQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
+            // Add all AND clauses
+            var normalQueryExpression = firestoreQueryExpression.AddFilters(clauses);
             return source.UpdateQueryExpression(normalQueryExpression);
         }
 
