@@ -10,10 +10,10 @@
 |-------|----------------|--------|--------|-------|
 | 1 | Igualdad (`==`) | ✅ | `f3be48a` | `WhereEqualTests` (6 tests) |
 | 2 | Desigualdad (`!=`) | ✅ | `d922f76` | `WhereNotEqualTests` (5 tests) |
-| 3 | Mayor que (`>`) | ⏳ | | |
-| 4 | Mayor o igual (`>=`) | ⏳ | | |
-| 5 | Menor que (`<`) | ⏳ | | |
-| 6 | Menor o igual (`<=`) | ⏳ | | |
+| 3 | Mayor que (`>`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
+| 4 | Mayor o igual (`>=`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
+| 5 | Menor que (`<`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
+| 6 | Menor o igual (`<=`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
 | 7 | AND (`&&`) | ⏳ | | |
 | 8 | OR (`\|\|`) | ⏳ | | |
 
