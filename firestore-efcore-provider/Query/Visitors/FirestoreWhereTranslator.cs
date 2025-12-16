@@ -34,6 +34,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
             }
 
+            // Handle NOT (!expression) - typically !list.Contains(field) → NotIn
+            if (expression is UnaryExpression unaryExpression &&
+                unaryExpression.NodeType == ExpressionType.Not)
+            {
+                var clause = TranslateNotExpression(unaryExpression);
+                return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
+            }
+
             return null;
         }
 
@@ -91,6 +99,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (expression is MethodCallExpression methodCall)
             {
                 var clause = TranslateMethodCallExpression(methodCall);
+                if (clause != null)
+                {
+                    clauses.Add(clause);
+                }
+                return;
+            }
+
+            // Handle NOT expressions within AND - e.g., !list.Contains(field)
+            if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Not)
+            {
+                var clause = TranslateNotExpression(unary);
                 if (clause != null)
                 {
                     clauses.Add(clause);
@@ -273,24 +292,66 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return string.Join(".", parts);
         }
 
+        private FirestoreWhereClause? TranslateNotExpression(UnaryExpression notExpression)
+        {
+            // Handle !list.Contains(field) → NotIn
+            if (notExpression.Operand is MethodCallExpression methodCall &&
+                methodCall.Method.Name == "Contains")
+            {
+                // Case 1: Instance method - !list.Contains(e.Field) → NotIn
+                if (methodCall.Object != null && methodCall.Arguments.Count == 1)
+                {
+                    var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
+                    if (propertyResult.HasValue)
+                    {
+                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Object);
+                    }
+                }
+
+                // Case 2: Static !Enumerable.Contains(list, e.Field) → NotIn
+                if (methodCall.Object == null && methodCall.Arguments.Count == 2)
+                {
+                    var propertyResult = ExtractPropertyInfo(methodCall.Arguments[1]);
+                    if (propertyResult.HasValue)
+                    {
+                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Arguments[0]);
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
         {
             if (methodCall.Method.Name == "Contains")
             {
+                // Case 1: Instance method - list.Contains(e.Field) → WhereIn
                 if (methodCall.Object != null && methodCall.Arguments.Count == 1)
                 {
-                    if (methodCall.Arguments[0] is MemberExpression member && member.Member is PropertyInfo prop)
+                    var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
+                    if (propertyResult.HasValue)
                     {
-                        var propertyName = prop.Name;
-                        return new FirestoreWhereClause(propertyName, FirestoreOperator.In, methodCall.Object);
+                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Object);
                     }
                 }
 
+                // Case 2: Static Enumerable.Contains(list, e.Field) → WhereIn
+                if (methodCall.Object == null && methodCall.Arguments.Count == 2)
+                {
+                    var propertyResult = ExtractPropertyInfo(methodCall.Arguments[1]);
+                    if (propertyResult.HasValue)
+                    {
+                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Arguments[0]);
+                    }
+                }
+
+                // Case 3: e.ArrayField.Contains(value) → ArrayContains
                 if (methodCall.Object is MemberExpression objMember &&
                     objMember.Member is PropertyInfo objProp &&
                     methodCall.Arguments.Count == 1)
                 {
-                    var propertyName = objProp.Name;
+                    var propertyName = BuildPropertyPath(objMember);
                     return new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
                 }
             }
