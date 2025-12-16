@@ -17,6 +17,7 @@
 | 7 | AND (`&&`) | ✅ | `febd561` | `WhereLogicalTests` (3 tests) |
 | 8 | OR (`\|\|`) | ✅ | `febd561` | `WhereLogicalTests` (2 tests) |
 | 9 | Id + Filters (Multi-tenancy) | ✅ | `29a26f8` | `WhereLogicalTests` (2 tests) |
+| 9.1 | AND + OR anidado (`A && (B \|\| C)`) | ✅ | `c82144d` | `WhereLogicalTests` (3 tests) |
 
 ---
 
