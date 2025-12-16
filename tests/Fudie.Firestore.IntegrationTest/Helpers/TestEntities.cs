@@ -70,6 +70,38 @@ public class LineaPedido
 }
 
 // ============================================================================
+// ENTIDADES PARA TESTS DE QUERY (WHERE, ORDERBY, ETC.)
+// ============================================================================
+
+/// <summary>
+/// Enum for Query tests.
+/// </summary>
+public enum Category
+{
+    Electronics,
+    Clothing,
+    Food,
+    Home
+}
+
+/// <summary>
+/// Entity designed for comprehensive Where clause testing.
+/// Contains all common types to verify equality, comparison, null checks, etc.
+/// </summary>
+public class QueryTestEntity
+{
+    public string? Id { get; set; }
+    public required string Name { get; set; }
+    public int Quantity { get; set; }
+    public decimal Price { get; set; }
+    public bool IsActive { get; set; }
+    public Category Category { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? Description { get; set; }  // Nullable for null tests
+    public List<string> Tags { get; set; } = [];  // For array contains tests
+}
+
+// ============================================================================
 // ENTIDADES PARA TESTS DE CONVENTIONS
 // ============================================================================
 

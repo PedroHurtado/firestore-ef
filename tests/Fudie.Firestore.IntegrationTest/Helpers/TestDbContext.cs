@@ -97,3 +97,24 @@ public class SimpleTestDbContext : DbContext
         });
     }
 }
+
+/// <summary>
+/// DbContext for Query tests (Where, OrderBy, etc.).
+/// </summary>
+public class QueryTestDbContext : DbContext
+{
+    public QueryTestDbContext(DbContextOptions<QueryTestDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<QueryTestEntity> QueryTestEntities => Set<QueryTestEntity>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<QueryTestEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired();
+        });
+    }
+}
