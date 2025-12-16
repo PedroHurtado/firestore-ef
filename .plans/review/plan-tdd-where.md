@@ -14,8 +14,8 @@
 | 4 | Mayor o igual (`>=`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
 | 5 | Menor que (`<`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
 | 6 | Menor o igual (`<=`) | ✅ | `912ce33` | `WhereComparisonTests` (4 tests) |
-| 7 | AND (`&&`) | ⏳ | | |
-| 8 | OR (`\|\|`) | ⏳ | | |
+| 7 | AND (`&&`) | ✅ | `febd561` | `WhereLogicalTests` (3 tests) |
+| 8 | OR (`\|\|`) | ✅ | `febd561` | `WhereLogicalTests` (2 tests) |
 
 ---
 
