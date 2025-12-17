@@ -374,6 +374,52 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return false;
         }
 
+        /// <summary>
+        /// Extracts the property name from an OrderBy/ThenBy key selector lambda.
+        /// Handles expressions like: e => e.Name, e => e.Quantity, e => e.Price
+        /// Also handles nested properties: e => e.Address.City
+        /// </summary>
+        private string? ExtractPropertyNameFromKeySelector(LambdaExpression keySelector)
+        {
+            var body = keySelector.Body;
+
+            // Unwrap Convert expressions (common for value types)
+            if (body is UnaryExpression unary &&
+                (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            {
+                body = unary.Operand;
+            }
+
+            // Handle MemberExpression (e.g., e.Name, e.Address.City)
+            if (body is MemberExpression memberExpr && memberExpr.Member is PropertyInfo)
+            {
+                return BuildPropertyPath(memberExpr);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Builds the property path for nested properties.
+        /// For e.Address.City returns "Address.City".
+        /// For e.Name returns "Name".
+        /// </summary>
+        private string BuildPropertyPath(MemberExpression memberExpr)
+        {
+            var parts = new List<string>();
+            Expression? current = memberExpr;
+
+            while (current is MemberExpression member)
+            {
+                parts.Add(member.Member.Name);
+                current = member.Expression;
+            }
+
+            // Reverse to get correct order (parent to child)
+            parts.Reverse();
+            return string.Join(".", parts);
+        }
+
         #region Translate Methods
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(
@@ -675,7 +721,24 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-            => throw new NotImplementedException();
+        {
+            var propertyName = ExtractPropertyNameFromKeySelector(keySelector);
+            if (propertyName == null)
+            {
+                return null;
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+
+            // Clear any existing orderings (OrderBy resets the sort order)
+            var newOrderByClauses = new List<FirestoreOrderByClause>
+            {
+                new FirestoreOrderByClause(propertyName, descending: !ascending)
+            };
+
+            var newQueryExpression = firestoreQueryExpression.Update(orderByClauses: newOrderByClauses);
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateReverse(ShapedQueryExpression source)
             => throw new NotImplementedException();
@@ -705,7 +768,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-            => throw new NotImplementedException();
+        {
+            var propertyName = ExtractPropertyNameFromKeySelector(keySelector);
+            if (propertyName == null)
+            {
+                return null;
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+
+            // ThenBy adds to existing orderings
+            var orderByClause = new FirestoreOrderByClause(propertyName, descending: !ascending);
+            var newQueryExpression = firestoreQueryExpression.AddOrderBy(orderByClause);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateUnion(ShapedQueryExpression source1, ShapedQueryExpression source2)
             => throw new NotImplementedException();
