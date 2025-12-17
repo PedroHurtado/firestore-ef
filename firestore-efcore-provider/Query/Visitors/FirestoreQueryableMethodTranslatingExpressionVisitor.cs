@@ -146,6 +146,54 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
                 }
 
+                // Pattern for ArrayContainsAny: .Any(t => list.Contains(t))
+                // EF Core transforms e.Tags.Any(t => searchTags.Contains(t)) into:
+                // EF.Property<List<T>>(e, "Field").AsQueryable().Any(t => list.Contains(t))
+                if (methodCall.Method.Name == "Any")
+                {
+                    // Get the source (should be AsQueryable() or direct property)
+                    Expression? sourceExpr = newObject ?? (newArgs.Count > 0 ? newArgs[0] : null);
+                    Expression? predicateExpr = newObject != null
+                        ? (newArgs.Count > 0 ? newArgs[0] : null)
+                        : (newArgs.Count > 1 ? newArgs[1] : null);
+
+                    string? propertyName = null;
+
+                    // Pattern 1: AsQueryable() wrapping EF.Property
+                    if (sourceExpr is MethodCallExpression asQueryableCall &&
+                        asQueryableCall.Method.Name == "AsQueryable")
+                    {
+                        propertyName = ExtractPropertyNameFromEFPropertyChain(
+                            asQueryableCall.Arguments.Count == 1
+                                ? asQueryableCall.Arguments[0]
+                                : asQueryableCall.Object);
+                    }
+                    // Pattern 2: Direct MemberExpression (e.Tags) - before EF transformation
+                    else if (sourceExpr is MemberExpression memberExpr)
+                    {
+                        propertyName = memberExpr.Member.Name;
+                    }
+
+                    // Extract lambda from predicate (might be wrapped in Quote for Queryable methods)
+                    LambdaExpression? predicateLambda = predicateExpr as LambdaExpression;
+                    if (predicateLambda == null && predicateExpr is UnaryExpression quote &&
+                        quote.NodeType == ExpressionType.Quote &&
+                        quote.Operand is LambdaExpression quotedLambda)
+                    {
+                        predicateLambda = quotedLambda;
+                    }
+
+                    if (propertyName != null && predicateLambda != null)
+                    {
+                        // Check if lambda body is list.Contains(parameter)
+                        var listExpr = ExtractListFromContainsPredicate(predicateLambda);
+                        if (listExpr != null)
+                        {
+                            return new FirestoreArrayContainsAnyExpression(propertyName, listExpr);
+                        }
+                    }
+                }
+
                 // Return updated method call if children changed
                 if (newObject != methodCall.Object || !newArgs.SequenceEqual(methodCall.Arguments))
                 {
@@ -265,6 +313,67 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return null;
         }
 
+        /// <summary>
+        /// Extracts the list expression from a predicate like: t => list.Contains(t)
+        /// Returns the 'list' expression if the pattern matches.
+        /// </summary>
+        private Expression? ExtractListFromContainsPredicate(LambdaExpression lambda)
+        {
+            // Lambda should have exactly one parameter
+            if (lambda.Parameters.Count != 1)
+                return null;
+
+            var parameter = lambda.Parameters[0];
+
+            // Body should be a method call to Contains
+            if (lambda.Body is not MethodCallExpression containsCall ||
+                containsCall.Method.Name != "Contains")
+                return null;
+
+            // Pattern 1: list.Contains(param) - instance method
+            if (containsCall.Object != null && containsCall.Arguments.Count == 1)
+            {
+                // Check if argument references the lambda parameter
+                if (IsParameterReference(containsCall.Arguments[0], parameter))
+                {
+                    return containsCall.Object;
+                }
+            }
+
+            // Pattern 2: Enumerable.Contains(list, param) - static method
+            if (containsCall.Object == null && containsCall.Arguments.Count == 2)
+            {
+                // Check if second argument references the lambda parameter
+                if (IsParameterReference(containsCall.Arguments[1], parameter))
+                {
+                    return containsCall.Arguments[0];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Checks if an expression references a lambda parameter
+        /// </summary>
+        private bool IsParameterReference(Expression expression, ParameterExpression parameter)
+        {
+            // Direct parameter reference
+            if (expression is ParameterExpression paramExpr)
+            {
+                return paramExpr == parameter || paramExpr.Name == parameter.Name;
+            }
+
+            // Wrapped in Convert/ConvertChecked (common for value types)
+            if (expression is UnaryExpression unary &&
+                (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            {
+                return IsParameterReference(unary.Operand, parameter);
+            }
+
+            return false;
+        }
+
         #region Translate Methods
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(
@@ -334,8 +443,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
             var evaluatedBody = parameterReplacer.Visit(predicate.Body);
 
+            // Preprocess for array patterns (ArrayContains, ArrayContainsAny)
+            // This must happen after parameter replacement but before translation
+            var preprocessedBody = PreprocessArrayContainsPatterns(evaluatedBody);
+
             var translator = new FirestoreWhereTranslator();
-            var filterResult = translator.Translate(evaluatedBody);
+            var filterResult = translator.Translate(preprocessedBody);
 
             if (filterResult == null)
             {

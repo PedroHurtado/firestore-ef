@@ -44,6 +44,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return FirestoreFilterResult.FromClause(clause);
             }
 
+            // Handle FirestoreArrayContainsAnyExpression (created by FirestoreQueryableMethodTranslatingExpressionVisitor)
+            if (expression is FirestoreArrayContainsAnyExpression arrayContainsAnyExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsAnyExpr.PropertyName,
+                    FirestoreOperator.ArrayContainsAny,
+                    arrayContainsAnyExpr.ValuesExpression);
+                return FirestoreFilterResult.FromClause(clause);
+            }
+
             // Handle NOT (!expression) - typically !list.Contains(field) → NotIn
             if (expression is UnaryExpression unaryExpression &&
                 unaryExpression.NodeType == ExpressionType.Not)
@@ -135,6 +145,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     FirestoreOperator.ArrayContains,
                     arrayContainsExpr.ValueExpression);
                 clauses.Add(clause);
+                return;
+            }
+
+            // Handle FirestoreArrayContainsAnyExpression within AND
+            if (expression is FirestoreArrayContainsAnyExpression arrayContainsAnyExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsAnyExpr.PropertyName,
+                    FirestoreOperator.ArrayContainsAny,
+                    arrayContainsAnyExpr.ValuesExpression);
+                clauses.Add(clause);
             }
         }
 
@@ -190,6 +211,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     arrayContainsExpr.PropertyName,
                     FirestoreOperator.ArrayContains,
                     arrayContainsExpr.ValueExpression);
+                clauses.Add(clause);
+                return;
+            }
+
+            // Handle FirestoreArrayContainsAnyExpression within OR
+            if (expression is FirestoreArrayContainsAnyExpression arrayContainsAnyExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsAnyExpr.PropertyName,
+                    FirestoreOperator.ArrayContainsAny,
+                    arrayContainsAnyExpr.ValuesExpression);
                 clauses.Add(clause);
             }
         }
