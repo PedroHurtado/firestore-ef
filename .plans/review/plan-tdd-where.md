@@ -38,6 +38,7 @@
 | 29 | Average | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
 | 30 | Min (client-side) | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
 | 31 | Max (client-side) | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
+| 32 | TakeLast (LimitToLast) | ✅ | `efbbf4a` | `TakeLastTests` (3 tests) |
 
 
 ---
