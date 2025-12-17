@@ -635,10 +635,36 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateAny(ShapedQueryExpression source, LambdaExpression? predicate)
-            => throw new NotImplementedException();
+        {
+            if (predicate != null)
+            {
+                source = TranslateWhere(source, predicate) ?? source;
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithAny();
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateAverage(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-            => throw new NotImplementedException();
+        {
+            if (selector == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var propertyName = ExtractPropertyNameFromKeySelector(selector);
+            if (propertyName == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithAverage(propertyName, resultType);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateCast(ShapedQueryExpression source, Type castType)
             => throw new NotImplementedException();
@@ -650,7 +676,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateCount(ShapedQueryExpression source, LambdaExpression? predicate)
-            => throw new NotImplementedException();
+        {
+            if (predicate != null)
+            {
+                source = TranslateWhere(source, predicate) ?? source;
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithCount();
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateDefaultIfEmpty(ShapedQueryExpression source, Expression? defaultValue)
             => throw new NotImplementedException();
@@ -736,10 +772,42 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-            => throw new NotImplementedException();
+        {
+            if (selector == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var propertyName = ExtractPropertyNameFromKeySelector(selector);
+            if (propertyName == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithMax(propertyName, resultType);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateMin(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-            => throw new NotImplementedException();
+        {
+            if (selector == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var propertyName = ExtractPropertyNameFromKeySelector(selector);
+            if (propertyName == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithMin(propertyName, resultType);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateOfType(ShapedQueryExpression source, Type resultType)
             => throw new NotImplementedException();
@@ -812,7 +880,23 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateSum(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-            => throw new NotImplementedException();
+        {
+            if (selector == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var propertyName = ExtractPropertyNameFromKeySelector(selector);
+            if (propertyName == null)
+            {
+                return null; // Client-side evaluation
+            }
+
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithSum(propertyName, resultType);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
         {

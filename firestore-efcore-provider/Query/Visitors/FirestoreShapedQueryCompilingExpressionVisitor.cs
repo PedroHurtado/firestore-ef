@@ -43,6 +43,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     complexTypeIncludes: new List<LambdaExpression>(complexTypeIncludes));
             }
 
+            // Handle aggregation queries differently
+            if (firestoreQueryExpression.IsAggregation)
+            {
+                return CreateAggregationQueryExpression(firestoreQueryExpression);
+            }
+
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
             // Determinar si debemos trackear las entidades
@@ -81,6 +87,31 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(shaperLambda.Compile()),
                 Expression.Constant(entityType),
                 Expression.Constant(isTracking));
+
+            return newExpression;
+        }
+
+        /// <summary>
+        /// Creates the expression for aggregation queries (Count, Sum, Average, Min, Max, Any).
+        /// </summary>
+        private Expression CreateAggregationQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
+        {
+            var resultType = firestoreQueryExpression.AggregationResultType ?? typeof(int);
+            var entityType = firestoreQueryExpression.EntityType.ClrType;
+
+            var enumerableType = typeof(FirestoreAggregationQueryingEnumerable<>).MakeGenericType(resultType);
+            var constructor = enumerableType.GetConstructor(new[]
+            {
+                typeof(QueryContext),
+                typeof(FirestoreQueryExpression),
+                typeof(Type)
+            })!;
+
+            var newExpression = Expression.New(
+                constructor,
+                QueryCompilationContext.QueryContextParameter,
+                Expression.Constant(firestoreQueryExpression),
+                Expression.Constant(entityType));
 
             return newExpression;
         }

@@ -8,6 +8,20 @@ using System.Linq.Expressions;
 namespace Firestore.EntityFrameworkCore.Query
 {
     /// <summary>
+    /// Tipo de agregación para queries de Firestore.
+    /// </summary>
+    public enum FirestoreAggregationType
+    {
+        None,
+        Count,
+        Any,
+        Sum,
+        Average,
+        Min,
+        Max
+    }
+
+    /// <summary>
     /// Representación interna de una query de Firestore.
     /// Esta clase encapsula toda la información necesaria para construir
     /// una Google.Cloud.Firestore.Query y ejecutarla.
@@ -92,9 +106,30 @@ namespace Firestore.EntityFrameworkCore.Query
         public List<LambdaExpression> ComplexTypeIncludes { get; set; }
 
         /// <summary>
+        /// Tipo de agregación a ejecutar (Count, Sum, Average, Min, Max).
+        /// None indica una query normal que retorna entidades.
+        /// </summary>
+        public FirestoreAggregationType AggregationType { get; set; }
+
+        /// <summary>
+        /// Nombre de la propiedad para agregaciones Sum, Average, Min, Max.
+        /// </summary>
+        public string? AggregationPropertyName { get; set; }
+
+        /// <summary>
+        /// Tipo de resultado para agregaciones (int, long, decimal, double, etc).
+        /// </summary>
+        public Type? AggregationResultType { get; set; }
+
+        /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
         /// </summary>
         public bool IsIdOnlyQuery => IdValueExpression != null;
+
+        /// <summary>
+        /// Indica si esta query es una agregación
+        /// </summary>
+        public bool IsAggregation => AggregationType != FirestoreAggregationType.None;
 
         /// <summary>
         /// Constructor
@@ -138,7 +173,10 @@ namespace Firestore.EntityFrameworkCore.Query
             DocumentSnapshot? startAfterDocument = null,
             Expression? idValueExpression = null,
             List<IReadOnlyNavigation>? pendingIncludes = null,
-            List<LambdaExpression>? complexTypeIncludes = null)
+            List<LambdaExpression>? complexTypeIncludes = null,
+            FirestoreAggregationType? aggregationType = null,
+            string? aggregationPropertyName = null,
+            Type? aggregationResultType = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -154,8 +192,71 @@ namespace Firestore.EntityFrameworkCore.Query
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
                 IdValueExpression = idValueExpression ?? IdValueExpression,
                 PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
-                ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes)
+                ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes),
+                AggregationType = aggregationType ?? AggregationType,
+                AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
+                AggregationResultType = aggregationResultType ?? AggregationResultType
             };
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Count
+        /// </summary>
+        public FirestoreQueryExpression WithCount()
+        {
+            return Update(aggregationType: FirestoreAggregationType.Count, aggregationResultType: typeof(int));
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Any
+        /// </summary>
+        public FirestoreQueryExpression WithAny()
+        {
+            return Update(aggregationType: FirestoreAggregationType.Any, aggregationResultType: typeof(bool));
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Sum
+        /// </summary>
+        public FirestoreQueryExpression WithSum(string propertyName, Type resultType)
+        {
+            return Update(
+                aggregationType: FirestoreAggregationType.Sum,
+                aggregationPropertyName: propertyName,
+                aggregationResultType: resultType);
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Average
+        /// </summary>
+        public FirestoreQueryExpression WithAverage(string propertyName, Type resultType)
+        {
+            return Update(
+                aggregationType: FirestoreAggregationType.Average,
+                aggregationPropertyName: propertyName,
+                aggregationResultType: resultType);
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Min
+        /// </summary>
+        public FirestoreQueryExpression WithMin(string propertyName, Type resultType)
+        {
+            return Update(
+                aggregationType: FirestoreAggregationType.Min,
+                aggregationPropertyName: propertyName,
+                aggregationResultType: resultType);
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Max
+        /// </summary>
+        public FirestoreQueryExpression WithMax(string propertyName, Type resultType)
+        {
+            return Update(
+                aggregationType: FirestoreAggregationType.Max,
+                aggregationPropertyName: propertyName,
+                aggregationResultType: resultType);
         }
 
         /// <summary>

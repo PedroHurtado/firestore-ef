@@ -32,6 +32,12 @@
 | 23 | First / FirstOrDefault | ✅ | `41788be` | `LimitTests` (3 tests) |
 | 24 | Single / SingleOrDefault | ✅ | `41788be` | `LimitTests` (3 tests) |
 | 25 | Skip | ✅ | `41788be` | `LimitTests` (2 tests) |
+| 26 | Count | ✅ | `pending` | `AggregationTests` (3 tests) |
+| 27 | Any | ✅ | `pending` | `AggregationTests` (3 tests) |
+| 28 | Sum | ✅ | `pending` | `AggregationTests` (3 tests) |
+| 29 | Average | ✅ | `pending` | `AggregationTests` (3 tests) |
+| 30 | Min (client-side) | ✅ | `pending` | `AggregationTests` (3 tests) |
+| 31 | Max (client-side) | ✅ | `pending` | `AggregationTests` (3 tests) |
 
 
 ---

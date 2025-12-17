@@ -53,7 +53,7 @@ namespace Firestore.EntityFrameworkCore.Query
             _logger.LogInformation("Filters count: {Count}", queryExpression.Filters.Count);
 
             // Construir Google.Cloud.Firestore.Query
-            var query = BuildFirestoreQuery(queryExpression, queryContext);
+            var query = BuildQuery(queryExpression, queryContext);
 
             // Ejecutar
             var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
@@ -213,9 +213,10 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
-        /// Construye un Google.Cloud.Firestore.Query desde FirestoreQueryExpression
+        /// Construye un Google.Cloud.Firestore.Query desde FirestoreQueryExpression.
+        /// Public to allow aggregation queries to reuse query building logic.
         /// </summary>
-        private Google.Cloud.Firestore.Query BuildFirestoreQuery(
+        public Google.Cloud.Firestore.Query BuildQuery(
             FirestoreQueryExpression queryExpression,
             Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
         {
@@ -713,5 +714,208 @@ namespace Firestore.EntityFrameworkCore.Query
 
             return list.ToArray();
         }
+
+        #region Aggregation Execution
+
+        /// <summary>
+        /// Ejecuta una agregación de Firestore (Count, Sum, Average, Min, Max, Any)
+        /// </summary>
+        public async Task<T> ExecuteAggregationAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(queryExpression);
+
+            _logger.LogInformation("=== Executing Firestore aggregation ===");
+            _logger.LogInformation("Collection: {Collection}, Type: {AggregationType}",
+                queryExpression.CollectionName, queryExpression.AggregationType);
+
+            // Build base query with filters
+            var query = BuildQuery(queryExpression, queryContext);
+
+            return queryExpression.AggregationType switch
+            {
+                FirestoreAggregationType.Count => await ExecuteCountAsync<T>(query, cancellationToken),
+                FirestoreAggregationType.Any => await ExecuteAnyAsync<T>(query, cancellationToken),
+                FirestoreAggregationType.Sum => await ExecuteSumAsync<T>(query, queryExpression, cancellationToken),
+                FirestoreAggregationType.Average => await ExecuteAverageAsync<T>(query, queryExpression, cancellationToken),
+                FirestoreAggregationType.Min => await ExecuteMinAsync<T>(query, queryExpression, cancellationToken),
+                FirestoreAggregationType.Max => await ExecuteMaxAsync<T>(query, queryExpression, cancellationToken),
+                _ => throw new NotSupportedException($"Aggregation type {queryExpression.AggregationType} is not supported")
+            };
+        }
+
+        private async Task<T> ExecuteCountAsync<T>(Google.Cloud.Firestore.Query query, CancellationToken cancellationToken)
+        {
+            var aggregateQuery = query.Count();
+            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+            var count = snapshot.Count ?? 0;
+
+            _logger.LogInformation("Count result: {Count}", count);
+
+            // Convert to requested type (int, long, etc)
+            return (T)Convert.ChangeType(count, typeof(T));
+        }
+
+        private async Task<T> ExecuteAnyAsync<T>(Google.Cloud.Firestore.Query query, CancellationToken cancellationToken)
+        {
+            // Use Limit(1) and check if any documents exist
+            var limitedQuery = query.Limit(1);
+            var snapshot = await limitedQuery.GetSnapshotAsync(cancellationToken);
+            var exists = snapshot.Count > 0;
+
+            _logger.LogInformation("Any result: {Exists}", exists);
+
+            return (T)(object)exists;
+        }
+
+        private async Task<T> ExecuteSumAsync<T>(
+            Google.Cloud.Firestore.Query query,
+            FirestoreQueryExpression queryExpression,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(queryExpression.AggregationPropertyName))
+            {
+                throw new InvalidOperationException("Sum requires a property name");
+            }
+
+            var aggregateQuery = query.Aggregate(AggregateField.Sum(queryExpression.AggregationPropertyName));
+            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+
+            // Get the sum value - Firestore returns it as the first (and only) aggregate field
+            var sumValue = snapshot.GetValue<double?>(AggregateField.Sum(queryExpression.AggregationPropertyName));
+            var result = sumValue ?? 0;
+
+            _logger.LogInformation("Sum result for {Property}: {Result}",
+                queryExpression.AggregationPropertyName, result);
+
+            return ConvertAggregationResult<T>(result, queryExpression.AggregationResultType);
+        }
+
+        private async Task<T> ExecuteAverageAsync<T>(
+            Google.Cloud.Firestore.Query query,
+            FirestoreQueryExpression queryExpression,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(queryExpression.AggregationPropertyName))
+            {
+                throw new InvalidOperationException("Average requires a property name");
+            }
+
+            var aggregateQuery = query.Aggregate(AggregateField.Average(queryExpression.AggregationPropertyName));
+            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+
+            var avgValue = snapshot.GetValue<double?>(AggregateField.Average(queryExpression.AggregationPropertyName));
+
+            // Average on empty set returns null - throw InvalidOperationException like LINQ does
+            if (avgValue == null)
+            {
+                throw new InvalidOperationException("Sequence contains no elements");
+            }
+
+            _logger.LogInformation("Average result for {Property}: {Result}",
+                queryExpression.AggregationPropertyName, avgValue);
+
+            return ConvertAggregationResult<T>(avgValue.Value, queryExpression.AggregationResultType);
+        }
+
+        private async Task<T> ExecuteMinAsync<T>(
+            Google.Cloud.Firestore.Query query,
+            FirestoreQueryExpression queryExpression,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(queryExpression.AggregationPropertyName))
+            {
+                throw new InvalidOperationException("Min requires a property name");
+            }
+
+            // Firestore doesn't support Min natively - use OrderBy + Limit(1)
+            var minQuery = query.OrderBy(queryExpression.AggregationPropertyName).Limit(1);
+            var snapshot = await minQuery.GetSnapshotAsync(cancellationToken);
+
+            if (snapshot.Count == 0)
+            {
+                throw new InvalidOperationException("Sequence contains no elements");
+            }
+
+            var document = snapshot.Documents[0];
+            var value = document.GetValue<object>(queryExpression.AggregationPropertyName);
+
+            _logger.LogInformation("Min result for {Property}: {Result}",
+                queryExpression.AggregationPropertyName, value);
+
+            return ConvertAggregationResult<T>(value, queryExpression.AggregationResultType);
+        }
+
+        private async Task<T> ExecuteMaxAsync<T>(
+            Google.Cloud.Firestore.Query query,
+            FirestoreQueryExpression queryExpression,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(queryExpression.AggregationPropertyName))
+            {
+                throw new InvalidOperationException("Max requires a property name");
+            }
+
+            // Firestore doesn't support Max natively - use OrderByDescending + Limit(1)
+            var maxQuery = query.OrderByDescending(queryExpression.AggregationPropertyName).Limit(1);
+            var snapshot = await maxQuery.GetSnapshotAsync(cancellationToken);
+
+            if (snapshot.Count == 0)
+            {
+                throw new InvalidOperationException("Sequence contains no elements");
+            }
+
+            var document = snapshot.Documents[0];
+            var value = document.GetValue<object>(queryExpression.AggregationPropertyName);
+
+            _logger.LogInformation("Max result for {Property}: {Result}",
+                queryExpression.AggregationPropertyName, value);
+
+            return ConvertAggregationResult<T>(value, queryExpression.AggregationResultType);
+        }
+
+        /// <summary>
+        /// Converts aggregation result to the expected return type.
+        /// Handles decimal ↔ double conversions and other numeric conversions.
+        /// </summary>
+        private T ConvertAggregationResult<T>(object value, Type? targetType)
+        {
+            targetType ??= typeof(T);
+
+            // Handle null
+            if (value == null)
+            {
+                return default!;
+            }
+
+            // Firestore returns numbers as double or long
+            // Convert to the expected type (int, decimal, etc)
+            try
+            {
+                // Special case: Firestore double → decimal
+                if (targetType == typeof(decimal) && value is double d)
+                {
+                    return (T)(object)(decimal)d;
+                }
+
+                // Special case: Firestore long → int
+                if (targetType == typeof(int) && value is long l)
+                {
+                    return (T)(object)(int)l;
+                }
+
+                // General conversion
+                return (T)Convert.ChangeType(value, targetType);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to convert aggregation result '{value}' (type: {value.GetType().Name}) to {targetType.Name}: {ex.Message}", ex);
+            }
+        }
+
+        #endregion
     }
 }
