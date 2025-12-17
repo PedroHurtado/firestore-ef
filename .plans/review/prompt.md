@@ -2,7 +2,7 @@
 
 Revisa el documento `@.plans/review/plan-tdd-where.md`. Los ciclos del 1 al 11 están completados y confirmados.
 
-**Continúa con la Fase 4: Null y Boolean**
+**Continúa con la Fase 6: Fase 6: Ordenamiento**
 
 ---
 
@@ -11,8 +11,9 @@ Revisa el documento `@.plans/review/plan-tdd-where.md`. Los ciclos del 1 al 11 e
 **Para cada ciclo de la fase, sigue estos pasos:**
 
 ### 1. Escribir test de integración
-- Crea el test de integración según el ciclo definido en el plan
+- Crea los test integración según el ciclo definido en el plan
 - Ejecútalo para confirmar estado **RED**
+- Te esperas a revisar Test por parte mia
 
 ### 2. Implementación
 
