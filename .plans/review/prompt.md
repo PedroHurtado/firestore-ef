@@ -1,8 +1,8 @@
 ## Contexto
 
-Revisa el documento `@.plans/review/plan-tdd-where.md`. Los ciclos del 1 al 11 están completados y confirmados.
+Revisa el documento `@.plans/review/plan-tdd-where.md`. 
 
-**Continúa con la Fase 6: Fase 6: Ordenamiento**
+**Continúa con la Fase 6: Ordenamiento**
 
 ---
 
