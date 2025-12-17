@@ -83,6 +83,188 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return new FirestoreQueryableMethodTranslatingExpressionVisitor(this);
         }
 
+        /// <summary>
+        /// Override Visit to preprocess the expression tree and transform array Contains patterns
+        /// BEFORE the base class tries to process them as subqueries.
+        /// </summary>
+        public override Expression? Visit(Expression? expression)
+        {
+            if (expression == null) return null;
+
+            // Preprocess the expression tree to transform array Contains patterns
+            var preprocessed = PreprocessArrayContainsPatterns(expression);
+            return base.Visit(preprocessed);
+        }
+
+        /// <summary>
+        /// Recursively preprocesses an expression tree to replace array Contains patterns
+        /// with FirestoreArrayContainsExpression markers.
+        /// </summary>
+        private Expression PreprocessArrayContainsPatterns(Expression expression)
+        {
+            // Handle the specific pattern: EF.Property<List<T>>().AsQueryable().Contains(value)
+            if (expression is MethodCallExpression methodCall)
+            {
+                // First, recursively preprocess children
+                var newObject = methodCall.Object != null
+                    ? PreprocessArrayContainsPatterns(methodCall.Object)
+                    : null;
+                var newArgs = methodCall.Arguments.Select(PreprocessArrayContainsPatterns).ToList();
+
+                // Check if this is the pattern we're looking for
+                if (methodCall.Method.Name == "Contains")
+                {
+                    // Pattern 1: Instance .Contains(value) where object is AsQueryable()
+                    if (newObject is MethodCallExpression asQueryableCall &&
+                        asQueryableCall.Method.Name == "AsQueryable")
+                    {
+                        var propertyName = ExtractPropertyNameFromEFPropertyChain(
+                            asQueryableCall.Arguments.Count == 1
+                                ? asQueryableCall.Arguments[0]
+                                : asQueryableCall.Object);
+
+                        if (propertyName != null && newArgs.Count == 1)
+                        {
+                            return new FirestoreArrayContainsExpression(propertyName, newArgs[0]);
+                        }
+                    }
+
+                    // Pattern 2: Static Enumerable.Contains(asQueryable, value)
+                    if (newObject == null && newArgs.Count == 2 &&
+                        newArgs[0] is MethodCallExpression asQueryable &&
+                        asQueryable.Method.Name == "AsQueryable")
+                    {
+                        var propertyName = ExtractPropertyNameFromEFPropertyChain(
+                            asQueryable.Arguments.Count == 1
+                                ? asQueryable.Arguments[0]
+                                : asQueryable.Object);
+
+                        if (propertyName != null)
+                        {
+                            return new FirestoreArrayContainsExpression(propertyName, newArgs[1]);
+                        }
+                    }
+                }
+
+                // Return updated method call if children changed
+                if (newObject != methodCall.Object || !newArgs.SequenceEqual(methodCall.Arguments))
+                {
+                    return methodCall.Update(newObject, newArgs);
+                }
+            }
+
+            // Handle lambda expressions
+            if (expression is LambdaExpression lambda)
+            {
+                var newBody = PreprocessArrayContainsPatterns(lambda.Body);
+                if (newBody != lambda.Body)
+                {
+                    return Expression.Lambda(lambda.Type, newBody, lambda.Parameters);
+                }
+            }
+
+            // Handle binary expressions (AND, OR)
+            if (expression is BinaryExpression binary)
+            {
+                var newLeft = PreprocessArrayContainsPatterns(binary.Left);
+                var newRight = PreprocessArrayContainsPatterns(binary.Right);
+                if (newLeft != binary.Left || newRight != binary.Right)
+                {
+                    return binary.Update(newLeft, binary.Conversion, newRight);
+                }
+            }
+
+            // Handle unary expressions (NOT)
+            if (expression is UnaryExpression unary)
+            {
+                var newOperand = PreprocessArrayContainsPatterns(unary.Operand);
+                if (newOperand != unary.Operand)
+                {
+                    return unary.Update(newOperand);
+                }
+            }
+
+            return expression;
+        }
+
+        /// <summary>
+        /// Intercepts method calls to detect array Contains patterns that EF Core would
+        /// otherwise try to process as subqueries.
+        /// Pattern: EF.Property&lt;List&lt;T&gt;&gt;(e, "Field").AsQueryable().Contains(value)
+        /// </summary>
+        protected override Expression VisitMethodCall(MethodCallExpression methodCallExpression)
+        {
+            // Detect the pattern: Something.AsQueryable().Contains(value)
+            // Where Something is EF.Property<List<T>>(entity, "PropertyName")
+            if (methodCallExpression.Method.Name == "Contains" &&
+                methodCallExpression.Arguments.Count == 1 &&
+                methodCallExpression.Object is MethodCallExpression asQueryableCall &&
+                asQueryableCall.Method.Name == "AsQueryable")
+            {
+                // Check if AsQueryable wraps EF.Property<List<T>>()
+                var propertyName = ExtractPropertyNameFromEFPropertyChain(asQueryableCall.Arguments.Count == 1
+                    ? asQueryableCall.Arguments[0]
+                    : asQueryableCall.Object);
+
+                if (propertyName != null)
+                {
+                    // Return a marker expression that will be handled by FirestoreWhereTranslator
+                    // We create a synthetic MethodCallExpression that our translator understands
+                    return new FirestoreArrayContainsExpression(propertyName, methodCallExpression.Arguments[0]);
+                }
+            }
+
+            // Also detect static Enumerable.Contains pattern
+            if (methodCallExpression.Method.Name == "Contains" &&
+                methodCallExpression.Object == null &&
+                methodCallExpression.Arguments.Count == 2)
+            {
+                // Check if first argument is AsQueryable wrapping EF.Property
+                if (methodCallExpression.Arguments[0] is MethodCallExpression asQueryable &&
+                    asQueryable.Method.Name == "AsQueryable")
+                {
+                    var propertyName = ExtractPropertyNameFromEFPropertyChain(asQueryable.Arguments.Count == 1
+                        ? asQueryable.Arguments[0]
+                        : asQueryable.Object);
+
+                    if (propertyName != null)
+                    {
+                        return new FirestoreArrayContainsExpression(propertyName, methodCallExpression.Arguments[1]);
+                    }
+                }
+            }
+
+            return base.VisitMethodCall(methodCallExpression);
+        }
+
+        /// <summary>
+        /// Extracts property name from EF.Property chain like:
+        /// EF.Property(e, "Field").AsQueryable() or just EF.Property(e, "Field")
+        /// </summary>
+        private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression)
+        {
+            if (expression is MethodCallExpression methodCall)
+            {
+                // Check if it's AsQueryable() wrapping EF.Property
+                if (methodCall.Method.Name == "AsQueryable" && methodCall.Arguments.Count == 1)
+                {
+                    return ExtractPropertyNameFromEFPropertyChain(methodCall.Arguments[0]);
+                }
+
+                // Check if it's EF.Property<T>(entity, "PropertyName")
+                if (methodCall.Method.Name == "Property" &&
+                    methodCall.Method.DeclaringType?.Name == "EF")
+                {
+                    if (methodCall.Arguments.Count >= 2 && methodCall.Arguments[1] is ConstantExpression constant)
+                    {
+                        return constant.Value as string;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         #region Translate Methods
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(

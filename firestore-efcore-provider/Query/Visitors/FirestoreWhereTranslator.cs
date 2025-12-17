@@ -34,6 +34,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
             }
 
+            // Handle FirestoreArrayContainsExpression (created by FirestoreQueryableMethodTranslatingExpressionVisitor)
+            if (expression is FirestoreArrayContainsExpression arrayContainsExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsExpr.PropertyName,
+                    FirestoreOperator.ArrayContains,
+                    arrayContainsExpr.ValueExpression);
+                return FirestoreFilterResult.FromClause(clause);
+            }
+
             // Handle NOT (!expression) - typically !list.Contains(field) → NotIn
             if (expression is UnaryExpression unaryExpression &&
                 unaryExpression.NodeType == ExpressionType.Not)
@@ -114,6 +124,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     clauses.Add(clause);
                 }
+                return;
+            }
+
+            // Handle FirestoreArrayContainsExpression within AND
+            if (expression is FirestoreArrayContainsExpression arrayContainsExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsExpr.PropertyName,
+                    FirestoreOperator.ArrayContains,
+                    arrayContainsExpr.ValueExpression);
+                clauses.Add(clause);
             }
         }
 
@@ -159,6 +180,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     clauses.Add(clause);
                 }
+                return;
+            }
+
+            // Handle FirestoreArrayContainsExpression within OR
+            if (expression is FirestoreArrayContainsExpression arrayContainsExpr)
+            {
+                var clause = new FirestoreWhereClause(
+                    arrayContainsExpr.PropertyName,
+                    FirestoreOperator.ArrayContains,
+                    arrayContainsExpr.ValueExpression);
+                clauses.Add(clause);
             }
         }
 
@@ -353,6 +385,42 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     var propertyName = BuildPropertyPath(objMember);
                     return new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
+                }
+
+                // Case 4: EF.Property<List<T>>(e, "Field").AsQueryable().Contains(value) → ArrayContains
+                // EF Core transforms e.ArrayField.Contains(value) into this form
+                if (methodCall.Arguments.Count == 1)
+                {
+                    var propertyName = ExtractPropertyNameFromEFPropertyChain(methodCall.Object);
+                    if (propertyName != null)
+                    {
+                        return new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts property name from EF.Property chain like:
+        /// EF.Property(e, "Field").AsQueryable() or just EF.Property(e, "Field")
+        /// </summary>
+        private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression)
+        {
+            if (expression is MethodCallExpression methodCall)
+            {
+                // Check if it's AsQueryable() wrapping EF.Property
+                if (methodCall.Method.Name == "AsQueryable" && methodCall.Arguments.Count == 1)
+                {
+                    return ExtractPropertyNameFromEFPropertyChain(methodCall.Arguments[0]);
+                }
+
+                // Check if it's EF.Property<T>(entity, "PropertyName")
+                if (methodCall.Method.Name == "Property" &&
+                    methodCall.Method.DeclaringType?.Name == "EF")
+                {
+                    return GetPropertyNameFromEFProperty(methodCall);
                 }
             }
 
