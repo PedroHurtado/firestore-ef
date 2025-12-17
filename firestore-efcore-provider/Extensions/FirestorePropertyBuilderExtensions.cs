@@ -1,13 +1,56 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Firestore.EntityFrameworkCore.Extensions;
 
 public static class FirestorePropertyBuilderExtensions
 {
+    // ============= PERSIST NULL VALUES =============
+
+    /// <summary>
+    /// Annotation key for PersistNullValues configuration.
+    /// </summary>
+    public const string PersistNullValuesAnnotation = "Firestore:PersistNullValues";
+
+    /// <summary>
+    /// Configures the property to persist null values explicitly in Firestore.
+    /// By default, Firestore does not store fields with null values (NoSQL convention).
+    /// Use this when you need to query by null (e.g., Where(x => x.Field == null)).
+    /// </summary>
+    /// <example>
+    /// modelBuilder.Entity&lt;MyEntity&gt;(entity =>
+    /// {
+    ///     entity.Property(e => e.Description).PersistNullValues();
+    /// });
+    /// </example>
+    public static PropertyBuilder PersistNullValues(this PropertyBuilder propertyBuilder)
+    {
+        propertyBuilder.Metadata.SetAnnotation(PersistNullValuesAnnotation, true);
+        return propertyBuilder;
+    }
+
+    /// <summary>
+    /// Configures the property to persist null values explicitly in Firestore (generic version).
+    /// </summary>
+    public static PropertyBuilder<TProperty> PersistNullValues<TProperty>(this PropertyBuilder<TProperty> propertyBuilder)
+    {
+        propertyBuilder.Metadata.SetAnnotation(PersistNullValuesAnnotation, true);
+        return propertyBuilder;
+    }
+
+    /// <summary>
+    /// Checks if the property is configured to persist null values.
+    /// </summary>
+    public static bool IsPersistNullValuesEnabled(this IProperty property)
+    {
+        return property.FindAnnotation(PersistNullValuesAnnotation)?.Value is true;
+    }
+
     // ============= GEOPOINT (ComplexProperty) =============
 
     /// <summary>

@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
@@ -6,6 +7,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Extensions;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -192,13 +194,13 @@ namespace Firestore.EntityFrameworkCore.Query
             // Aplicar filtros WHERE (AND implícito)
             foreach (var filter in queryExpression.Filters)
             {
-                query = ApplyWhereClause(query, filter, queryContext);
+                query = ApplyWhereClause(query, filter, queryContext, queryExpression.EntityType);
             }
 
             // Aplicar grupos OR
             foreach (var orGroup in queryExpression.OrFilterGroups)
             {
-                query = ApplyOrFilterGroup(query, orGroup, queryContext);
+                query = ApplyOrFilterGroup(query, orGroup, queryContext, queryExpression.EntityType);
             }
 
             // Aplicar ordenamiento ORDER BY
@@ -231,7 +233,8 @@ namespace Firestore.EntityFrameworkCore.Query
         private Google.Cloud.Firestore.Query ApplyOrFilterGroup(
             Google.Cloud.Firestore.Query query,
             FirestoreOrFilterGroup orGroup,
-            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            IEntityType entityType)
         {
             if (orGroup.Clauses.Count == 0)
             {
@@ -241,14 +244,14 @@ namespace Firestore.EntityFrameworkCore.Query
             if (orGroup.Clauses.Count == 1)
             {
                 // Single clause - no need for OR
-                return ApplyWhereClause(query, orGroup.Clauses[0], queryContext);
+                return ApplyWhereClause(query, orGroup.Clauses[0], queryContext, entityType);
             }
 
             // Build individual filters for OR
             var filters = new List<Filter>();
             foreach (var clause in orGroup.Clauses)
             {
-                var filter = BuildFilter(clause, queryContext);
+                var filter = BuildFilter(clause, queryContext, entityType);
                 if (filter != null)
                 {
                     filters.Add(filter);
@@ -277,9 +280,16 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         private Filter? BuildFilter(
             FirestoreWhereClause clause,
-            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            IEntityType entityType)
         {
             var value = clause.EvaluateValue(queryContext);
+
+            // Validar filtro con null - requiere PersistNullValues configurado
+            if (value == null)
+            {
+                ValidateNullFilter(clause.PropertyName, entityType);
+            }
 
             if (clause.EnumType != null && value != null)
             {
@@ -347,10 +357,17 @@ namespace Firestore.EntityFrameworkCore.Query
         private Google.Cloud.Firestore.Query ApplyWhereClause(
             Google.Cloud.Firestore.Query query,
             FirestoreWhereClause clause,
-            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            IEntityType entityType)
         {
             // Evaluar el valor en runtime usando el QueryContext
             var value = clause.EvaluateValue(queryContext);
+
+            // Validar filtro con null - requiere PersistNullValues configurado
+            if (value == null)
+            {
+                ValidateNullFilter(clause.PropertyName, entityType);
+            }
 
             // Si hay un tipo de enum, convertir el valor numérico a string del enum
             if (clause.EnumType != null && value != null)
@@ -403,6 +420,32 @@ namespace Firestore.EntityFrameworkCore.Query
                 _ => throw new NotSupportedException(
                     $"Firestore operator {clause.Operator} is not supported")
             };
+        }
+
+        /// <summary>
+        /// Validates that a null filter is allowed for the property.
+        /// Throws NotSupportedException if property doesn't have PersistNullValues configured.
+        /// </summary>
+        private void ValidateNullFilter(string propertyName, IEntityType entityType)
+        {
+            // Obtener la propiedad del modelo - soportar propiedades anidadas
+            var propertyPath = propertyName.Split('.');
+            var property = entityType.FindProperty(propertyPath[0]);
+
+            if (property == null)
+            {
+                // Si no encontramos la propiedad, podría ser una propiedad anidada de ComplexType
+                // En este caso, permitimos la query (no tenemos forma de validar ComplexTypes aún)
+                return;
+            }
+
+            if (!property.IsPersistNullValuesEnabled())
+            {
+                throw new NotSupportedException(
+                    $"Filtering by null on property '{propertyName}' is not supported. " +
+                    "Firestore does not store null values by default. " +
+                    "Configure the property with .PersistNullValues() in OnModelCreating if you need this functionality.");
+            }
         }
 
         /// <summary>

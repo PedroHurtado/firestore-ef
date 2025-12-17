@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Collections;
 using System.Reflection;
@@ -399,7 +400,16 @@ namespace Firestore.EntityFrameworkCore.Storage
                 if (property.IsForeignKey()) continue;
 
                 var value = valueGetter(property);
-                if (value == null) continue;
+
+                // Solo persistir null si está explícitamente configurado con PersistNullValues()
+                if (value == null)
+                {
+                    if (property.IsPersistNullValuesEnabled())
+                    {
+                        dict[property.Name] = null!;
+                    }
+                    continue;
+                }
 
                 value = ApplyConverter(property, value);
                 if (value != null)
