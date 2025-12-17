@@ -28,6 +28,10 @@
 | 19 | OrderByDescending | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
 | 20 | ThenBy | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
 | 21 | ThenByDescending | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
+| 22 | Take (Limit) | ✅ | `41788be` | `LimitTests` (3 tests) |
+| 23 | First / FirstOrDefault | ✅ | `41788be` | `LimitTests` (3 tests) |
+| 24 | Single / SingleOrDefault | ✅ | `41788be` | `LimitTests` (3 tests) |
+| 25 | Skip | ✅ | `41788be` | `LimitTests` (2 tests) |
 
 
 ---
