@@ -420,6 +420,30 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return string.Join(".", parts);
         }
 
+        /// <summary>
+        /// Extracts an integer constant value from an expression.
+        /// Handles literal constants and EF Core parametrized expressions.
+        /// </summary>
+        private int? ExtractIntConstant(Expression expression)
+        {
+            // Direct compile and evaluate - works for most cases including
+            // closures, captured variables, and parametrized expressions
+            try
+            {
+                var converted = expression.Type == typeof(int)
+                    ? expression
+                    : Expression.Convert(expression, typeof(int));
+                var lambda = Expression.Lambda<Func<int>>(converted);
+                var compiled = lambda.Compile();
+                return compiled();
+            }
+            catch
+            {
+                // If compile fails, return null to indicate we can't translate
+                return null;
+            }
+        }
+
         #region Translate Methods
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(
@@ -750,10 +774,39 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
-            => throw new NotImplementedException();
+        {
+            if (predicate != null)
+            {
+                source = TranslateWhere(source, predicate) ?? source;
+            }
+
+            // Use Limit(2) so EF Core can detect if there's more than one result
+            // If there are 2 results, EF Core will throw InvalidOperationException
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+            var newQueryExpression = firestoreQueryExpression.WithLimit(2);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
 
         protected override ShapedQueryExpression? TranslateSkip(ShapedQueryExpression source, Expression count)
-            => throw new NotImplementedException();
+        {
+            // NOTE: Firestore doesn't support offset natively.
+            // This skip is applied in-memory after fetching results, which is inefficient
+            // for large datasets. For efficient pagination, use cursor-based pagination.
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+
+            // Try to extract constant value first
+            var skipValue = ExtractIntConstant(count);
+            if (skipValue != null)
+            {
+                var newQueryExpression = firestoreQueryExpression.WithSkip(skipValue.Value);
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // For parameterized expressions, store the expression for runtime evaluation
+            var newQueryExpressionWithExpr = firestoreQueryExpression.WithSkipExpression(count);
+            return source.UpdateQueryExpression(newQueryExpressionWithExpr);
+        }
 
         protected override ShapedQueryExpression? TranslateSkipWhile(ShapedQueryExpression source, LambdaExpression predicate)
             => throw new NotImplementedException();
@@ -762,7 +815,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
-            => throw new NotImplementedException();
+        {
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+
+            // Try to extract constant value first
+            var limitValue = ExtractIntConstant(count);
+            if (limitValue != null)
+            {
+                var newQueryExpression = firestoreQueryExpression.WithLimit(limitValue.Value);
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // For parameterized expressions, store the expression for runtime evaluation
+            var newQueryExpressionWithExpr = firestoreQueryExpression.WithLimitExpression(count);
+            return source.UpdateQueryExpression(newQueryExpressionWithExpr);
+        }
 
         protected override ShapedQueryExpression? TranslateTakeWhile(ShapedQueryExpression source, LambdaExpression predicate)
             => throw new NotImplementedException();

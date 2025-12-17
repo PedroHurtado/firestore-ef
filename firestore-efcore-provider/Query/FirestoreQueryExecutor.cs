@@ -131,7 +131,7 @@ namespace Firestore.EntityFrameworkCore.Query
             try
             {
                 // Reemplazar el parámetro queryContext en la expresión con el valor real
-                var replacer = new IdExpressionParameterReplacer(queryContext);
+                var replacer = new ExpressionParameterReplacer(queryContext);
                 var replacedExpression = replacer.Visit(idExpression);
 
                 // Compilar y evaluar
@@ -150,14 +150,45 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
+        /// Evalúa una expresión entera en runtime usando el QueryContext.
+        /// Usado para Limit (Take) y Skip cuando son expresiones parametrizadas.
+        /// </summary>
+        public int EvaluateIntExpression(
+            System.Linq.Expressions.Expression expression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+        {
+            // Si es una ConstantExpression, retornar su valor directamente
+            if (expression is System.Linq.Expressions.ConstantExpression constant && constant.Value != null)
+            {
+                return (int)constant.Value;
+            }
+
+            // Para expresiones parametrizadas, compilar y evaluar
+            try
+            {
+                var replacer = new ExpressionParameterReplacer(queryContext);
+                var replacedExpression = replacer.Visit(expression);
+
+                // Compilar y evaluar
+                var lambda = System.Linq.Expressions.Expression.Lambda<Func<int>>(replacedExpression);
+                var compiled = lambda.Compile();
+                return compiled();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to evaluate int expression: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
         /// Visitor que reemplaza referencias al parámetro QueryContext con el valor real
         /// y resuelve parámetros desde QueryContext.ParameterValues
         /// </summary>
-        private class IdExpressionParameterReplacer : System.Linq.Expressions.ExpressionVisitor
+        private class ExpressionParameterReplacer : System.Linq.Expressions.ExpressionVisitor
         {
             private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
 
-            public IdExpressionParameterReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            public ExpressionParameterReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
             {
                 _queryContext = queryContext;
             }
@@ -209,11 +240,32 @@ namespace Firestore.EntityFrameworkCore.Query
                 query = ApplyOrderByClause(query, orderBy);
             }
 
-            // Aplicar límite LIMIT (Take)
+            // Calcular Skip para ajustar el límite
+            // Como Skip se aplica en memoria, necesitamos traer (Skip + Limit) documentos de Firestore
+            int skipValue = 0;
+            if (queryExpression.Skip.HasValue)
+            {
+                skipValue = queryExpression.Skip.Value;
+            }
+            else if (queryExpression.SkipExpression != null)
+            {
+                skipValue = EvaluateIntExpression(queryExpression.SkipExpression, queryContext);
+            }
+
+            // Aplicar límite LIMIT (Take) - ajustado por Skip
             if (queryExpression.Limit.HasValue)
             {
-                query = query.Limit(queryExpression.Limit.Value);
-                _logger.LogTrace("Applied Limit: {Limit}", queryExpression.Limit.Value);
+                var effectiveLimit = queryExpression.Limit.Value + skipValue;
+                query = query.Limit(effectiveLimit);
+                _logger.LogTrace("Applied Limit: {Limit} (adjusted for Skip: {Skip})", effectiveLimit, skipValue);
+            }
+            else if (queryExpression.LimitExpression != null)
+            {
+                // Evaluar expresión de límite en runtime (para parámetros de EF Core)
+                var limitValue = EvaluateIntExpression(queryExpression.LimitExpression, queryContext);
+                var effectiveLimit = limitValue + skipValue;
+                query = query.Limit(effectiveLimit);
+                _logger.LogTrace("Applied Limit from expression: {Limit} (adjusted for Skip: {Skip})", effectiveLimit, skipValue);
             }
 
             // Aplicar cursor START AFTER (Skip con paginación)

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -125,7 +126,27 @@ namespace Firestore.EntityFrameworkCore.Query
                         _enumerable._queryContext,
                         CancellationToken.None).GetAwaiter().GetResult();
 
-                    _enumerator = snapshot.Documents.GetEnumerator();
+                    // Apply Skip in-memory (Firestore doesn't support offset natively)
+                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
+
+                    // Check for constant Skip value
+                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
+                    {
+                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
+                    }
+                    // Check for Skip expression (parameterized value)
+                    else if (_enumerable._queryExpression.SkipExpression != null)
+                    {
+                        var skipValue = executor.EvaluateIntExpression(
+                            _enumerable._queryExpression.SkipExpression,
+                            _enumerable._queryContext);
+                        if (skipValue > 0)
+                        {
+                            documents = documents.Skip(skipValue);
+                        }
+                    }
+
+                    _enumerator = documents.GetEnumerator();
                 }
             }
 
@@ -207,8 +228,28 @@ namespace Firestore.EntityFrameworkCore.Query
                         _enumerable._queryContext,
                         _cancellationToken);
 
+                    // Apply Skip in-memory (Firestore doesn't support offset natively)
+                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
+
+                    // Check for constant Skip value
+                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
+                    {
+                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
+                    }
+                    // Check for Skip expression (parameterized value)
+                    else if (_enumerable._queryExpression.SkipExpression != null)
+                    {
+                        var skipValue = executor.EvaluateIntExpression(
+                            _enumerable._queryExpression.SkipExpression,
+                            _enumerable._queryContext);
+                        if (skipValue > 0)
+                        {
+                            documents = documents.Skip(skipValue);
+                        }
+                    }
+
                     // Inicializar enumerador con los documentos
-                    _enumerator = snapshot.Documents.GetEnumerator();
+                    _enumerator = documents.GetEnumerator();
                 }
             }
 

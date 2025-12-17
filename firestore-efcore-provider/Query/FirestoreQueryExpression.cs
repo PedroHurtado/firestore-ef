@@ -41,9 +41,31 @@ namespace Firestore.EntityFrameworkCore.Query
         public List<FirestoreOrderByClause> OrderByClauses { get; set; }
 
         /// <summary>
-        /// Límite de documentos a retornar (equivalente a LINQ Take)
+        /// Límite de documentos a retornar (equivalente a LINQ Take).
+        /// Puede ser un valor constante (int?) o una expresión parametrizada.
         /// </summary>
         public int? Limit { get; set; }
+
+        /// <summary>
+        /// Expresión para el límite (para parámetros de EF Core).
+        /// Se evalúa en tiempo de ejecución.
+        /// </summary>
+        public Expression? LimitExpression { get; set; }
+
+        /// <summary>
+        /// Número de documentos a saltar (equivalente a LINQ Skip).
+        /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
+        /// en memoria después de obtener los resultados, lo cual es ineficiente
+        /// para grandes conjuntos de datos. Para paginación eficiente, usar
+        /// cursores con StartAfterDocument.
+        /// </summary>
+        public int? Skip { get; set; }
+
+        /// <summary>
+        /// Expresión para el skip (para parámetros de EF Core).
+        /// Se evalúa en tiempo de ejecución.
+        /// </summary>
+        public Expression? SkipExpression { get; set; }
 
         /// <summary>
         /// Documento desde el cual empezar (para paginación/Skip)
@@ -110,6 +132,9 @@ namespace Firestore.EntityFrameworkCore.Query
             List<FirestoreOrFilterGroup>? orFilterGroups = null,
             List<FirestoreOrderByClause>? orderByClauses = null,
             int? limit = null,
+            Expression? limitExpression = null,
+            int? skip = null,
+            Expression? skipExpression = null,
             DocumentSnapshot? startAfterDocument = null,
             Expression? idValueExpression = null,
             List<IReadOnlyNavigation>? pendingIncludes = null,
@@ -123,6 +148,9 @@ namespace Firestore.EntityFrameworkCore.Query
                 OrFilterGroups = orFilterGroups ?? new List<FirestoreOrFilterGroup>(OrFilterGroups),
                 OrderByClauses = orderByClauses ?? new List<FirestoreOrderByClause>(OrderByClauses),
                 Limit = limit ?? Limit,
+                LimitExpression = limitExpression ?? LimitExpression,
+                Skip = skip ?? Skip,
+                SkipExpression = skipExpression ?? SkipExpression,
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
                 IdValueExpression = idValueExpression ?? IdValueExpression,
                 PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
@@ -173,6 +201,34 @@ namespace Firestore.EntityFrameworkCore.Query
         public FirestoreQueryExpression WithLimit(int limit)
         {
             return Update(limit: limit);
+        }
+
+        /// <summary>
+        /// Establece la expresión del límite (para parámetros de EF Core).
+        /// Se evalúa en tiempo de ejecución.
+        /// </summary>
+        public FirestoreQueryExpression WithLimitExpression(Expression limitExpression)
+        {
+            return Update(limitExpression: limitExpression);
+        }
+
+        /// <summary>
+        /// Establece el número de documentos a saltar.
+        /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
+        /// en memoria, lo cual es ineficiente para grandes conjuntos de datos.
+        /// </summary>
+        public FirestoreQueryExpression WithSkip(int skip)
+        {
+            return Update(skip: skip);
+        }
+
+        /// <summary>
+        /// Establece la expresión del skip (para parámetros de EF Core).
+        /// Se evalúa en tiempo de ejecución.
+        /// </summary>
+        public FirestoreQueryExpression WithSkipExpression(Expression skipExpression)
+        {
+            return Update(skipExpression: skipExpression);
         }
 
         /// <summary>
