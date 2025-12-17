@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore.Query;
+using System;
+using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -7,6 +10,7 @@ namespace Firestore.EntityFrameworkCore.Query
     /// Custom QueryTranslationPreprocessor that intercepts Include expressions
     /// targeting properties inside ComplexTypes before EF Core's NavigationExpandingExpressionVisitor
     /// rejects them.
+    /// Also handles TakeLast which is not natively supported by EF Core.
     /// </summary>
     public class FirestoreQueryTranslationPreprocessor : QueryTranslationPreprocessor
     {
@@ -26,8 +30,78 @@ namespace Firestore.EntityFrameworkCore.Query
             var complexTypeIncludeVisitor = new ComplexTypeIncludeExtractorVisitor(_queryCompilationContext);
             query = complexTypeIncludeVisitor.Visit(query);
 
+            // Transform TakeLast before EF Core's NavigationExpandingExpressionVisitor rejects it
+            var takeLastTransformer = new TakeLastTransformingVisitor();
+            query = takeLastTransformer.Visit(query);
+
             // Then let EF Core process the remaining (valid) Includes
             return base.Process(query);
+        }
+    }
+
+    /// <summary>
+    /// Transforms TakeLast(n) into a marker expression that can be processed later.
+    /// TakeLast(n) is equivalent to reversing, taking first n, and reversing back,
+    /// but Firestore has native LimitToLast support.
+    /// We transform TakeLast into a custom method call that our translator can handle.
+    /// </summary>
+    internal class TakeLastTransformingVisitor : ExpressionVisitor
+    {
+        protected override Expression VisitMethodCall(MethodCallExpression node)
+        {
+            // Check if this is a TakeLast call
+            if (node.Method.Name == "TakeLast" &&
+                node.Method.DeclaringType == typeof(Queryable) &&
+                node.Arguments.Count == 2)
+            {
+                // Visit the source first
+                var source = Visit(node.Arguments[0]);
+                var count = node.Arguments[1];
+
+                // Create a call to our custom TakeLast marker
+                // We use Take but mark it specially by wrapping in our custom expression
+                return new FirestoreTakeLastExpression(source, count, node.Type);
+            }
+
+            return base.VisitMethodCall(node);
+        }
+    }
+
+    /// <summary>
+    /// Marker expression for TakeLast that survives EF Core's processing pipeline.
+    /// </summary>
+    public class FirestoreTakeLastExpression : Expression
+    {
+        public Expression Source { get; }
+        public Expression Count { get; }
+        private readonly Type _type;
+
+        public FirestoreTakeLastExpression(Expression source, Expression count, Type type)
+        {
+            Source = source;
+            Count = count;
+            _type = type;
+        }
+
+        public override Type Type => _type;
+        public override ExpressionType NodeType => ExpressionType.Extension;
+
+        protected override Expression VisitChildren(ExpressionVisitor visitor)
+        {
+            var newSource = visitor.Visit(Source);
+            var newCount = visitor.Visit(Count);
+
+            if (newSource != Source || newCount != Count)
+            {
+                return new FirestoreTakeLastExpression(newSource, newCount, _type);
+            }
+
+            return this;
+        }
+
+        public override string ToString()
+        {
+            return $"FirestoreTakeLast({Source}, {Count})";
         }
     }
 }

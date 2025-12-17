@@ -67,6 +67,18 @@ namespace Firestore.EntityFrameworkCore.Query
         public Expression? LimitExpression { get; set; }
 
         /// <summary>
+        /// Límite de documentos a retornar desde el final (equivalente a LINQ TakeLast).
+        /// Firestore usa LimitToLast() que requiere un OrderBy previo.
+        /// </summary>
+        public int? LimitToLast { get; set; }
+
+        /// <summary>
+        /// Expresión para LimitToLast (para parámetros de EF Core).
+        /// Se evalúa en tiempo de ejecución.
+        /// </summary>
+        public Expression? LimitToLastExpression { get; set; }
+
+        /// <summary>
         /// Número de documentos a saltar (equivalente a LINQ Skip).
         /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
         /// en memoria después de obtener los resultados, lo cual es ineficiente
@@ -168,6 +180,8 @@ namespace Firestore.EntityFrameworkCore.Query
             List<FirestoreOrderByClause>? orderByClauses = null,
             int? limit = null,
             Expression? limitExpression = null,
+            int? limitToLast = null,
+            Expression? limitToLastExpression = null,
             int? skip = null,
             Expression? skipExpression = null,
             DocumentSnapshot? startAfterDocument = null,
@@ -187,6 +201,8 @@ namespace Firestore.EntityFrameworkCore.Query
                 OrderByClauses = orderByClauses ?? new List<FirestoreOrderByClause>(OrderByClauses),
                 Limit = limit ?? Limit,
                 LimitExpression = limitExpression ?? LimitExpression,
+                LimitToLast = limitToLast ?? LimitToLast,
+                LimitToLastExpression = limitToLastExpression ?? LimitToLastExpression,
                 Skip = skip ?? Skip,
                 SkipExpression = skipExpression ?? SkipExpression,
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
@@ -197,6 +213,23 @@ namespace Firestore.EntityFrameworkCore.Query
                 AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
                 AggregationResultType = aggregationResultType ?? AggregationResultType
             };
+        }
+
+        /// <summary>
+        /// Establece el límite de documentos desde el final (TakeLast).
+        /// Requiere OrderBy para funcionar correctamente.
+        /// </summary>
+        public FirestoreQueryExpression WithLimitToLast(int limitToLast)
+        {
+            return Update(limitToLast: limitToLast);
+        }
+
+        /// <summary>
+        /// Establece la expresión del límite desde el final (TakeLast parametrizado).
+        /// </summary>
+        public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
+        {
+            return Update(limitToLastExpression: limitToLastExpression);
         }
 
         /// <summary>

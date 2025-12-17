@@ -269,6 +269,19 @@ namespace Firestore.EntityFrameworkCore.Query
                 _logger.LogTrace("Applied Limit from expression: {Limit} (adjusted for Skip: {Skip})", effectiveLimit, skipValue);
             }
 
+            // Aplicar LimitToLast (TakeLast) - requiere OrderBy para funcionar
+            if (queryExpression.LimitToLast.HasValue)
+            {
+                query = query.LimitToLast(queryExpression.LimitToLast.Value);
+                _logger.LogTrace("Applied LimitToLast: {Limit}", queryExpression.LimitToLast.Value);
+            }
+            else if (queryExpression.LimitToLastExpression != null)
+            {
+                var limitToLastValue = EvaluateIntExpression(queryExpression.LimitToLastExpression, queryContext);
+                query = query.LimitToLast(limitToLastValue);
+                _logger.LogTrace("Applied LimitToLast from expression: {Limit}", limitToLastValue);
+            }
+
             // Aplicar cursor START AFTER (Skip con paginación)
             if (queryExpression.StartAfterDocument != null)
             {

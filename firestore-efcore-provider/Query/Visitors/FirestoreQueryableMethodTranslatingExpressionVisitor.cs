@@ -236,6 +236,24 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         }
 
         /// <summary>
+        /// Handles custom extension expressions like FirestoreTakeLastExpression.
+        /// </summary>
+        protected override Expression VisitExtension(Expression extensionExpression)
+        {
+            // Handle our custom TakeLast expression
+            if (extensionExpression is FirestoreTakeLastExpression takeLastExpression)
+            {
+                var source = Visit(takeLastExpression.Source);
+                if (source is ShapedQueryExpression shapedSource)
+                {
+                    return TranslateTakeLast(shapedSource, takeLastExpression.Count);
+                }
+            }
+
+            return base.VisitExtension(extensionExpression);
+        }
+
+        /// <summary>
         /// Intercepts method calls to detect array Contains patterns that EF Core would
         /// otherwise try to process as subqueries.
         /// Pattern: EF.Property&lt;List&lt;T&gt;&gt;(e, "Field").AsQueryable().Contains(value)
@@ -912,6 +930,27 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             // For parameterized expressions, store the expression for runtime evaluation
             var newQueryExpressionWithExpr = firestoreQueryExpression.WithLimitExpression(count);
+            return source.UpdateQueryExpression(newQueryExpressionWithExpr);
+        }
+
+        /// <summary>
+        /// Translates TakeLast to Firestore's LimitToLast.
+        /// Note: LimitToLast requires an OrderBy clause to work correctly.
+        /// </summary>
+        private ShapedQueryExpression TranslateTakeLast(ShapedQueryExpression source, Expression count)
+        {
+            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
+
+            // Try to extract constant value first
+            var limitValue = ExtractIntConstant(count);
+            if (limitValue != null)
+            {
+                var newQueryExpression = firestoreQueryExpression.WithLimitToLast(limitValue.Value);
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
+            // For parameterized expressions, store the expression for runtime evaluation
+            var newQueryExpressionWithExpr = firestoreQueryExpression.WithLimitToLastExpression(count);
             return source.UpdateQueryExpression(newQueryExpressionWithExpr);
         }
 
