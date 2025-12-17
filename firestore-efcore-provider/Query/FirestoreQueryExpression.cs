@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -420,6 +421,55 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             return string.Join(" | ", parts);
+        }
+    }
+
+    /// <summary>
+    /// Special expression that represents the upper bound for a StartsWith query.
+    /// When evaluated, it takes the prefix string and appends '\uffff' to create
+    /// the upper bound for a range query that simulates StartsWith.
+    /// </summary>
+    public class StartsWithUpperBoundExpression : Expression
+    {
+        /// <summary>
+        /// The prefix expression (the argument to StartsWith)
+        /// </summary>
+        public Expression PrefixExpression { get; }
+
+        public StartsWithUpperBoundExpression(Expression prefixExpression)
+        {
+            PrefixExpression = prefixExpression ?? throw new ArgumentNullException(nameof(prefixExpression));
+        }
+
+        public override Type Type => typeof(string);
+        public override ExpressionType NodeType => ExpressionType.Extension;
+
+        protected override Expression VisitChildren(ExpressionVisitor visitor)
+        {
+            var newPrefix = visitor.Visit(PrefixExpression);
+            if (newPrefix != PrefixExpression)
+            {
+                return new StartsWithUpperBoundExpression(newPrefix);
+            }
+            return this;
+        }
+
+        /// <summary>
+        /// Computes the upper bound string from a prefix.
+        /// For "Alpha" returns "Alpha\uffff" which is greater than any string starting with "Alpha".
+        /// </summary>
+        public static string ComputeUpperBound(string prefix)
+        {
+            if (string.IsNullOrEmpty(prefix))
+            {
+                return "\uffff";
+            }
+            return prefix + '\uffff';
+        }
+
+        public override string ToString()
+        {
+            return $"StartsWithUpperBound({PrefixExpression})";
         }
     }
 }

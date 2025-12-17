@@ -39,6 +39,7 @@
 | 30 | Min (client-side) | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
 | 31 | Max (client-side) | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
 | 32 | TakeLast (LimitToLast) | ✅ | `efbbf4a` | `TakeLastTests` (3 tests) |
+| 33 | StartsWith (workaround >= <) | ✅ | `13968a8` | `StringTests` (4 tests) |
 
 
 ---
@@ -68,7 +69,7 @@
 
 | Generator | LINQ | Firestore | Soportado |
 |-----------|------|-----------|-----------|
-| StartsWith | `.StartsWith()` | Workaround >= < | ⚠️ |
+| StartsWith | `.StartsWith()` | Workaround >= < | ✅ |
 | EndsWith | `.EndsWith()` | No | ❌ |
 | Contains | `.Contains()` | No | ❌ |
 | Like | `EF.Functions.Like()` | No | ❌ |

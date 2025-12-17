@@ -30,8 +30,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             if (expression is MethodCallExpression methodCallExpression)
             {
-                var clause = TranslateMethodCallExpression(methodCallExpression);
-                return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
+                var clauses = TranslateMethodCallExpression(methodCallExpression);
+                if (clauses != null && clauses.Count > 0)
+                {
+                    var result = new FirestoreFilterResult();
+                    result.AndClauses.AddRange(clauses);
+                    return result;
+                }
+                return null;
             }
 
             // Handle FirestoreArrayContainsExpression (created by FirestoreQueryableMethodTranslatingExpressionVisitor)
@@ -118,10 +124,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             if (expression is MethodCallExpression methodCall)
             {
-                var clause = TranslateMethodCallExpression(methodCall);
-                if (clause != null)
+                var translatedClauses = TranslateMethodCallExpression(methodCall);
+                if (translatedClauses != null)
                 {
-                    clauses.Add(clause);
+                    clauses.AddRange(translatedClauses);
                 }
                 return;
             }
@@ -196,10 +202,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             if (expression is MethodCallExpression methodCall)
             {
-                var clause = TranslateMethodCallExpression(methodCall);
-                if (clause != null)
+                var translatedClauses = TranslateMethodCallExpression(methodCall);
+                if (translatedClauses != null)
                 {
-                    clauses.Add(clause);
+                    clauses.AddRange(translatedClauses);
                 }
                 return;
             }
@@ -386,8 +392,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return null;
         }
 
-        private FirestoreWhereClause? TranslateMethodCallExpression(MethodCallExpression methodCall)
+        private List<FirestoreWhereClause>? TranslateMethodCallExpression(MethodCallExpression methodCall)
         {
+            // Handle StartsWith - translated to range query: field >= "prefix" AND field < "prefix\uffff"
+            if (methodCall.Method.Name == "StartsWith" && methodCall.Method.DeclaringType == typeof(string))
+            {
+                return TranslateStartsWith(methodCall);
+            }
+
             if (methodCall.Method.Name == "Contains")
             {
                 // Case 1: Instance method - list.Contains(e.Field) → WhereIn
@@ -396,7 +408,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
                     if (propertyResult.HasValue)
                     {
-                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Object);
+                        return new List<FirestoreWhereClause>
+                        {
+                            new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Object)
+                        };
                     }
                 }
 
@@ -406,7 +421,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[1]);
                     if (propertyResult.HasValue)
                     {
-                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Arguments[0]);
+                        return new List<FirestoreWhereClause>
+                        {
+                            new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Arguments[0])
+                        };
                     }
                 }
 
@@ -416,7 +434,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     methodCall.Arguments.Count == 1)
                 {
                     var propertyName = BuildPropertyPath(objMember);
-                    return new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
+                    return new List<FirestoreWhereClause>
+                    {
+                        new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0])
+                    };
                 }
 
                 // Case 4: EF.Property<List<T>>(e, "Field").AsQueryable().Contains(value) → ArrayContains
@@ -426,9 +447,44 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     var propertyName = ExtractPropertyNameFromEFPropertyChain(methodCall.Object);
                     if (propertyName != null)
                     {
-                        return new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0]);
+                        return new List<FirestoreWhereClause>
+                        {
+                            new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0])
+                        };
                     }
                 }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Translates StartsWith to a range query: field >= "prefix" AND field < "prefix\uffff"
+        /// This is a workaround since Firestore doesn't support native string operators.
+        /// </summary>
+        private List<FirestoreWhereClause>? TranslateStartsWith(MethodCallExpression methodCall)
+        {
+            // StartsWith is an instance method: e.Name.StartsWith("prefix")
+            if (methodCall.Object is MemberExpression memberExpr)
+            {
+                var propertyName = BuildPropertyPath(memberExpr);
+                var prefixExpression = methodCall.Arguments[0];
+
+                // Create GreaterThanOrEqual clause with the prefix
+                var gteClause = new FirestoreWhereClause(
+                    propertyName,
+                    FirestoreOperator.GreaterThanOrEqualTo,
+                    prefixExpression);
+
+                // Create LessThan clause with prefix + \uffff (highest Unicode char)
+                // We create a special expression that will be evaluated to add the suffix
+                var ltExpression = new StartsWithUpperBoundExpression(prefixExpression);
+                var ltClause = new FirestoreWhereClause(
+                    propertyName,
+                    FirestoreOperator.LessThan,
+                    ltExpression);
+
+                return new List<FirestoreWhereClause> { gteClause, ltClause };
             }
 
             return null;

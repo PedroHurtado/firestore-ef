@@ -55,6 +55,15 @@ namespace Firestore.EntityFrameworkCore.Query
         /// </summary>
         public object? EvaluateValue(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
         {
+            // Handle StartsWithUpperBoundExpression - compute prefix + \uffff
+            if (ValueExpression is StartsWithUpperBoundExpression startsWithUpperBound)
+            {
+                // First evaluate the prefix expression
+                var prefixClause = new FirestoreWhereClause(PropertyName, Operator, startsWithUpperBound.PrefixExpression);
+                var prefix = prefixClause.EvaluateValue(queryContext) as string;
+                return StartsWithUpperBoundExpression.ComputeUpperBound(prefix ?? "");
+            }
+
             // Si es una ConstantExpression, retornar su valor directamente
             if (ValueExpression is ConstantExpression constant)
             {
