@@ -21,6 +21,10 @@
 | 9.2 | ComplexType.Property (propiedades anidadas) | ✅ | `f0c1d4c` | `ComplexTypeConventionTests` (2 tests) |
 | 10 | IN (`list.Contains(field)`) | ✅ | `d8dcdac` | `WhereInTests` (3 tests) |
 | 11 | NOT IN (`!list.Contains(field)`) | ✅ | `d8dcdac` | `WhereInTests` (2 tests) |
+| 12-15 | PersistNullValues (opt-in para null queries) | ✅ | `c373e99` | `PersistNullValuesTests` (5 tests), `PersistNullValuesExtensionTest` (3 tests) |
+
+**Nota Fase 4:** La implementación de null queries requiere opt-in explícito con `.PersistNullValues()` en OnModelCreating.
+Por defecto, Firestore no guarda campos null (convención NoSQL). Los tests de boolean (`== true`, `== false`) ya funcionaban.
 
 ---
 
