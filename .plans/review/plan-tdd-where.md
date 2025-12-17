@@ -24,6 +24,10 @@
 | 12-15 | PersistNullValues (opt-in para null queries) | ✅ | `c373e99` | `PersistNullValuesTests` (5 tests), `PersistNullValuesExtensionTest` (3 tests) |
 | 16 | ArrayContains (`array.Contains(value)`) | ✅ | `353d04f` | `WhereArrayTests` (3 tests) |
 | 17 | ArrayContainsAny (`array.Any(x => list.Contains(x))`) | ✅ | `4cde269` | `WhereArrayTests` (2 tests) |
+| 18 | OrderBy | ✅ | `ca907b0` | `OrderByTests` (3 tests) |
+| 19 | OrderByDescending | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
+| 20 | ThenBy | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
+| 21 | ThenByDescending | ✅ | `ca907b0` | `OrderByTests` (2 tests) |
 
 
 ---
