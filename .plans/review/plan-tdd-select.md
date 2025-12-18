@@ -107,16 +107,20 @@ Antes de empezar, verificar qué funciona hoy:
 | 10 | Where + OrderBy + Take + Select | ✅ |
 | 10b | Where + OrderBy + Skip + Take + Select | ✅ |
 
-### Fase 4: Subcollections en Select
+### Fase 4: Subcollections en Select (Commit: 88e3049)
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 11 | Select con subcollection completa |
-| 12 | Select con subcollection proyectada |
-| 13 | Select con subcollection filtrada |
-| 14 | Select con subcollection filtrada + ordenada |
-| 15 | Select con subcollection filtrada + ordenada + limitada |
-| 16 | Select con múltiples subcollections |
+| Ciclo | Comportamiento | Estado |
+|-------|----------------|--------|
+| 11 | Select con subcollection completa | ✅ |
+| 12 | Select con subcollection proyectada | ✅ |
+| 13 | Select con subcollection filtrada | ✅ |
+| 14 | Select con subcollection filtrada + ordenada | ✅ |
+| 15 | Select con subcollection filtrada + ordenada + limitada | ✅ |
+| 16 | Select con múltiples subcollections (navegaciones anidadas) | ⏸️ Skip |
+
+**Nota Ciclo 16:** Requiere soporte para navegaciones de nivel 2+ (`p.Lineas.Count()`).
+La subcolección `Lineas` no se carga porque solo se cargan navegaciones de nivel 1.
+Test en Skip pendiente de revisión manual.
 
 ### Fase 5: Query Completa (integración final)
 
