@@ -85,7 +85,7 @@ Antes de empezar, verificar qué funciona hoy:
 | 3 | Select a DTO (clase) | ✅ |
 | 3b | Select a DTO (record) | ✅ |
 
-### Fase 2: ComplexTypes ✅ (GREEN - No requirió cambios)
+### Fase 2: ComplexTypes ✅ (Commit: 5bcfd30)
 
 | Ciclo | Comportamiento | Estado |
 |-------|----------------|--------|
@@ -94,7 +94,7 @@ Antes de empezar, verificar qué funciona hoy:
 | 6 | Select múltiples campos de ComplexType | ✅ |
 | 6b | Select a record desde ComplexType | ✅ |
 
-### Fase 3: Combinación Where + Select ✅ (GREEN - No requirió cambios)
+### Fase 3: Combinación Where + Select ✅ (Commit: 5bcfd30)
 
 | Ciclo | Comportamiento | Estado |
 |-------|----------------|--------|
