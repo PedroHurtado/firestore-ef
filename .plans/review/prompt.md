@@ -1,14 +1,21 @@
-## Contexto
+## Contexto @.plans/review/plan-tdd-select.md
 
-Revisa el documento `@.plans/review/plan-tdd-where.md`. 
 
-**Continúa con la Fase 6: Ordenamiento**
+Enpieza con la siguiente fase
+
+### Fase 1: Campos Simples
+
+| Ciclo | Comportamiento |
+|-------|----------------|
+| 1 | Select campo único |
+| 2 | Select múltiples campos (tipo anónimo) |
+| 3 | Select a DTO |
 
 ---
 
 ## Flujo de trabajo TDD
 
-**Para cada ciclo de la fase, sigue estos pasos:**
+**Para cada fase, sigue estos pasos:**
 
 ### 1. Escribir test de integración
 - Crea los test integración según el ciclo definido en el plan
