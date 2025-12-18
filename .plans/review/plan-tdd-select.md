@@ -76,13 +76,14 @@ Antes de empezar, verificar qué funciona hoy:
 
 ## Ciclos TDD
 
-### Fase 1: Campos Simples
+### Fase 1: Campos Simples ✅ (Commit: 0e3bda9)
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 1 | Select campo único |
-| 2 | Select múltiples campos (tipo anónimo) |
-| 3 | Select a DTO |
+| Ciclo | Comportamiento | Estado |
+|-------|----------------|--------|
+| 1 | Select campo único | ✅ |
+| 2 | Select múltiples campos (tipo anónimo) | ✅ |
+| 3 | Select a DTO (clase) | ✅ |
+| 3b | Select a DTO (record) | ✅ |
 
 ### Fase 2: ComplexTypes
 
