@@ -485,7 +485,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             ShapedQueryExpression source,
             LambdaExpression selector)
         {
-            // Procesar includes
+            // Procesar includes - estos NO son proyecciones reales
             if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
             {
                 var includeVisitor = new IncludeExtractionVisitor();
@@ -503,6 +503,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         firestoreQueryExpression.PendingIncludes.Add(navigation);
                     }
                 }
+
+                // Include no es una proyección real, retornar source sin modificar proyección
+                return source;
             }
 
             // Proyección de identidad (x => x)
@@ -519,7 +522,68 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return source;
             }
 
-            return source;
+            // Verificar si el body contiene expresiones internas de EF Core que no se pueden compilar
+            // (StructuralTypeShaperExpression, ProjectionBindingExpression, etc.)
+            if (ContainsNonCompilableExpressions(selector.Body))
+            {
+                return source;
+            }
+
+            // Proyección real: extraer el tipo de resultado y almacenar el selector
+            var firestoreQuery = (FirestoreQueryExpression)source.QueryExpression;
+            var projectionType = selector.Body.Type;
+
+            // Reemplazar parámetros de runtime en el selector
+            var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
+            var evaluatedSelector = (LambdaExpression)parameterReplacer.Visit(selector);
+
+            var newQueryExpression = firestoreQuery.WithProjection(evaluatedSelector, projectionType);
+
+            return source.UpdateQueryExpression(newQueryExpression);
+        }
+
+        /// <summary>
+        /// Checks if an expression contains EF Core internal expressions that cannot be compiled directly.
+        /// </summary>
+        private bool ContainsNonCompilableExpressions(Expression expression)
+        {
+            // Check for EF Core internal types that indicate this is not a user projection
+            if (expression is Microsoft.EntityFrameworkCore.Query.StructuralTypeShaperExpression)
+                return true;
+
+            if (expression is Microsoft.EntityFrameworkCore.Query.ProjectionBindingExpression)
+                return true;
+
+            // Recursively check children
+            switch (expression)
+            {
+                case UnaryExpression unary:
+                    return ContainsNonCompilableExpressions(unary.Operand);
+
+                case BinaryExpression binary:
+                    return ContainsNonCompilableExpressions(binary.Left) ||
+                           ContainsNonCompilableExpressions(binary.Right);
+
+                case NewExpression newExpr:
+                    return newExpr.Arguments.Any(ContainsNonCompilableExpressions);
+
+                case MemberInitExpression memberInit:
+                    return ContainsNonCompilableExpressions(memberInit.NewExpression) ||
+                           memberInit.Bindings.OfType<MemberAssignment>()
+                               .Any(b => ContainsNonCompilableExpressions(b.Expression));
+
+                case MethodCallExpression methodCall:
+                    return (methodCall.Object != null && ContainsNonCompilableExpressions(methodCall.Object)) ||
+                           methodCall.Arguments.Any(ContainsNonCompilableExpressions);
+
+                case ConditionalExpression conditional:
+                    return ContainsNonCompilableExpressions(conditional.Test) ||
+                           ContainsNonCompilableExpressions(conditional.IfTrue) ||
+                           ContainsNonCompilableExpressions(conditional.IfFalse);
+
+                default:
+                    return false;
+            }
         }
 
         protected override ShapedQueryExpression? TranslateWhere(

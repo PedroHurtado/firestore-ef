@@ -49,6 +49,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return CreateAggregationQueryExpression(firestoreQueryExpression);
             }
 
+            // Handle projection queries (Select)
+            if (firestoreQueryExpression.HasProjection)
+            {
+                return CreateProjectionQueryExpression(firestoreQueryExpression);
+            }
+
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
             // Determinar si debemos trackear las entidades
@@ -114,6 +120,104 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(entityType));
 
             return newExpression;
+        }
+
+        /// <summary>
+        /// Creates the expression for projection queries (Select).
+        /// The shaper deserializes the entity and then applies the projection selector.
+        /// </summary>
+        private Expression CreateProjectionQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
+        {
+            var entityType = firestoreQueryExpression.EntityType.ClrType;
+            var projectionType = firestoreQueryExpression.ProjectionType!;
+            var projectionSelector = firestoreQueryExpression.ProjectionSelector!;
+
+            // Proyecciones no deben trackearse (son DTOs/tipos anónimos)
+            var isTracking = false;
+
+            var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
+            var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
+            var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
+
+            // Crear el shaper que: 1) deserializa la entidad, 2) aplica la proyección
+            var shaperExpression = CreateProjectionShaperExpression(
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter,
+                firestoreQueryExpression,
+                projectionSelector,
+                projectionType);
+
+            var shaperLambda = Expression.Lambda(
+                shaperExpression,
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter);
+
+            var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(projectionType);
+            var constructor = enumerableType.GetConstructor(new[]
+            {
+                typeof(QueryContext),
+                typeof(FirestoreQueryExpression),
+                typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), projectionType),
+                typeof(Type),
+                typeof(bool)
+            })!;
+
+            var newExpression = Expression.New(
+                constructor,
+                QueryCompilationContext.QueryContextParameter,
+                Expression.Constant(firestoreQueryExpression),
+                Expression.Constant(shaperLambda.Compile()),
+                Expression.Constant(entityType),
+                Expression.Constant(isTracking));
+
+            return newExpression;
+        }
+
+        /// <summary>
+        /// Creates a shaper expression that deserializes the entity and applies the projection.
+        /// </summary>
+        private Expression CreateProjectionShaperExpression(
+            ParameterExpression queryContextParameter,
+            ParameterExpression documentSnapshotParameter,
+            ParameterExpression isTrackingParameter,
+            FirestoreQueryExpression queryExpression,
+            LambdaExpression projectionSelector,
+            Type projectionType)
+        {
+            var entityType = queryExpression.EntityType.ClrType;
+
+            // Llamar al método genérico DeserializeAndProject<TEntity, TProjection>
+            var deserializeAndProjectMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                .GetMethod(nameof(DeserializeAndProject), BindingFlags.NonPublic | BindingFlags.Static)!
+                .MakeGenericMethod(entityType, projectionType);
+
+            return Expression.Call(
+                deserializeAndProjectMethod,
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter,
+                Expression.Constant(queryExpression),
+                Expression.Constant(projectionSelector.Compile()));
+        }
+
+        /// <summary>
+        /// Deserializes an entity from a DocumentSnapshot and applies the projection selector.
+        /// </summary>
+        private static TProjection DeserializeAndProject<TEntity, TProjection>(
+            QueryContext queryContext,
+            DocumentSnapshot documentSnapshot,
+            bool isTracking,
+            FirestoreQueryExpression queryExpression,
+            Delegate projectionSelector) where TEntity : class, new()
+        {
+            // Deserializar la entidad (sin tracking ya que es para proyección)
+            var entity = DeserializeEntity<TEntity>(queryContext, documentSnapshot, false, queryExpression);
+
+            // Aplicar la proyección
+            var selector = (Func<TEntity, TProjection>)projectionSelector;
+            return selector(entity);
         }
 
         #region Shaper Creation

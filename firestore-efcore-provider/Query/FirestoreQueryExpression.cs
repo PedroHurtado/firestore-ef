@@ -135,6 +135,24 @@ namespace Firestore.EntityFrameworkCore.Query
         public Type? AggregationResultType { get; set; }
 
         /// <summary>
+        /// Expresión lambda del selector de proyección (Select).
+        /// Almacena la lambda completa para evaluarla en tiempo de ejecución.
+        /// Ejemplo: e => e.Name, e => new { e.Id, e.Name }, e => new Dto { ... }
+        /// </summary>
+        public LambdaExpression? ProjectionSelector { get; set; }
+
+        /// <summary>
+        /// Tipo del resultado de la proyección.
+        /// Puede ser un tipo primitivo (string), anónimo, o DTO.
+        /// </summary>
+        public Type? ProjectionType { get; set; }
+
+        /// <summary>
+        /// Indica si esta query tiene una proyección Select
+        /// </summary>
+        public bool HasProjection => ProjectionSelector != null;
+
+        /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
         /// </summary>
         public bool IsIdOnlyQuery => IdValueExpression != null;
@@ -191,7 +209,9 @@ namespace Firestore.EntityFrameworkCore.Query
             List<LambdaExpression>? complexTypeIncludes = null,
             FirestoreAggregationType? aggregationType = null,
             string? aggregationPropertyName = null,
-            Type? aggregationResultType = null)
+            Type? aggregationResultType = null,
+            LambdaExpression? projectionSelector = null,
+            Type? projectionType = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -212,7 +232,9 @@ namespace Firestore.EntityFrameworkCore.Query
                 ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes),
                 AggregationType = aggregationType ?? AggregationType,
                 AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
-                AggregationResultType = aggregationResultType ?? AggregationResultType
+                AggregationResultType = aggregationResultType ?? AggregationResultType,
+                ProjectionSelector = projectionSelector ?? ProjectionSelector,
+                ProjectionType = projectionType ?? ProjectionType
             };
         }
 
@@ -231,6 +253,14 @@ namespace Firestore.EntityFrameworkCore.Query
         public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
         {
             return Update(limitToLastExpression: limitToLastExpression);
+        }
+
+        /// <summary>
+        /// Configura la proyección Select de la query.
+        /// </summary>
+        public FirestoreQueryExpression WithProjection(LambdaExpression selector, Type projectionType)
+        {
+            return Update(projectionSelector: selector, projectionType: projectionType);
         }
 
         /// <summary>
