@@ -153,6 +153,13 @@ namespace Firestore.EntityFrameworkCore.Query
         public bool HasProjection => ProjectionSelector != null;
 
         /// <summary>
+        /// Indica si la proyección contiene accesos a subcollections.
+        /// Cuando es true, la entidad se carga completa con sus subcollections
+        /// y la proyección se aplica en memoria después.
+        /// </summary>
+        public bool HasSubcollectionProjection { get; set; }
+
+        /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
         /// </summary>
         public bool IsIdOnlyQuery => IdValueExpression != null;
@@ -211,7 +218,8 @@ namespace Firestore.EntityFrameworkCore.Query
             string? aggregationPropertyName = null,
             Type? aggregationResultType = null,
             LambdaExpression? projectionSelector = null,
-            Type? projectionType = null)
+            Type? projectionType = null,
+            bool? hasSubcollectionProjection = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -234,7 +242,8 @@ namespace Firestore.EntityFrameworkCore.Query
                 AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
                 AggregationResultType = aggregationResultType ?? AggregationResultType,
                 ProjectionSelector = projectionSelector ?? ProjectionSelector,
-                ProjectionType = projectionType ?? ProjectionType
+                ProjectionType = projectionType ?? ProjectionType,
+                HasSubcollectionProjection = hasSubcollectionProjection ?? HasSubcollectionProjection
             };
         }
 
@@ -261,6 +270,15 @@ namespace Firestore.EntityFrameworkCore.Query
         public FirestoreQueryExpression WithProjection(LambdaExpression selector, Type projectionType)
         {
             return Update(projectionSelector: selector, projectionType: projectionType);
+        }
+
+        /// <summary>
+        /// Configura la proyección Select con subcollections.
+        /// La entidad se carga completa con sus subcollections y la proyección se aplica en memoria.
+        /// </summary>
+        public FirestoreQueryExpression WithSubcollectionProjection(LambdaExpression selector, Type projectionType)
+        {
+            return Update(projectionSelector: selector, projectionType: projectionType, hasSubcollectionProjection: true);
         }
 
         /// <summary>

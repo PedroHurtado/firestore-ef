@@ -49,7 +49,13 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return CreateAggregationQueryExpression(firestoreQueryExpression);
             }
 
-            // Handle projection queries (Select)
+            // Handle projection queries with subcollections (load entity + includes, then project in memory)
+            if (firestoreQueryExpression.HasSubcollectionProjection)
+            {
+                return CreateSubcollectionProjectionQueryExpression(firestoreQueryExpression);
+            }
+
+            // Handle simple projection queries (Select without subcollections)
             if (firestoreQueryExpression.HasProjection)
             {
                 return CreateProjectionQueryExpression(firestoreQueryExpression);
@@ -173,6 +179,740 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(isTracking));
 
             return newExpression;
+        }
+
+        /// <summary>
+        /// Creates the expression for projection queries that include subcollections.
+        /// The entity is loaded with all its subcollections, then the projection is applied in memory.
+        /// </summary>
+        private Expression CreateSubcollectionProjectionQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
+        {
+            var entityType = firestoreQueryExpression.EntityType.ClrType;
+            var projectionType = firestoreQueryExpression.ProjectionType!;
+            var projectionSelector = firestoreQueryExpression.ProjectionSelector!;
+
+            // Proyecciones no deben trackearse (son DTOs/tipos anónimos)
+            var isTracking = false;
+
+            var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
+            var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
+            var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
+
+            // Crear el shaper que: 1) deserializa la entidad con subcollections, 2) aplica la proyección
+            var shaperExpression = CreateSubcollectionProjectionShaperExpression(
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter,
+                firestoreQueryExpression,
+                projectionSelector,
+                projectionType);
+
+            var shaperLambda = Expression.Lambda(
+                shaperExpression,
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter);
+
+            var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(projectionType);
+            var constructor = enumerableType.GetConstructor(new[]
+            {
+                typeof(QueryContext),
+                typeof(FirestoreQueryExpression),
+                typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), projectionType),
+                typeof(Type),
+                typeof(bool)
+            })!;
+
+            var newExpression = Expression.New(
+                constructor,
+                QueryCompilationContext.QueryContextParameter,
+                Expression.Constant(firestoreQueryExpression),
+                Expression.Constant(shaperLambda.Compile()),
+                Expression.Constant(entityType),
+                Expression.Constant(isTracking));
+
+            return newExpression;
+        }
+
+        /// <summary>
+        /// Creates a shaper expression for subcollection projections.
+        /// The shaper deserializes the entity with its subcollections and applies the projection.
+        /// </summary>
+        private Expression CreateSubcollectionProjectionShaperExpression(
+            ParameterExpression queryContextParameter,
+            ParameterExpression documentSnapshotParameter,
+            ParameterExpression isTrackingParameter,
+            FirestoreQueryExpression queryExpression,
+            LambdaExpression projectionSelector,
+            Type projectionType)
+        {
+            var entityType = queryExpression.EntityType.ClrType;
+
+            // El selector contiene MaterializeCollectionNavigationExpression de EF Core
+            // que no se puede compilar directamente. Necesitamos transformarlo para
+            // reemplazar esas expresiones con accesos directos a las propiedades.
+            var cleanedSelector = CleanProjectionSelector(projectionSelector, entityType);
+            var compiledSelector = cleanedSelector.Compile();
+
+            // Llamar al método genérico DeserializeWithIncludesAndProject<TEntity, TProjection>
+            var deserializeAndProjectMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                .GetMethod(nameof(DeserializeWithIncludesAndProject), BindingFlags.NonPublic | BindingFlags.Static)!
+                .MakeGenericMethod(entityType, projectionType);
+
+            return Expression.Call(
+                deserializeAndProjectMethod,
+                queryContextParameter,
+                documentSnapshotParameter,
+                isTrackingParameter,
+                Expression.Constant(queryExpression),
+                Expression.Constant(compiledSelector));
+        }
+
+        /// <summary>
+        /// Cleans a projection selector by replacing EF Core internal expressions
+        /// (like MaterializeCollectionNavigationExpression) with direct property accesses.
+        /// </summary>
+        private LambdaExpression CleanProjectionSelector(LambdaExpression selector, Type entityType)
+        {
+            var parameter = selector.Parameters[0];
+
+            // Create a new parameter of the correct entity type
+            var newParameter = Expression.Parameter(entityType, parameter.Name);
+
+            var cleaner = new ProjectionSelectorCleaner(parameter, newParameter);
+            var cleanedBody = cleaner.Visit(selector.Body);
+
+            return Expression.Lambda(cleanedBody, newParameter);
+        }
+
+        /// <summary>
+        /// Visitor that replaces EF Core internal expressions with compilable expressions.
+        /// Handles:
+        /// 1. MaterializeCollectionNavigationExpression -> direct property access
+        /// 2. EntityQueryRootExpression with correlated Where -> extract LINQ operations to apply on collection property
+        /// </summary>
+        private class ProjectionSelectorCleaner : ExpressionVisitor
+        {
+            private readonly ParameterExpression _oldParameter;
+            private readonly ParameterExpression _newParameter;
+            private readonly Type _entityType;
+
+            public ProjectionSelectorCleaner(ParameterExpression oldParameter, ParameterExpression newParameter)
+            {
+                _oldParameter = oldParameter;
+                _newParameter = newParameter;
+                _entityType = newParameter.Type;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                if (node == _oldParameter)
+                {
+                    return _newParameter;
+                }
+                return base.VisitParameter(node);
+            }
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                // Check if this is a LINQ method call chain that ultimately comes from an EntityQueryRootExpression
+                // Pattern: [EntityQueryRootExpression].Where(...).OrderBy(...).Take(...).ToList()
+                if (node.Arguments.Count > 0)
+                {
+                    // First, check if this method operates on a subquery from a navigation
+                    var navigationInfo = TryExtractNavigationFromSubquery(node.Arguments[0]);
+
+                    if (navigationInfo != null)
+                    {
+                        // Build: entity.NavigationProperty.Method(...)
+                        var collectionAccess = Expression.Property(_newParameter, navigationInfo.PropertyInfo!);
+
+                        // Rebuild the ENTIRE method call chain on the collection property
+                        return RebuildEntireMethodCallChain(node, collectionAccess, navigationInfo);
+                    }
+                }
+
+                return base.VisitMethodCall(node);
+            }
+
+            /// <summary>
+            /// Rebuilds an entire method call chain, including nested calls, on a collection property.
+            /// Handles patterns like: .Where().OrderBy().Take().ToList()
+            /// </summary>
+            private Expression RebuildEntireMethodCallChain(
+                MethodCallExpression node,
+                Expression collectionAccess,
+                IReadOnlyNavigation navigation)
+            {
+                var elementType = navigation.TargetEntityType.ClrType;
+
+                // Collect the entire method chain
+                var methodChain = new List<MethodCallExpression>();
+                Expression current = node;
+
+                while (current is MethodCallExpression methodCall && methodCall.Arguments.Count > 0)
+                {
+                    methodChain.Insert(0, methodCall);
+
+                    // Move to the source
+                    var source = methodCall.Arguments[0];
+
+                    // Stop if we hit EntityQueryRootExpression or another type
+                    if (source.GetType().Name == "EntityQueryRootExpression")
+                        break;
+
+                    // Stop if it's a method call that's a correlation Where
+                    if (source is MethodCallExpression sourceMethod && IsCorrelationFilter(sourceMethod))
+                    {
+                        // Skip the correlation Where and continue
+                        current = sourceMethod.Arguments.Count > 0 ? sourceMethod.Arguments[0] : null!;
+                        break;
+                    }
+
+                    current = source;
+                }
+
+                // Now rebuild the chain starting from the collection access
+                Expression result = collectionAccess;
+
+                foreach (var method in methodChain)
+                {
+                    (result, elementType) = RebuildSingleMethodCall(method, result, elementType);
+                }
+
+                return result;
+            }
+
+            /// <summary>
+            /// Tries to extract navigation info from a subquery source expression.
+            /// Follows the entire method call chain to find EntityQueryRootExpression.
+            /// </summary>
+            private IReadOnlyNavigation? TryExtractNavigationFromSubquery(Expression source)
+            {
+                // Follow the method call chain until we find EntityQueryRootExpression
+                Expression current = source;
+                while (current != null)
+                {
+                    // Handle method calls (Where, OrderBy, Take, etc.)
+                    if (current is MethodCallExpression methodCall && methodCall.Arguments.Count > 0)
+                    {
+                        current = methodCall.Arguments[0];
+                        continue;
+                    }
+
+                    // Check for EntityQueryRootExpression
+                    if (current.GetType().Name == "EntityQueryRootExpression")
+                    {
+                        var entityTypeProperty = current.GetType().GetProperty("EntityType");
+                        if (entityTypeProperty != null)
+                        {
+                            var queryEntityType = entityTypeProperty.GetValue(current) as IEntityType;
+                            if (queryEntityType != null)
+                            {
+                                // Find the navigation that targets this entity type
+                                foreach (var prop in _entityType.GetProperties())
+                                {
+                                    if (prop.PropertyType.IsGenericType)
+                                    {
+                                        var elementType = prop.PropertyType.GetGenericArguments().FirstOrDefault();
+                                        if (elementType == queryEntityType.ClrType)
+                                        {
+                                            var model = queryEntityType.Model;
+                                            var parentEntityType = model.FindEntityType(_entityType);
+                                            if (parentEntityType != null)
+                                            {
+                                                var navigation = parentEntityType.FindNavigation(prop.Name);
+                                                if (navigation != null && navigation.IsCollection)
+                                                {
+                                                    return navigation;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return null;
+                    }
+
+                    break;
+                }
+
+                return null;
+            }
+
+            /// <summary>
+            /// Rebuilds a single method call using Enumerable methods.
+            /// Returns the new expression and the (potentially changed) element type.
+            /// </summary>
+            private (Expression result, Type newElementType) RebuildSingleMethodCall(MethodCallExpression method, Expression source, Type elementType)
+            {
+                var methodName = method.Method.Name;
+
+                // Skip correlation Where (the one with Property(c, "Id") pattern)
+                if (methodName == "Where" && IsCorrelationFilter(method))
+                {
+                    return (source, elementType);
+                }
+
+                if (methodName == "Where" && method.Arguments.Count >= 2)
+                {
+                    var predicateArg = method.Arguments[1];
+                    var cleanedPredicate = CleanLambdaExpression(predicateArg, elementType);
+
+                    var whereMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Where" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType.GetGenericArguments().Length == 2)
+                        .MakeGenericMethod(elementType);
+
+                    return (Expression.Call(whereMethod, source, cleanedPredicate), elementType);
+                }
+
+                if ((methodName == "OrderBy" || methodName == "OrderByDescending") && method.Arguments.Count >= 2)
+                {
+                    var keySelectorArg = method.Arguments[1];
+                    var cleanedKeySelector = CleanLambdaExpression(keySelectorArg, elementType);
+
+                    var orderMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == methodName && m.GetParameters().Length == 2)
+                        .MakeGenericMethod(elementType, cleanedKeySelector.ReturnType);
+
+                    return (Expression.Call(orderMethod, source, cleanedKeySelector), elementType);
+                }
+
+                if (methodName == "Take" && method.Arguments.Count >= 2)
+                {
+                    var countArg = Visit(method.Arguments[1]);
+
+                    var takeMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Take" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType == typeof(int))
+                        .MakeGenericMethod(elementType);
+
+                    return (Expression.Call(takeMethod, source, countArg), elementType);
+                }
+
+                if (methodName == "Select" && method.Arguments.Count >= 2)
+                {
+                    var selectorArg = method.Arguments[1];
+                    var cleanedSelector = CleanLambdaExpression(selectorArg, elementType);
+
+                    // Select changes the element type to the return type of the selector
+                    var newElementType = cleanedSelector.ReturnType;
+
+                    var selectMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Select" && m.GetParameters().Length == 2)
+                        .MakeGenericMethod(elementType, newElementType);
+
+                    return (Expression.Call(selectMethod, source, cleanedSelector), newElementType);
+                }
+
+                if (methodName == "Count")
+                {
+                    var countMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Count" && m.GetParameters().Length == 1)
+                        .MakeGenericMethod(elementType);
+
+                    // Count returns int, not a collection
+                    return (Expression.Call(countMethod, source), typeof(int));
+                }
+
+                if (methodName == "ToList")
+                {
+                    var toListMethod = typeof(Enumerable)
+                        .GetMethod("ToList")!
+                        .MakeGenericMethod(elementType);
+
+                    return (Expression.Call(toListMethod, source), elementType);
+                }
+
+                // For unknown methods, just return source
+                return (source, elementType);
+            }
+
+            /// <summary>
+            /// Rebuilds a LINQ method call chain to operate on a collection property.
+            /// Skips the correlated Where and keeps other operations.
+            /// </summary>
+            private Expression RebuildMethodCallOnCollection(
+                MethodCallExpression node,
+                Expression collectionAccess,
+                IReadOnlyNavigation navigation)
+            {
+                var methodName = node.Method.Name;
+                var elementType = navigation.TargetEntityType.ClrType;
+
+                // For Select, Where, OrderBy, etc. - rebuild using Enumerable methods
+                // Skip the correlation Where if present
+                if (methodName == "Select" && node.Arguments.Count >= 2)
+                {
+                    // Get the actual source - might have a Where for correlation
+                    var sourceExpr = RebuildSourceExpression(node.Arguments[0], collectionAccess, elementType);
+
+                    // Get the selector lambda
+                    var selectorArg = node.Arguments[1];
+                    var cleanedSelector = CleanLambdaExpression(selectorArg, elementType);
+
+                    // Build Enumerable.Select call
+                    var selectMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Select" && m.GetParameters().Length == 2)
+                        .MakeGenericMethod(elementType, cleanedSelector.ReturnType);
+
+                    return Expression.Call(selectMethod, sourceExpr, cleanedSelector);
+                }
+
+                if (methodName == "Where" && node.Arguments.Count >= 2)
+                {
+                    var sourceExpr = RebuildSourceExpression(node.Arguments[0], collectionAccess, elementType);
+                    var predicateArg = node.Arguments[1];
+                    var cleanedPredicate = CleanLambdaExpression(predicateArg, elementType);
+
+                    var whereMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Where" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType.GetGenericArguments().Length == 2)
+                        .MakeGenericMethod(elementType);
+
+                    return Expression.Call(whereMethod, sourceExpr, cleanedPredicate);
+                }
+
+                if ((methodName == "OrderBy" || methodName == "OrderByDescending") && node.Arguments.Count >= 2)
+                {
+                    var sourceExpr = RebuildSourceExpression(node.Arguments[0], collectionAccess, elementType);
+                    var keySelectorArg = node.Arguments[1];
+                    var cleanedKeySelector = CleanLambdaExpression(keySelectorArg, elementType);
+
+                    var orderMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == methodName && m.GetParameters().Length == 2)
+                        .MakeGenericMethod(elementType, cleanedKeySelector.ReturnType);
+
+                    return Expression.Call(orderMethod, sourceExpr, cleanedKeySelector);
+                }
+
+                if (methodName == "Take" && node.Arguments.Count >= 2)
+                {
+                    var sourceExpr = RebuildSourceExpression(node.Arguments[0], collectionAccess, elementType);
+                    var countArg = Visit(node.Arguments[1]);
+
+                    var takeMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Take" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType == typeof(int))
+                        .MakeGenericMethod(elementType);
+
+                    return Expression.Call(takeMethod, sourceExpr, countArg);
+                }
+
+                if (methodName == "Count" && node.Arguments.Count >= 1)
+                {
+                    var sourceExpr = RebuildSourceExpression(node.Arguments[0], collectionAccess, elementType);
+
+                    var countMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Count" && m.GetParameters().Length == 1)
+                        .MakeGenericMethod(elementType);
+
+                    return Expression.Call(countMethod, sourceExpr);
+                }
+
+                // Fallback: just return the collection access
+                return collectionAccess;
+            }
+
+            /// <summary>
+            /// Recursively rebuilds the source expression, handling nested method calls.
+            /// </summary>
+            private Expression RebuildSourceExpression(Expression source, Expression collectionAccess, Type elementType)
+            {
+                // If source is EntityQueryRootExpression, return the collection access
+                if (source.GetType().Name == "EntityQueryRootExpression")
+                {
+                    return collectionAccess;
+                }
+
+                // If source is a method call (e.g., Where for correlation), rebuild it
+                if (source is MethodCallExpression methodCall)
+                {
+                    var methodName = methodCall.Method.Name;
+
+                    // Skip correlation Where (the one with Property(c, "Id") pattern)
+                    if (methodName == "Where" && IsCorrelationFilter(methodCall))
+                    {
+                        // Return just the collection without the correlation filter
+                        return RebuildSourceExpression(methodCall.Arguments[0], collectionAccess, elementType);
+                    }
+
+                    // For other method calls, rebuild them
+                    var innerSource = RebuildSourceExpression(methodCall.Arguments[0], collectionAccess, elementType);
+                    return RebuildMethodCallOnSource(methodCall, innerSource, elementType);
+                }
+
+                return collectionAccess;
+            }
+
+            /// <summary>
+            /// Checks if a Where call is a correlation filter (joins to parent entity).
+            /// </summary>
+            private bool IsCorrelationFilter(MethodCallExpression whereCall)
+            {
+                if (whereCall.Arguments.Count < 2)
+                    return false;
+
+                var predicate = whereCall.Arguments[1];
+                var exprString = predicate.ToString();
+
+                // Check if predicate references parent entity properties via Property() calls
+                return exprString.Contains("Property(c,") || exprString.Contains("Property(c.") ||
+                       (exprString.Contains("Property(") && exprString.Contains("\"Id\""));
+            }
+
+            /// <summary>
+            /// Rebuilds a method call on a new source expression.
+            /// </summary>
+            private Expression RebuildMethodCallOnSource(MethodCallExpression original, Expression newSource, Type elementType)
+            {
+                var methodName = original.Method.Name;
+
+                if (methodName == "Where" && original.Arguments.Count >= 2)
+                {
+                    var predicateArg = original.Arguments[1];
+                    var cleanedPredicate = CleanLambdaExpression(predicateArg, elementType);
+
+                    var whereMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Where" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType.GetGenericArguments().Length == 2)
+                        .MakeGenericMethod(elementType);
+
+                    return Expression.Call(whereMethod, newSource, cleanedPredicate);
+                }
+
+                if ((methodName == "OrderBy" || methodName == "OrderByDescending") && original.Arguments.Count >= 2)
+                {
+                    var keySelectorArg = original.Arguments[1];
+                    var cleanedKeySelector = CleanLambdaExpression(keySelectorArg, elementType);
+
+                    var orderMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == methodName && m.GetParameters().Length == 2)
+                        .MakeGenericMethod(elementType, cleanedKeySelector.ReturnType);
+
+                    return Expression.Call(orderMethod, newSource, cleanedKeySelector);
+                }
+
+                if (methodName == "Take" && original.Arguments.Count >= 2)
+                {
+                    var countArg = Visit(original.Arguments[1]);
+
+                    var takeMethod = typeof(Enumerable)
+                        .GetMethods()
+                        .First(m => m.Name == "Take" && m.GetParameters().Length == 2 &&
+                                   m.GetParameters()[1].ParameterType == typeof(int))
+                        .MakeGenericMethod(elementType);
+
+                    return Expression.Call(takeMethod, newSource, countArg);
+                }
+
+                return newSource;
+            }
+
+            /// <summary>
+            /// Cleans a lambda expression argument, extracting from Quote if necessary.
+            /// Also handles nested navigation accesses within the lambda body.
+            /// </summary>
+            private LambdaExpression CleanLambdaExpression(Expression arg, Type elementType)
+            {
+                // Unwrap Quote
+                if (arg is UnaryExpression unary && unary.NodeType == ExpressionType.Quote)
+                {
+                    arg = unary.Operand;
+                }
+
+                if (arg is LambdaExpression lambda)
+                {
+                    // Create new parameter for the element type
+                    var newParam = Expression.Parameter(elementType, lambda.Parameters[0].Name);
+
+                    // First replace parameter references
+                    var paramReplacer = new ParameterReplacerVisitor(lambda.Parameters[0], newParam);
+                    var bodyWithNewParam = paramReplacer.Visit(lambda.Body);
+
+                    // Then clean any nested navigation accesses (like p.Lineas.Count())
+                    var nestedCleaner = new NestedNavigationCleaner(newParam, elementType);
+                    var cleanedBody = nestedCleaner.Visit(bodyWithNewParam);
+
+                    return Expression.Lambda(cleanedBody, newParam);
+                }
+
+                throw new InvalidOperationException($"Expected lambda expression but got {arg.GetType().Name}");
+            }
+
+            /// <summary>
+            /// Visitor that cleans nested navigation accesses within lambda bodies.
+            /// Handles patterns like p.Lineas.Count() where Lineas is a navigation on Pedido.
+            /// </summary>
+            private class NestedNavigationCleaner : ExpressionVisitor
+            {
+                private readonly ParameterExpression _parameter;
+                private readonly Type _entityType;
+
+                public NestedNavigationCleaner(ParameterExpression parameter, Type entityType)
+                {
+                    _parameter = parameter;
+                    _entityType = entityType;
+                }
+
+                protected override Expression VisitMethodCall(MethodCallExpression node)
+                {
+                    // Check if this is a Count() on an EntityQueryRootExpression
+                    if (node.Method.Name == "Count" && node.Arguments.Count >= 1)
+                    {
+                        var navigationAccess = TryExtractNestedNavigationAccess(node.Arguments[0]);
+                        if (navigationAccess != null)
+                        {
+                            // Build: parameter.NavigationProperty.Count()
+                            var countMethod = typeof(Enumerable)
+                                .GetMethods()
+                                .First(m => m.Name == "Count" && m.GetParameters().Length == 1)
+                                .MakeGenericMethod(navigationAccess.ElementType);
+
+                            return Expression.Call(countMethod, navigationAccess.PropertyAccess);
+                        }
+                    }
+
+                    return base.VisitMethodCall(node);
+                }
+
+                /// <summary>
+                /// Tries to extract a navigation property access from an EntityQueryRootExpression.
+                /// </summary>
+                private NavigationAccessInfo? TryExtractNestedNavigationAccess(Expression source)
+                {
+                    // Follow method call chain to find EntityQueryRootExpression
+                    Expression current = source;
+                    while (current != null)
+                    {
+                        if (current is MethodCallExpression methodCall && methodCall.Arguments.Count > 0)
+                        {
+                            current = methodCall.Arguments[0];
+                            continue;
+                        }
+
+                        if (current.GetType().Name == "EntityQueryRootExpression")
+                        {
+                            var entityTypeProperty = current.GetType().GetProperty("EntityType");
+                            if (entityTypeProperty != null)
+                            {
+                                var queryEntityType = entityTypeProperty.GetValue(current) as IEntityType;
+                                if (queryEntityType != null)
+                                {
+                                    // Find navigation property on the entity type that targets this type
+                                    foreach (var prop in _entityType.GetProperties())
+                                    {
+                                        if (prop.PropertyType.IsGenericType)
+                                        {
+                                            var elementType = prop.PropertyType.GetGenericArguments().FirstOrDefault();
+                                            if (elementType == queryEntityType.ClrType)
+                                            {
+                                                return new NavigationAccessInfo
+                                                {
+                                                    PropertyAccess = Expression.Property(_parameter, prop),
+                                                    ElementType = elementType
+                                                };
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            return null;
+                        }
+
+                        break;
+                    }
+
+                    return null;
+                }
+
+                private class NavigationAccessInfo
+                {
+                    public Expression PropertyAccess { get; set; } = null!;
+                    public Type ElementType { get; set; } = null!;
+                }
+            }
+
+            protected override Expression VisitExtension(Expression node)
+            {
+                // Replace MaterializeCollectionNavigationExpression with direct property access
+                if (node.GetType().Name == "MaterializeCollectionNavigationExpression")
+                {
+                    var navigationProperty = node.GetType().GetProperty("Navigation");
+                    if (navigationProperty != null)
+                    {
+                        var navigation = navigationProperty.GetValue(node) as IReadOnlyNavigation;
+                        if (navigation?.PropertyInfo != null)
+                        {
+                            return Expression.Property(_newParameter, navigation.PropertyInfo);
+                        }
+                    }
+                }
+
+                return base.VisitExtension(node);
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                if (node.Expression == _oldParameter)
+                {
+                    return Expression.MakeMemberAccess(_newParameter, node.Member);
+                }
+
+                return base.VisitMember(node);
+            }
+        }
+
+        /// <summary>
+        /// Simple visitor to replace parameters in expressions.
+        /// </summary>
+        private class ParameterReplacerVisitor : ExpressionVisitor
+        {
+            private readonly ParameterExpression _oldParam;
+            private readonly ParameterExpression _newParam;
+
+            public ParameterReplacerVisitor(ParameterExpression oldParam, ParameterExpression newParam)
+            {
+                _oldParam = oldParam;
+                _newParam = newParam;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                return node == _oldParam ? _newParam : base.VisitParameter(node);
+            }
+        }
+
+        /// <summary>
+        /// Deserializes an entity with its subcollections and applies the projection selector.
+        /// </summary>
+        private static TProjection DeserializeWithIncludesAndProject<TEntity, TProjection>(
+            QueryContext queryContext,
+            DocumentSnapshot documentSnapshot,
+            bool isTracking,
+            FirestoreQueryExpression queryExpression,
+            Delegate projectionSelector) where TEntity : class, new()
+        {
+            // Deserializar la entidad completa con sus subcollections
+            var entity = DeserializeEntity<TEntity>(queryContext, documentSnapshot, false, queryExpression);
+
+            // Aplicar la proyección
+            var selector = (Func<TEntity, TProjection>)projectionSelector;
+            return selector(entity);
         }
 
         /// <summary>

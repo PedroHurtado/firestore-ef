@@ -522,24 +522,146 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return source;
             }
 
+            var firestoreQuery = (FirestoreQueryExpression)source.QueryExpression;
+
+            // PRIMERO: Detectar si el selector contiene accesos a subcollections (navegaciones)
+            // Esto debe hacerse ANTES de ContainsNonCompilableExpressions porque las subcollections
+            // siempre contienen expresiones que parecen "no compilables" pero que manejamos especialmente
+            var subcollectionDetector = new SubcollectionAccessDetector(firestoreQuery.EntityType);
+            subcollectionDetector.Visit(selector.Body);
+
+            if (subcollectionDetector.HasSubcollectionAccess)
+            {
+                // Si hay subcollections, agregarlas a PendingIncludes
+                // y marcar que es una proyección con subcollections
+                foreach (var navigation in subcollectionDetector.DetectedNavigations)
+                {
+                    if (!firestoreQuery.PendingIncludes.Any(n =>
+                        n.Name == navigation.Name &&
+                        n.DeclaringEntityType == navigation.DeclaringEntityType))
+                    {
+                        firestoreQuery.PendingIncludes.Add(navigation);
+                    }
+                }
+
+                // Marcar como proyección con subcollections
+                // NO compilamos el selector aquí - lo hacemos en el shaper con la entidad cargada
+                var newQueryExpression = firestoreQuery.WithSubcollectionProjection(selector, selector.Body.Type);
+                return source.UpdateQueryExpression(newQueryExpression);
+            }
+
             // Verificar si el body contiene expresiones internas de EF Core que no se pueden compilar
             // (StructuralTypeShaperExpression, ProjectionBindingExpression, etc.)
+            // Solo verificamos esto para proyecciones SIN subcollections
             if (ContainsNonCompilableExpressions(selector.Body))
             {
                 return source;
             }
 
-            // Proyección real: extraer el tipo de resultado y almacenar el selector
-            var firestoreQuery = (FirestoreQueryExpression)source.QueryExpression;
+            // Proyección simple (sin subcollections): extraer el tipo de resultado y almacenar el selector
             var projectionType = selector.Body.Type;
 
             // Reemplazar parámetros de runtime en el selector
-            var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
-            var evaluatedSelector = (LambdaExpression)parameterReplacer.Visit(selector);
+            var simpleParamReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
+            var simpleEvaluatedSelector = (LambdaExpression)simpleParamReplacer.Visit(selector);
 
-            var newQueryExpression = firestoreQuery.WithProjection(evaluatedSelector, projectionType);
+            var simpleNewQueryExpression = firestoreQuery.WithProjection(simpleEvaluatedSelector, projectionType);
 
-            return source.UpdateQueryExpression(newQueryExpression);
+            return source.UpdateQueryExpression(simpleNewQueryExpression);
+        }
+
+        /// <summary>
+        /// Visitor that detects access to subcollection navigations in an expression.
+        /// EF Core transforms c.Pedidos in different ways:
+        /// 1. Simple access: MaterializeCollectionNavigationExpression
+        /// 2. With LINQ operations: EntityQueryRootExpression with correlated Where
+        /// </summary>
+        private class SubcollectionAccessDetector : ExpressionVisitor
+        {
+            private readonly IEntityType _rootEntityType;
+            private readonly List<IReadOnlyNavigation> _detectedNavigations = new();
+
+            public SubcollectionAccessDetector(IEntityType rootEntityType)
+            {
+                _rootEntityType = rootEntityType;
+            }
+
+            public bool HasSubcollectionAccess => _detectedNavigations.Count > 0;
+            public IReadOnlyList<IReadOnlyNavigation> DetectedNavigations => _detectedNavigations;
+
+            protected override Expression VisitExtension(Expression node)
+            {
+                var typeName = node.GetType().Name;
+
+                // Pattern 1: EF Core transforms c.Pedidos into MaterializeCollectionNavigationExpression
+                if (typeName == "MaterializeCollectionNavigationExpression")
+                {
+                    var navigationProperty = node.GetType().GetProperty("Navigation");
+                    if (navigationProperty != null)
+                    {
+                        var navigation = navigationProperty.GetValue(node) as IReadOnlyNavigation;
+                        if (navigation != null && navigation.IsCollection)
+                        {
+                            if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
+                            {
+                                _detectedNavigations.Add(navigation);
+                            }
+                        }
+                    }
+                }
+
+                // Pattern 2: EF Core transforms c.Pedidos.Where/Select/etc into EntityQueryRootExpression
+                // with a correlated subquery. Detect by checking if it's a query on a related entity type.
+                if (typeName == "EntityQueryRootExpression")
+                {
+                    var entityTypeProperty = node.GetType().GetProperty("EntityType");
+                    if (entityTypeProperty != null)
+                    {
+                        var queryEntityType = entityTypeProperty.GetValue(node) as IEntityType;
+                        if (queryEntityType != null)
+                        {
+                            // Check if this entity type is a navigation target from the root entity
+                            foreach (var navigation in _rootEntityType.GetNavigations())
+                            {
+                                if (navigation.IsCollection &&
+                                    navigation.TargetEntityType == queryEntityType)
+                                {
+                                    if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
+                                    {
+                                        _detectedNavigations.Add(navigation);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return base.VisitExtension(node);
+            }
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                // LINQ methods on subcollections - visit arguments recursively
+                return base.VisitMethodCall(node);
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                // Direct member access (before EF Core transformation)
+                if (node.Expression is ParameterExpression)
+                {
+                    var navigation = _rootEntityType.FindNavigation(node.Member.Name);
+                    if (navigation != null && navigation.IsCollection)
+                    {
+                        if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
+                        {
+                            _detectedNavigations.Add(navigation);
+                        }
+                    }
+                }
+
+                return base.VisitMember(node);
+            }
         }
 
         /// <summary>
