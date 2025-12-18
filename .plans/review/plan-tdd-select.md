@@ -85,22 +85,27 @@ Antes de empezar, verificar qué funciona hoy:
 | 3 | Select a DTO (clase) | ✅ |
 | 3b | Select a DTO (record) | ✅ |
 
-### Fase 2: ComplexTypes
+### Fase 2: ComplexTypes ✅ (GREEN - No requirió cambios)
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 4 | Select ComplexType completo |
-| 5 | Select campo de ComplexType |
-| 6 | Select múltiples campos de ComplexType |
+| Ciclo | Comportamiento | Estado |
+|-------|----------------|--------|
+| 4 | Select ComplexType completo | ✅ |
+| 5 | Select campo de ComplexType | ✅ |
+| 6 | Select múltiples campos de ComplexType | ✅ |
+| 6b | Select a record desde ComplexType | ✅ |
 
-### Fase 3: Combinación Where + Select
+### Fase 3: Combinación Where + Select ✅ (GREEN - No requirió cambios)
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 7 | Where + Select campos |
-| 8 | Where + Select a DTO |
-| 9 | Where + OrderBy + Select |
-| 10 | Where + OrderBy + Take + Select |
+| Ciclo | Comportamiento | Estado |
+|-------|----------------|--------|
+| 7 | Where + Select campos | ✅ |
+| 7b | Where + Select tipo anónimo | ✅ |
+| 8 | Where + Select a DTO (clase) | ✅ |
+| 8b | Where + Select a DTO (record) | ✅ |
+| 9 | Where + OrderBy + Select | ✅ |
+| 9b | Where + OrderByDescending + Select | ✅ |
+| 10 | Where + OrderBy + Take + Select | ✅ |
+| 10b | Where + OrderBy + Skip + Take + Select | ✅ |
 
 ### Fase 4: Subcollections en Select
 
