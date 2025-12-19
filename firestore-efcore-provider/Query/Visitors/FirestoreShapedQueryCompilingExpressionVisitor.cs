@@ -313,6 +313,104 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return base.VisitParameter(node);
             }
 
+            protected override Expression VisitNew(NewExpression node)
+            {
+                // Visit arguments - some may change type (e.g., List<Pedido> -> List<AnonymousType>)
+                var visitedArguments = node.Arguments.Select(arg =>
+                {
+                    var visited = Visit(arg);
+                    // Debug: if types differ, log
+                    if (visited != null && arg != null && visited.Type != arg.Type)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Type changed: {arg.Type.Name} -> {visited.Type.Name}");
+                    }
+                    return visited;
+                }).ToList();
+
+                // Check if any argument types changed
+                bool typesChanged = false;
+                for (int i = 0; i < node.Arguments.Count; i++)
+                {
+                    if (visitedArguments[i].Type != node.Arguments[i].Type)
+                    {
+                        typesChanged = true;
+                        break;
+                    }
+                }
+
+                // If types didn't change, use normal Update
+                if (!typesChanged)
+                {
+                    return node.Update(visitedArguments);
+                }
+
+                // Types changed - we need to create a new anonymous type with the correct member types
+                // For anonymous types, we need to create a new expression with matching constructor
+                if (node.Type.Name.StartsWith("<>f__AnonymousType"))
+                {
+                    // Find or create a constructor that matches the new argument types
+                    var argumentTypes = visitedArguments.Select(a => a.Type).ToArray();
+
+                    // For anonymous types, we can't change the type - instead we need to construct
+                    // a new anonymous type. The simplest approach is to use reflection to find
+                    // a compatible anonymous type or construct a new NewExpression with the right types.
+
+                    // Since anonymous types are compiler-generated and we can't create new ones at runtime,
+                    // we'll create a NewExpression for an existing anonymous type if possible,
+                    // or fall back to creating a dynamic object.
+
+                    // The actual anonymous type is determined by the projection selector's return type,
+                    // which should already have the correct types. The issue is that the original
+                    // NewExpression has member types based on EF Core's analysis, not the final types.
+
+                    // For now, try to find a constructor that matches the visited argument types
+                    var constructor = node.Type.GetConstructors()
+                        .FirstOrDefault(c =>
+                        {
+                            var parameters = c.GetParameters();
+                            if (parameters.Length != argumentTypes.Length) return false;
+                            for (int i = 0; i < parameters.Length; i++)
+                            {
+                                if (!parameters[i].ParameterType.IsAssignableFrom(argumentTypes[i]))
+                                    return false;
+                            }
+                            return true;
+                        });
+
+                    if (constructor != null)
+                    {
+                        return Expression.New(constructor, visitedArguments, node.Members);
+                    }
+
+                    // If we can't find a matching constructor, the types are incompatible
+                    // This happens when the subcollection projection changes the element type
+                    // In this case, we need to use the projection type that EF Core determined
+                    // The projection result type should be set correctly in the query expression
+                }
+
+                // Fall back to trying the update (may fail if types are truly incompatible)
+                // Debug info before potential failure
+                for (int i = 0; i < node.Arguments.Count; i++)
+                {
+                    var originalArg = node.Arguments[i];
+                    var visitedArg = visitedArguments[i];
+                    if (originalArg.Type != visitedArg?.Type)
+                    {
+                        // Throw with detailed info
+                        var propsInfo = string.Join(", ", _entityType.GetProperties().Select(p => $"{p.Name}:{p.PropertyType.Name}"));
+                        throw new InvalidOperationException(
+                            $"Type mismatch at argument {i}. " +
+                            $"Original: {originalArg.Type.FullName}, " +
+                            $"Visited: {visitedArg?.Type.FullName ?? "null"}. " +
+                            $"Original expression type: {originalArg.GetType().Name}. " +
+                            $"_entityType: {_entityType.FullName}. " +
+                            $"Properties: [{propsInfo}]. " +
+                            $"Expression: {originalArg}");
+                    }
+                }
+                return node.Update(visitedArguments!);
+            }
+
             protected override Expression VisitMethodCall(MethodCallExpression node)
             {
                 // Check if this is a LINQ method call chain that ultimately comes from an EntityQueryRootExpression
@@ -320,7 +418,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (node.Arguments.Count > 0)
                 {
                     // First, check if this method operates on a subquery from a navigation
-                    var navigationInfo = TryExtractNavigationFromSubquery(node.Arguments[0]);
+                    // Handle the case where the source is ALSO a method call (chained methods)
+                    var navigationInfo = TryExtractNavigationFromSubquery(node);
 
                     if (navigationInfo != null)
                     {
@@ -329,6 +428,41 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                         // Rebuild the ENTIRE method call chain on the collection property
                         return RebuildEntireMethodCallChain(node, collectionAccess, navigationInfo);
+                    }
+
+                    // Also check if this is a direct call on EntityQueryRootExpression
+                    if (node.Arguments[0].GetType().Name == "EntityQueryRootExpression")
+                    {
+                        var entityTypeProperty = node.Arguments[0].GetType().GetProperty("EntityType");
+                        if (entityTypeProperty != null)
+                        {
+                            var queryEntityType = entityTypeProperty.GetValue(node.Arguments[0]) as IEntityType;
+                            if (queryEntityType != null)
+                            {
+                                // Find navigation for this entity type
+                                foreach (var prop in _entityType.GetProperties())
+                                {
+                                    if (prop.PropertyType.IsGenericType)
+                                    {
+                                        var elementType = prop.PropertyType.GetGenericArguments().FirstOrDefault();
+                                        if (elementType == queryEntityType.ClrType)
+                                        {
+                                            var model = queryEntityType.Model;
+                                            var parentEntityType = model.FindEntityType(_entityType);
+                                            if (parentEntityType != null)
+                                            {
+                                                var navigation = parentEntityType.FindNavigation(prop.Name);
+                                                if (navigation != null && navigation.IsCollection)
+                                                {
+                                                    var collectionAccessDirect = Expression.Property(_newParameter, prop);
+                                                    return RebuildEntireMethodCallChain(node, collectionAccessDirect, navigation);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -356,16 +490,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                     // Move to the source
                     var source = methodCall.Arguments[0];
+                    var sourceTypeName = source.GetType().Name;
 
                     // Stop if we hit EntityQueryRootExpression or another type
-                    if (source.GetType().Name == "EntityQueryRootExpression")
+                    if (sourceTypeName == "EntityQueryRootExpression")
                         break;
 
-                    // Stop if it's a method call that's a correlation Where
+                    // Skip correlation filters (e.g., Where clauses that join to parent entity)
                     if (source is MethodCallExpression sourceMethod && IsCorrelationFilter(sourceMethod))
                     {
-                        // Skip the correlation Where and continue
-                        current = sourceMethod.Arguments.Count > 0 ? sourceMethod.Arguments[0] : null!;
+                        // Skip the correlation Where and continue to the source
+                        if (sourceMethod.Arguments.Count > 0)
+                        {
+                            current = sourceMethod.Arguments[0];
+                            continue;  // Continue iterating, don't break
+                        }
                         break;
                     }
 
@@ -391,8 +530,13 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             {
                 // Follow the method call chain until we find EntityQueryRootExpression
                 Expression current = source;
-                while (current != null)
+                int depth = 0;
+
+                while (current != null && depth < 50) // prevent infinite loop
                 {
+                    depth++;
+                    var currentTypeName = current.GetType().Name;
+
                     // Handle method calls (Where, OrderBy, Take, etc.)
                     if (current is MethodCallExpression methodCall && methodCall.Arguments.Count > 0)
                     {
@@ -401,7 +545,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
 
                     // Check for EntityQueryRootExpression
-                    if (current.GetType().Name == "EntityQueryRootExpression")
+                    if (currentTypeName == "EntityQueryRootExpression")
                     {
                         var entityTypeProperty = current.GetType().GetProperty("EntityType");
                         if (entityTypeProperty != null)
@@ -435,6 +579,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         return null;
                     }
 
+                    // Unknown expression type - stop looking
                     break;
                 }
 
@@ -660,12 +805,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             /// <summary>
             /// Checks if a Where call is a correlation filter (joins to parent entity).
             /// </summary>
-            private bool IsCorrelationFilter(MethodCallExpression whereCall)
+            private bool IsCorrelationFilter(MethodCallExpression methodCall)
             {
-                if (whereCall.Arguments.Count < 2)
+                // First check that this is actually a Where method
+                if (methodCall.Method.Name != "Where")
                     return false;
 
-                var predicate = whereCall.Arguments[1];
+                if (methodCall.Arguments.Count < 2)
+                    return false;
+
+                var predicate = methodCall.Arguments[1];
                 var exprString = predicate.ToString();
 
                 // Check if predicate references parent entity properties via Property() calls

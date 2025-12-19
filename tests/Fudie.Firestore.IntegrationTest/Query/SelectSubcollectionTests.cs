@@ -450,4 +450,151 @@ public class SelectSubcollectionTests
     }
 
     #endregion
+
+    #region Ciclo 17: Query Completa (Where root + Select root + subcollection compleja)
+
+    [Fact]
+    public async Task Select_CompleteQuery_WhereRootSelectRootAndComplexSubcollection()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-complete-{Guid.NewGuid():N}@test.com";
+
+        // Cliente 1: Debe aparecer en resultados (tiene pedidos confirmados de alto valor)
+        var cliente1 = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectcomp"),
+            Nombre = "Cliente Completo VIP",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "COMP-001",
+                    Total = 500m,
+                    Estado = EstadoPedido.Confirmado
+                    // Sin líneas
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "COMP-002",
+                    Total = 300m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "COMP-003",
+                    Total = 800m,
+                    Estado = EstadoPedido.Confirmado,
+                    // Con 3 líneas
+                    Lineas =
+                    [
+                        new LineaPedido
+                        {
+                            Id = FirestoreTestFixture.GenerateId("linea"),
+                            Cantidad = 2,
+                            PrecioUnitario = 250m
+                        },
+                        new LineaPedido
+                        {
+                            Id = FirestoreTestFixture.GenerateId("linea"),
+                            Cantidad = 1,
+                            PrecioUnitario = 200m
+                        },
+                        new LineaPedido
+                        {
+                            Id = FirestoreTestFixture.GenerateId("linea"),
+                            Cantidad = 3,
+                            PrecioUnitario = 50m
+                        }
+                    ]
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "COMP-004",
+                    Total = 100m,
+                    Estado = EstadoPedido.Pendiente // No debe incluirse (filtro por Confirmado)
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "COMP-005",
+                    Total = 1000m,
+                    Estado = EstadoPedido.Cancelado // No debe incluirse
+                }
+            ]
+        };
+
+        // Cliente 2: Email diferente, no debe aparecer
+        var cliente2 = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectcomp"),
+            Nombre = "Otro Cliente",
+            Email = $"otro-{Guid.NewGuid():N}@test.com",
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "OTR-001",
+                    Total = 999m,
+                    Estado = EstadoPedido.Confirmado
+                }
+            ]
+        };
+
+        context.Clientes.AddRange(cliente1, cliente2);
+        await context.SaveChangesAsync();
+
+        // Act - Query completa:
+        // - Where: filtrar por email específico (root)
+        // - Select: proyectar campos del root + subcollection con Where + OrderBy + Take + Select (nivel 2)
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail) // Filtro root
+            .Select(c => new
+            {
+                c.Id,
+                c.Nombre,
+                // Subcollection con filtro + orden + límite + proyección incluyendo nivel 2
+                Top2PedidosConfirmados = c.Pedidos
+                    .Where(p => p.Estado == EstadoPedido.Confirmado)
+                    .OrderByDescending(p => p.Total)
+                    .Take(2)
+                    .Select(p => new
+                    {
+                        p.NumeroOrden,
+                        p.Total,
+                        CantidadLineas = p.Lineas.Count() // Proyección nivel 2
+                    })
+                    .ToList()
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+
+        var result = results[0];
+        result.Id.Should().Be(cliente1.Id);
+        result.Nombre.Should().Be("Cliente Completo VIP");
+
+        // Debe tener exactamente 2 pedidos confirmados, ordenados por total descendente
+        result.Top2PedidosConfirmados.Should().HaveCount(2);
+
+        // El primero debe ser COMP-003 (800) con 3 líneas
+        result.Top2PedidosConfirmados[0].NumeroOrden.Should().Be("COMP-003");
+        result.Top2PedidosConfirmados[0].Total.Should().Be(800m);
+        result.Top2PedidosConfirmados[0].CantidadLineas.Should().Be(3);
+
+        // El segundo debe ser COMP-001 (500) sin líneas
+        result.Top2PedidosConfirmados[1].NumeroOrden.Should().Be("COMP-001");
+        result.Top2PedidosConfirmados[1].Total.Should().Be(500m);
+        result.Top2PedidosConfirmados[1].CantidadLineas.Should().Be(0);
+    }
+
+    #endregion
 }

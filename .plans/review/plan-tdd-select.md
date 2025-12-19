@@ -124,9 +124,17 @@ de las navegaciones ya detectadas.
 
 ### Fase 5: Query Completa (integración final)
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 17 | Where root + Select campos root + subcollection con Where + Select + OrderBy + Take |
+| Ciclo | Comportamiento | Estado | Commit |
+|-------|----------------|--------|--------|
+| 17 | Where root + Select campos root + subcollection con Where + Select + OrderBy + Take + nivel 2 | ✅ | pending |
+
+**Nota Ciclo 17:** Implementado soporte completo para queries con:
+- Filtro en root (`Where(c => c.Email == ...)`)
+- Proyección de campos root (`c.Id, c.Nombre`)
+- Subcollection con filtro + orden + límite + proyección (`c.Pedidos.Where(...).OrderByDescending(...).Take(2).Select(...)`)
+- Proyección de nivel 2 dentro de la subcollection (`p.Lineas.Count()`)
+
+Se corrigió bug en `IsCorrelationFilter` que incorrectamente identificaba `Select` como filtro de correlación.
 
 ### Fase 6: No soportados (decidir)
 
