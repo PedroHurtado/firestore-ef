@@ -126,7 +126,7 @@ de las navegaciones ya detectadas.
 
 | Ciclo | Comportamiento | Estado | Commit |
 |-------|----------------|--------|--------|
-| 17 | Where root + Select campos root + subcollection con Where + Select + OrderBy + Take + nivel 2 | ✅ | pending |
+| 17 | Where root + Select campos root + subcollection con Where + Select + OrderBy + Take + nivel 2 | ✅ | f9a25bc |
 
 **Nota Ciclo 17:** Implementado soporte completo para queries con:
 - Filtro en root (`Where(c => c.Email == ...)`)
