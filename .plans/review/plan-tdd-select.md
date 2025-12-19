@@ -116,7 +116,7 @@ Antes de empezar, verificar qué funciona hoy:
 | 13 | Select con subcollection filtrada | ✅ | 88e3049 |
 | 14 | Select con subcollection filtrada + ordenada | ✅ | 88e3049 |
 | 15 | Select con subcollection filtrada + ordenada + limitada | ✅ | 88e3049 |
-| 16 | Select con múltiples subcollections (navegaciones anidadas) | ✅ | 12291a0 |
+| 16 | Select con múltiples subcollections (navegaciones anidadas) | ✅ | 3dc0eb8 |
 
 **Nota Ciclo 16:** Implementado soporte para navegaciones de nivel 2+ (`p.Lineas.Count()`).
 El `SubcollectionAccessDetector` ahora detecta navegaciones anidadas buscando en los tipos target
