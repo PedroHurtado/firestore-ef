@@ -359,7 +359,8 @@ public class SelectSubcollectionTests
 
     #region Ciclo 16: Select con múltiples subcollections (cliente con pedidos y líneas)
 
-    [Fact(Skip = "Ciclo 16: Requiere soporte para navegaciones anidadas (p.Lineas.Count())")]
+    
+    [Fact]
     public async Task Select_WithNestedSubcollections_ReturnsAllLevels()
     {
         // Arrange

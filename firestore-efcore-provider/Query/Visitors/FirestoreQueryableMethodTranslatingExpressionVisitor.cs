@@ -580,10 +580,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             private readonly IEntityType _rootEntityType;
             private readonly List<IReadOnlyNavigation> _detectedNavigations = new();
+            private readonly IModel _model;
 
             public SubcollectionAccessDetector(IEntityType rootEntityType)
             {
                 _rootEntityType = rootEntityType;
+                _model = rootEntityType.Model;
             }
 
             public bool HasSubcollectionAccess => _detectedNavigations.Count > 0;
@@ -602,10 +604,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                         var navigation = navigationProperty.GetValue(node) as IReadOnlyNavigation;
                         if (navigation != null && navigation.IsCollection)
                         {
-                            if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
-                            {
-                                _detectedNavigations.Add(navigation);
-                            }
+                            AddNavigationIfNotExists(navigation);
                         }
                     }
                 }
@@ -626,9 +625,20 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                                 if (navigation.IsCollection &&
                                     navigation.TargetEntityType == queryEntityType)
                                 {
-                                    if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
+                                    AddNavigationIfNotExists(navigation);
+                                }
+                            }
+
+                            // Also check if this is a nested navigation (level 2+)
+                            // by checking all already detected navigations' target types
+                            foreach (var detectedNav in _detectedNavigations.ToList())
+                            {
+                                foreach (var nestedNav in detectedNav.TargetEntityType.GetNavigations())
+                                {
+                                    if (nestedNav.IsCollection &&
+                                        nestedNav.TargetEntityType == queryEntityType)
                                     {
-                                        _detectedNavigations.Add(navigation);
+                                        AddNavigationIfNotExists(nestedNav);
                                     }
                                 }
                             }
@@ -653,14 +663,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     var navigation = _rootEntityType.FindNavigation(node.Member.Name);
                     if (navigation != null && navigation.IsCollection)
                     {
-                        if (!_detectedNavigations.Any(n => n.Name == navigation.Name))
-                        {
-                            _detectedNavigations.Add(navigation);
-                        }
+                        AddNavigationIfNotExists(navigation);
                     }
                 }
 
                 return base.VisitMember(node);
+            }
+
+            private void AddNavigationIfNotExists(IReadOnlyNavigation navigation)
+            {
+                if (!_detectedNavigations.Any(n =>
+                    n.Name == navigation.Name &&
+                    n.DeclaringEntityType == navigation.DeclaringEntityType))
+                {
+                    _detectedNavigations.Add(navigation);
+                }
             }
         }
 
