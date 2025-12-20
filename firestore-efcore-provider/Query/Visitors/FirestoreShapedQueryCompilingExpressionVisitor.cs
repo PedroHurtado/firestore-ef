@@ -43,6 +43,50 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     complexTypeIncludes: new List<LambdaExpression>(complexTypeIncludes));
             }
 
+            // Copy Filtered Includes from FirestoreQueryCompilationContext to FirestoreQueryExpression
+            var filteredIncludes = _firestoreContext.FilteredIncludes;
+            if (filteredIncludes.Count > 0)
+            {
+                foreach (var kvp in filteredIncludes)
+                {
+                    var navigationName = kvp.Key;
+                    var filterInfo = kvp.Value;
+
+                    // Find corresponding include in PendingIncludesWithFilters
+                    var existingInclude = firestoreQueryExpression.PendingIncludesWithFilters
+                        .FirstOrDefault(i => i.EffectiveNavigationName == navigationName);
+
+                    if (existingInclude != null)
+                    {
+                        existingInclude.FilterExpression = filterInfo.FilterExpression;
+                        foreach (var orderBy in filterInfo.OrderByExpressions)
+                            existingInclude.OrderByExpressions.Add(orderBy);
+                        existingInclude.Take = filterInfo.Take;
+                        existingInclude.Skip = filterInfo.Skip;
+                    }
+                    else
+                    {
+                        var nav = firestoreQueryExpression.PendingIncludes.FirstOrDefault(n => n.Name == navigationName);
+                        if (nav != null)
+                        {
+                            var newIncludeInfo = new IncludeInfo(nav)
+                            {
+                                FilterExpression = filterInfo.FilterExpression,
+                                Take = filterInfo.Take,
+                                Skip = filterInfo.Skip
+                            };
+                            foreach (var orderBy in filterInfo.OrderByExpressions)
+                                newIncludeInfo.OrderByExpressions.Add(orderBy);
+                            firestoreQueryExpression.PendingIncludesWithFilters.Add(newIncludeInfo);
+                        }
+                        else
+                        {
+                            firestoreQueryExpression.PendingIncludesWithFilters.Add(filterInfo);
+                        }
+                    }
+                }
+            }
+
             // Handle aggregation queries differently
             if (firestoreQueryExpression.IsAggregation)
             {
@@ -1179,7 +1223,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Cargar includes de navegaciones normales
             if (queryExpression.PendingIncludes.Count > 0)
             {
-                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, clientWrapper, deserializer, model, isTracking, dbContext)
+                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, queryExpression.PendingIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext)
                     .GetAwaiter().GetResult();
             }
 
@@ -1332,18 +1376,20 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             T entity,
             DocumentSnapshot documentSnapshot,
             List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
-            DbContext dbContext) where T : class
+            DbContext dbContext,
+            QueryContext queryContext) where T : class
         {
             var rootNavigations = allIncludes
                 .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
                 .ToList();
 
             var tasks = rootNavigations.Select(navigation =>
-                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext));
+                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext));
 
             await Task.WhenAll(tasks);
         }
@@ -1353,19 +1399,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             DocumentSnapshot documentSnapshot,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
-            DbContext dbContext)
+            DbContext dbContext,
+            QueryContext queryContext)
         {
             if (navigation.IsCollection)
             {
-                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext);
+                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext);
             }
             else
             {
-                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext);
+                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext);
             }
         }
 
@@ -1374,11 +1422,13 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             DocumentSnapshot parentDoc,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
-            DbContext dbContext)
+            DbContext dbContext,
+            QueryContext queryContext)
         {
             if (!navigation.IsSubCollection())
                 return;
@@ -1394,6 +1444,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
                 .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+
+            // Buscar IncludeInfo para esta navegación (para Filtered Includes)
+            var includeInfo = allIncludesWithFilters.FirstOrDefault(i =>
+                i.EffectiveNavigationName == navigation.Name);
+
+            // Compilar el filtro si existe
+            Func<object, bool>? filterPredicate = null;
+            if (includeInfo?.FilterExpression != null)
+            {
+                filterPredicate = CompileFilterPredicate(includeInfo.FilterExpression, navigation.TargetEntityType.ClrType, queryContext);
+                if (filterPredicate == null)
+                {
+                    throw new Exception($"Failed to compile filter for {navigation.Name}");
+                }
+            }
 
             foreach (var doc in snapshot.Documents)
             {
@@ -1426,7 +1491,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                         await (Task)loadIncludesMethod.Invoke(null, new object[]
                         {
-                            childEntity, doc, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext
+                            childEntity, doc, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext
                         })!;
                     }
 
@@ -1435,6 +1500,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     {
                         dbContext.Attach(childEntity);
                     }
+                }
+
+                // Aplicar filtro si existe (Filtered Include)
+                if (filterPredicate != null && !filterPredicate(childEntity))
+                {
+                    continue; // No incluir esta entidad si no pasa el filtro
                 }
 
                 ApplyFixup(parentEntity, childEntity, navigation);
@@ -1450,11 +1521,13 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             DocumentSnapshot documentSnapshot,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
             IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
-            DbContext dbContext)
+            DbContext dbContext,
+            QueryContext queryContext)
         {
             var data = documentSnapshot.ToDictionary();
 
@@ -1542,7 +1615,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                     await (Task)loadIncludesMethod.Invoke(null, new object[]
                     {
-                        referencedEntity, referencedDoc, allIncludes, clientWrapper, deserializer, model, isTracking, dbContext
+                        referencedEntity, referencedDoc, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext
                     })!;
                 }
 
@@ -1852,6 +1925,133 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             c = char.ToLowerInvariant(c);
             return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
+        }
+
+        #endregion
+
+        #region Filtered Include Support
+
+        /// <summary>
+        /// Compiles a filter expression into a predicate function.
+        /// Handles both closure evaluation and EF Core parameter resolution from QueryContext.
+        /// </summary>
+        private static Func<object, bool>? CompileFilterPredicate(LambdaExpression filterExpression, Type entityType, QueryContext queryContext)
+        {
+            try
+            {
+                // EF Core reescribe las variables capturadas como ParameterExpression con nombres como __variableName_N
+                // Estos valores están en QueryContext.ParameterValues
+                var parameterResolver = new EfCoreParameterResolvingVisitor(queryContext.ParameterValues);
+                var resolvedBody = parameterResolver.Visit(filterExpression.Body);
+
+                // También evaluar closures tradicionales (MemberExpression sobre ConstantExpression)
+                var evaluator = new ClosureEvaluatingVisitor();
+                var evaluatedBody = evaluator.Visit(resolvedBody);
+
+                var newLambda = Expression.Lambda(evaluatedBody, filterExpression.Parameters);
+
+                // Compilar la expresión con las constantes evaluadas
+                var compiledDelegate = newLambda.Compile();
+
+                // Crear un wrapper que llama al delegado compilado
+                return (obj) =>
+                {
+                    try
+                    {
+                        return (bool)compiledDelegate.DynamicInvoke(obj)!;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                // Show the actual error
+                throw new Exception($"CompileFilterPredicate failed: {ex.Message}, Filter: {filterExpression}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Visitor that resolves EF Core parameter expressions (e.g., __variableName_0)
+        /// using values from QueryContext.ParameterValues.
+        /// </summary>
+        private class EfCoreParameterResolvingVisitor : ExpressionVisitor
+        {
+            private readonly IReadOnlyDictionary<string, object?> _parameterValues;
+
+            public EfCoreParameterResolvingVisitor(IReadOnlyDictionary<string, object?> parameterValues)
+            {
+                _parameterValues = parameterValues;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                // Check if this is an EF Core parameter (starts with __)
+                if (node.Name != null && node.Name.StartsWith("__"))
+                {
+                    if (_parameterValues.TryGetValue(node.Name, out var value))
+                    {
+                        return Expression.Constant(value, node.Type);
+                    }
+                }
+
+                return base.VisitParameter(node);
+            }
+        }
+
+        /// <summary>
+        /// Visitor that evaluates closure references (captured variables) to their constant values.
+        /// </summary>
+        private class ClosureEvaluatingVisitor : ExpressionVisitor
+        {
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                // Check if this is a closure reference (accessing a field on a constant object)
+                if (node.Expression is ConstantExpression constantExpr && constantExpr.Value != null)
+                {
+                    try
+                    {
+                        var value = GetMemberValue(node.Member, constantExpr.Value);
+                        return Expression.Constant(value, node.Type);
+                    }
+                    catch
+                    {
+                        return base.VisitMember(node);
+                    }
+                }
+
+                // Nested member access - evaluate the inner expression first
+                if (node.Expression != null && !(node.Expression is ParameterExpression))
+                {
+                    var visitedExpr = Visit(node.Expression);
+                    if (visitedExpr is ConstantExpression constExpr && constExpr.Value != null)
+                    {
+                        try
+                        {
+                            var value = GetMemberValue(node.Member, constExpr.Value);
+                            return Expression.Constant(value, node.Type);
+                        }
+                        catch
+                        {
+                            return base.VisitMember(node);
+                        }
+                    }
+                }
+
+                return base.VisitMember(node);
+            }
+
+            private static object? GetMemberValue(System.Reflection.MemberInfo member, object instance)
+            {
+                return member switch
+                {
+                    System.Reflection.FieldInfo field => field.GetValue(instance),
+                    System.Reflection.PropertyInfo prop => prop.GetValue(instance),
+                    _ => throw new NotSupportedException($"Unsupported member type: {member.GetType()}")
+                };
+            }
         }
 
         #endregion

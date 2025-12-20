@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Query.Visitors;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Linq;
@@ -11,6 +12,7 @@ namespace Firestore.EntityFrameworkCore.Query
     /// targeting properties inside ComplexTypes before EF Core's NavigationExpandingExpressionVisitor
     /// rejects them.
     /// Also handles TakeLast which is not natively supported by EF Core.
+    /// Also extracts filter expressions from Filtered Includes before they are processed.
     /// </summary>
     public class FirestoreQueryTranslationPreprocessor : QueryTranslationPreprocessor
     {
@@ -26,7 +28,14 @@ namespace Firestore.EntityFrameworkCore.Query
 
         public override Expression Process(Expression query)
         {
-            // First, extract and remove ComplexType Includes before EF Core processes them
+            // First, extract Filtered Includes before EF Core processes them
+            // This captures the filter expressions which would be lost later
+            var filteredIncludeVisitor = new FilteredIncludeExtractorVisitor(_queryCompilationContext);
+            filteredIncludeVisitor.Visit(query); // Just visit to extract, don't modify
+
+
+
+            // Extract and remove ComplexType Includes before EF Core processes them
             var complexTypeIncludeVisitor = new ComplexTypeIncludeExtractorVisitor(_queryCompilationContext);
             query = complexTypeIncludeVisitor.Visit(query);
 

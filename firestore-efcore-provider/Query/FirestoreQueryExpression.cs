@@ -111,6 +111,12 @@ namespace Firestore.EntityFrameworkCore.Query
         public List<IReadOnlyNavigation> PendingIncludes { get; set; }
 
         /// <summary>
+        /// Lista de Includes con información de filtros para Filtered Includes.
+        /// Esta lista contiene la misma información que PendingIncludes pero con filtros opcionales.
+        /// </summary>
+        public List<IncludeInfo> PendingIncludesWithFilters { get; set; }
+
+        /// <summary>
         /// Lista de Includes en propiedades de ComplexTypes.
         /// Ej: .Include(e => e.DireccionPrincipal.SucursalCercana)
         /// Estas se extraen antes de que EF Core las procese (ya que EF Core no las soporta)
@@ -182,6 +188,7 @@ namespace Firestore.EntityFrameworkCore.Query
             OrFilterGroups = new List<FirestoreOrFilterGroup>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             PendingIncludes = new List<IReadOnlyNavigation>();
+            PendingIncludesWithFilters = new List<IncludeInfo>();
             ComplexTypeIncludes = new List<LambdaExpression>();
         }
 
@@ -213,6 +220,7 @@ namespace Firestore.EntityFrameworkCore.Query
             DocumentSnapshot? startAfterDocument = null,
             Expression? idValueExpression = null,
             List<IReadOnlyNavigation>? pendingIncludes = null,
+            List<IncludeInfo>? pendingIncludesWithFilters = null,
             List<LambdaExpression>? complexTypeIncludes = null,
             FirestoreAggregationType? aggregationType = null,
             string? aggregationPropertyName = null,
@@ -237,6 +245,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 StartAfterDocument = startAfterDocument ?? StartAfterDocument,
                 IdValueExpression = idValueExpression ?? IdValueExpression,
                 PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
+                PendingIncludesWithFilters = pendingIncludesWithFilters ?? new List<IncludeInfo>(PendingIncludesWithFilters),
                 ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes),
                 AggregationType = aggregationType ?? AggregationType,
                 AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,

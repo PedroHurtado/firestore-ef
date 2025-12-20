@@ -504,6 +504,18 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
                 }
 
+                // Agregar IncludeInfo con filtros extraídos
+                foreach (var includeInfo in includeVisitor.DetectedIncludes)
+                {
+                    // Evitar duplicados
+                    if (!firestoreQueryExpression.PendingIncludesWithFilters.Any(i =>
+                        i.Navigation.Name == includeInfo.Navigation.Name &&
+                        i.Navigation.DeclaringEntityType == includeInfo.Navigation.DeclaringEntityType))
+                    {
+                        firestoreQueryExpression.PendingIncludesWithFilters.Add(includeInfo);
+                    }
+                }
+
                 // Include no es una proyección real, retornar source sin modificar proyección
                 return source;
             }
