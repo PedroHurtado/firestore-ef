@@ -40,6 +40,7 @@
 | 31 | Max (client-side) | ✅ | `ddd6dc7` | `AggregationTests` (3 tests) |
 | 32 | TakeLast (LimitToLast) | ✅ | `efbbf4a` | `TakeLastTests` (3 tests) |
 | 33 | StartsWith (workaround >= <) | ✅ | `ac64ab5` | `StringTests` (4 tests) |
+| 34 | Filtered Include (`.Include(x => x.Nav.Where(...))`) | ✅ | `48a5501` | `FilteredIncludeExpressionDebugTest` (2 tests), `SubCollectionTests` (2 tests nuevos) |
 
 
 ---
@@ -256,7 +257,25 @@ Por defecto, Firestore no guarda campos null (convención NoSQL). Los tests de b
 |-------|----------------|
 | 33 | StartsWith (workaround >= <) |
 
-### Fase 11: No soportados (decidir)
+### Fase 11: Filtered Includes
+
+| Ciclo | Comportamiento |
+|-------|----------------|
+| 34 | Filtered Include (`.Include(x => x.Nav.Where(...))`) |
+
+**Nota Ciclo 34:** Infraestructura para Filtered Includes de EF Core. Permite filtrar subcollections en el Include:
+```csharp
+.Include(c => c.Pedidos.Where(p => p.Estado == EstadoPedido.Confirmado))
+```
+
+**Componentes agregados:**
+- `IncludeInfo`: Clase para almacenar metadata de filtros (Where, OrderBy, Take, Skip)
+- `FilteredIncludeExtractorVisitor`: Extrae filtros de la expresión original antes de que EF Core la procese
+- `IsCorrelationFilter()` en `IncludeExtractionVisitor`: Detecta y excluye filtros de correlación internos de EF Core (patrón `Property(c, "Id")`)
+
+**Fix crítico:** Los filtros de correlación generados por EF Core para unir padre-hijo (`Property(c, "Id") == Property(p, "ClienteId")`) se confundían con Filtered Includes del usuario, causando errores de compilación de expresiones.
+
+### Fase 12: No soportados (decidir)
 
 | Operación | Decisión |
 |-----------|----------|
