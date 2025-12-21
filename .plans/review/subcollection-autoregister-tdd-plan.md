@@ -14,9 +14,10 @@ Modificar `SubCollection<T>()` para que auto-registre las entidades hijas en el 
 
 | Paso | Acción | Estado | Commit |
 |------|--------|--------|--------|
-| 1 | Modificar `SubCollection<T>()` para auto-registrar | ⬚ | |
-| 2 | Quitar `DbSet<Pedido>` y `DbSet<LineaPedido>` de TestDbContext | ⬚ | |
-| 3 | Correr tests de integración existentes | ⬚ | |
+| 0 | Escribir test unitario que valide el auto-registro | ✅ | 085e195 |
+| 1 | Modificar `SubCollection<T>()` para auto-registrar | ✅ | 085e195 |
+| 2 | Quitar `DbSet<Pedido>` y `DbSet<LineaPedido>` de TestDbContext | ✅ | a5efb72 |
+| 3 | Correr tests de integración existentes | ✅ | a5efb72 |
 
 ---
 
@@ -32,6 +33,56 @@ Modificar `SubCollection<T>()` para que auto-registre las entidades hijas en el 
 ---
 
 ## Implementación
+
+### Paso 0: Test unitario para auto-registro
+
+```csharp
+public class SubCollectionAutoRegisterTests
+{
+    [Fact]
+    public void SubCollection_WhenEntityNotRegistered_ShouldAutoRegisterIt()
+    {
+        // Arrange - modelo con solo el padre registrado
+        var modelBuilder = CreateModelBuilder();
+
+        // Act - configurar SubCollection SIN registrar Pedido previamente
+        modelBuilder.Entity<Cliente>(entity =>
+        {
+            entity.SubCollection(c => c.Pedidos);
+        });
+
+        // Assert - Pedido fue auto-registrado
+        var model = modelBuilder.FinalizeModel();
+        var pedidoType = model.FindEntityType(typeof(Pedido));
+
+        Assert.NotNull(pedidoType);
+    }
+
+    [Fact]
+    public void SubCollection_Nested_ShouldAutoRegisterAllLevels()
+    {
+        // Arrange
+        var modelBuilder = CreateModelBuilder();
+
+        // Act - SubCollection anidada sin registrar Pedido ni LineaPedido
+        modelBuilder.Entity<Cliente>(entity =>
+        {
+            entity.SubCollection(c => c.Pedidos)
+                  .SubCollection(p => p.Lineas);
+        });
+
+        // Assert - ambos tipos fueron auto-registrados
+        var model = modelBuilder.FinalizeModel();
+
+        Assert.NotNull(model.FindEntityType(typeof(Pedido)));
+        Assert.NotNull(model.FindEntityType(typeof(LineaPedido)));
+    }
+}
+```
+
+**Ubicación:** `tests/Unit.Tests/Metadata/SubCollectionAutoRegisterTests.cs`
+
+---
 
 ### Paso 1: Modificar SubCollectionBuilderExtensions
 
