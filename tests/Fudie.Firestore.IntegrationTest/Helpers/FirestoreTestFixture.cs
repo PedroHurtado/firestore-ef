@@ -69,6 +69,15 @@ public class FirestoreTestFixture : IAsyncLifetime
     {
         return $"{prefix}-{Guid.NewGuid():N}";
     }
+
+    /// <summary>
+    /// Crea una instancia de TenantDbContext con el TenantId especificado.
+    /// </summary>
+    public TenantDbContext CreateTenantContext(string tenantId)
+    {
+        var options = CreateOptions<TenantDbContext>();
+        return new TenantDbContext(options, tenantId);
+    }
 }
 
 /// <summary>

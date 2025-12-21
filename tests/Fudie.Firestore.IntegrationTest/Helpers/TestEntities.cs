@@ -142,6 +142,27 @@ public enum CategoriaProducto
     Hogar
 }
 
+// ============================================================================
+// ENTIDADES PARA TESTS DE QUERY FILTERS (MULTI-TENANCY)
+// ============================================================================
+
+/// <summary>
+/// Entidad diseñada para tests de Query Filters globales (multi-tenancy).
+/// El filtro de TenantId se aplica automáticamente en TenantDbContext.
+/// </summary>
+public class TenantEntity
+{
+    public string? Id { get; set; }
+    public required string Name { get; set; }
+    public decimal Price { get; set; }
+    public bool IsActive { get; set; }
+    public required string TenantId { get; set; }
+}
+
+// ============================================================================
+// ENTIDADES PARA TESTS DE CONVENTIONS
+// ============================================================================
+
 /// <summary>
 /// Entidad con TODAS las conventions para tests completos.
 /// - DecimalToDouble: Precio

@@ -118,3 +118,37 @@ public class QueryTestDbContext : DbContext
         });
     }
 }
+
+/// <summary>
+/// DbContext con Query Filter global para multi-tenancy.
+/// Implementa el patrón de filtrado automático por TenantId usando HasQueryFilter de EF Core.
+/// </summary>
+public class TenantDbContext : DbContext
+{
+    private readonly string _tenantId;
+
+    public TenantDbContext(DbContextOptions<TenantDbContext> options, string tenantId) : base(options)
+    {
+        _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
+    }
+
+    public DbSet<TenantEntity> TenantEntities => Set<TenantEntity>();
+
+    /// <summary>
+    /// El TenantId actual configurado para este contexto.
+    /// </summary>
+    public string TenantId => _tenantId;
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TenantEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.TenantId).IsRequired();
+
+            // Query Filter global: todas las queries filtran automáticamente por TenantId
+            entity.HasQueryFilter(e => e.TenantId == _tenantId);
+        });
+    }
+}
