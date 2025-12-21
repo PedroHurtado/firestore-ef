@@ -189,4 +189,46 @@ public class QueryFilterTests
     }
 
     #endregion
+
+    #region Test 6: IgnoreQueryFilters - Desactivar filtro global
+
+    [Fact]
+    public async Task QueryFilter_IgnoreQueryFilters_ReturnsAllTenantEntities()
+    {
+        // Arrange - Crear entidades para dos tenants diferentes con un marcador único
+        var tenantA = $"tenant-A-{Guid.NewGuid():N}";
+        var tenantB = $"tenant-B-{Guid.NewGuid():N}";
+        var uniqueMarker = $"IgnoreFilter-{Guid.NewGuid():N}";
+
+        using (var setupContextA = _fixture.CreateTenantContext(tenantA))
+        {
+            setupContextA.TenantEntities.AddRange(
+                new TenantEntity { Id = FirestoreTestFixture.GenerateId("iqf"), Name = uniqueMarker, TenantId = tenantA },
+                new TenantEntity { Id = FirestoreTestFixture.GenerateId("iqf"), Name = uniqueMarker, TenantId = tenantA }
+            );
+            await setupContextA.SaveChangesAsync();
+        }
+
+        using (var setupContextB = _fixture.CreateTenantContext(tenantB))
+        {
+            setupContextB.TenantEntities.Add(
+                new TenantEntity { Id = FirestoreTestFixture.GenerateId("iqf"), Name = uniqueMarker, TenantId = tenantB }
+            );
+            await setupContextB.SaveChangesAsync();
+        }
+
+        // Act - Usar IgnoreQueryFilters() para obtener TODAS las entidades (admin/superuser scenario)
+        using var readContext = _fixture.CreateTenantContext(tenantA);
+        var results = await readContext.TenantEntities
+            .IgnoreQueryFilters()
+            .Where(e => e.Name == uniqueMarker)
+            .ToListAsync();
+
+        // Assert - Debe devolver entidades de AMBOS tenants (3 en total)
+        results.Should().HaveCount(3);
+        results.Should().Contain(e => e.TenantId == tenantA);
+        results.Should().Contain(e => e.TenantId == tenantB);
+    }
+
+    #endregion
 }
