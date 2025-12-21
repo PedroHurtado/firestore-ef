@@ -42,6 +42,7 @@
 | 33 | StartsWith (workaround >= <) | ✅ | `ac64ab5` | `StringTests` (4 tests) |
 | 34 | Filtered Include (`.Include(x => x.Nav.Where(...))`) | ✅ | `48a5501` | `FilteredIncludeExpressionDebugTest` (2 tests), `SubCollectionTests` (2 tests nuevos) |
 | 35 | Global Query Filters (`HasQueryFilter` multi-tenancy) | ✅ | `00ac58c` | `QueryFilterTests` (5 tests) |
+| 35.1 | IgnoreQueryFilters (bypass filtro global) | ✅ | `cf956c6` | `QueryFilterTests` (1 test) |
 
 
 ---
