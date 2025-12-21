@@ -322,4 +322,42 @@ public class FirestoreDocumentDeserializerTest
         Assert.NotNull(longitudeProperty);
         Assert.Equal(typeof(double), longitudeProperty.PropertyType);
     }
+
+    #region Ciclo 1: IFirestoreDocumentDeserializer Interface Tests
+
+    [Fact]
+    public void FirestoreDocumentDeserializer_ShouldImplementInterface()
+    {
+        // Assert
+        Assert.True(typeof(IFirestoreDocumentDeserializer)
+            .IsAssignableFrom(typeof(FirestoreDocumentDeserializer)));
+    }
+
+    [Fact]
+    public void IFirestoreDocumentDeserializer_ShouldHaveDeserializeEntityMethod()
+    {
+        // Arrange
+        var interfaceType = typeof(IFirestoreDocumentDeserializer);
+
+        // Act
+        var method = interfaceType.GetMethod("DeserializeEntity");
+
+        // Assert
+        Assert.NotNull(method);
+    }
+
+    [Fact]
+    public void IFirestoreDocumentDeserializer_ShouldHaveDeserializeEntitiesMethod()
+    {
+        // Arrange
+        var interfaceType = typeof(IFirestoreDocumentDeserializer);
+
+        // Act
+        var method = interfaceType.GetMethod("DeserializeEntities");
+
+        // Assert
+        Assert.NotNull(method);
+    }
+
+    #endregion
 }

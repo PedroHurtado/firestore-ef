@@ -17,7 +17,7 @@ namespace Firestore.EntityFrameworkCore.Storage
     /// Deserializa DocumentSnapshot de Firestore a entidades C#.
     /// Es el proceso inverso de FirestoreDocumentSerializer.
     /// </summary>
-    public class FirestoreDocumentDeserializer
+    public class FirestoreDocumentDeserializer : IFirestoreDocumentDeserializer
     {
         private readonly IModel _model;
         private readonly ITypeMappingSource _typeMappingSource;
