@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Firestore.EntityFrameworkCore.Metadata.Builders;
@@ -10,7 +11,8 @@ namespace Firestore.EntityFrameworkCore.Metadata.Builders;
 public static class FirestoreEntityTypeBuilderExtensions
 {
     /// <summary>
-    /// Configura una propiedad de navegación como subcollection en Firestore
+    /// Configura una propiedad de navegación como subcollection en Firestore.
+    /// Auto-registra el entity type hijo si no está en el modelo.
     /// </summary>
     public static SubCollectionBuilder<TRelatedEntity> SubCollection<TEntity, TRelatedEntity>(
         this EntityTypeBuilder<TEntity> builder,
@@ -22,15 +24,22 @@ public static class FirestoreEntityTypeBuilderExtensions
         var propertyName = memberInfo.Name;
 
         var entityType = builder.Metadata;
+        var mutableModel = (IMutableModel)entityType.Model;
 
-        // Verificar que el entity type relacionado existe en el modelo
-        var targetEntityType = entityType.Model.FindEntityType(typeof(TRelatedEntity)) ?? throw new InvalidOperationException(
-                $"Entity type '{typeof(TRelatedEntity).Name}' must be added to the model (via DbSet<{typeof(TRelatedEntity).Name}>) before configuring as subcollection.");
+        // Auto-registrar el entity type si no existe (SubCollections no necesitan DbSet)
+        var targetEntityType = mutableModel.FindEntityType(typeof(TRelatedEntity))
+            ?? mutableModel.AddEntityType(typeof(TRelatedEntity));
 
-        // Buscar la navegación - debería existir porque la propiedad existe en la clase
-        var navigation = entityType.FindNavigation(propertyName) ?? throw new InvalidOperationException(
-                $"Navigation property '{propertyName}' not found on entity type '{typeof(TEntity).Name}'. " +
-                $"Make sure '{typeof(TRelatedEntity).Name}' is configured in the model with a DbSet.");
+        // Configurar la relación HasMany para crear la navegación
+        builder.HasMany(navigationExpression)
+            .WithOne()
+            .HasForeignKey($"{typeof(TEntity).Name}Id");
+
+        // Buscar la navegación recién creada
+        var navigation = entityType.FindNavigation(propertyName)
+            ?? throw new InvalidOperationException(
+                $"Navigation property '{propertyName}' not found on entity type '{typeof(TEntity).Name}'.");
+
         return new SubCollectionBuilder<TRelatedEntity>(targetEntityType, navigation);
     }
 

@@ -2,8 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace Firestore.EntityFrameworkCore.Metadata.Builders;
 
@@ -18,13 +21,14 @@ public class SubCollectionBuilder<TEntity> where TEntity : class
     {
         _entityType = entityType;
         _navigation = navigation;
-        
+
         // Marcar la navigation como subcollection
         _navigation.SetAnnotation("Firestore:SubCollection", true);
     }
 
     /// <summary>
-    /// Configura una subcollection anidada
+    /// Configura una subcollection anidada.
+    /// Auto-registra el entity type hijo si no está en el modelo.
     /// </summary>
     public SubCollectionBuilder<TRelatedEntity> SubCollection<TRelatedEntity>(
         Expression<Func<TEntity, IEnumerable<TRelatedEntity>>> navigationExpression)
@@ -32,27 +36,32 @@ public class SubCollectionBuilder<TEntity> where TEntity : class
     {
         var memberInfo = navigationExpression.GetMemberAccess();
         var propertyName = memberInfo.Name;
-        
-        // Obtener el entity type de TEntity
-        var model = _entityType.Model;
-        var relatedEntityType = model.FindEntityType(typeof(TEntity));
-        
-        if (relatedEntityType == null)
-        {
-            throw new InvalidOperationException(
-                $"Entity type '{typeof(TEntity).Name}' must be configured in the model before configuring subcollections.");
-        }
-        
-        var relatedNavigation = relatedEntityType.FindNavigation(propertyName);
-        
-        if (relatedNavigation == null)
-        {
-            throw new InvalidOperationException(
+
+        var mutableModel = (IMutableModel)_entityType.Model;
+
+        // Auto-registrar el entity type hijo si no existe
+        var targetEntityType = mutableModel.FindEntityType(typeof(TRelatedEntity))
+            ?? mutableModel.AddEntityType(typeof(TRelatedEntity));
+
+        // Obtener el entity type de TEntity (el padre de esta subcollection)
+        var parentEntityType = mutableModel.FindEntityType(typeof(TEntity))
+            ?? throw new InvalidOperationException(
+                $"Entity type '{typeof(TEntity).Name}' must be configured in the model.");
+
+        // Configurar la relación HasMany usando el EntityTypeBuilder
+#pragma warning disable EF1001 // Internal EF Core API usage
+        var entityTypeBuilder = new EntityTypeBuilder<TEntity>(parentEntityType);
+#pragma warning restore EF1001
+
+        entityTypeBuilder.HasMany(navigationExpression)
+            .WithOne()
+            .HasForeignKey($"{typeof(TEntity).Name}Id");
+
+        // Buscar la navegación recién creada
+        var navigation = parentEntityType.FindNavigation(propertyName)
+            ?? throw new InvalidOperationException(
                 $"Navigation property '{propertyName}' not found on entity type '{typeof(TEntity).Name}'.");
-        }
-        
-        return new SubCollectionBuilder<TRelatedEntity>(
-            relatedEntityType,
-            relatedNavigation);
+
+        return new SubCollectionBuilder<TRelatedEntity>(targetEntityType, navigation);
     }
 }
