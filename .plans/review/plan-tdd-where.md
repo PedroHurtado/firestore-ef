@@ -41,6 +41,7 @@
 | 32 | TakeLast (LimitToLast) | ✅ | `efbbf4a` | `TakeLastTests` (3 tests) |
 | 33 | StartsWith (workaround >= <) | ✅ | `ac64ab5` | `StringTests` (4 tests) |
 | 34 | Filtered Include (`.Include(x => x.Nav.Where(...))`) | ✅ | `48a5501` | `FilteredIncludeExpressionDebugTest` (2 tests), `SubCollectionTests` (2 tests nuevos) |
+| 35 | Global Query Filters (`HasQueryFilter` multi-tenancy) | ✅ | `00ac58c` | `QueryFilterTests` (5 tests) |
 
 
 ---
