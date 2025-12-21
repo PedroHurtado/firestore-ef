@@ -12,14 +12,10 @@ public class TestDbContext : DbContext
     {
     }
 
-    // Entidades raíz (colecciones principales)
+    // Solo agregados raíz (SubCollections se auto-registran)
     public DbSet<Producto> Productos => Set<Producto>();
     public DbSet<Cliente> Clientes => Set<Cliente>();
     public DbSet<ProductoCompleto> ProductosCompletos => Set<ProductoCompleto>();
-
-    // Entidades subcollection (necesarias para que EF Core las reconozca)
-    public DbSet<Pedido> Pedidos => Set<Pedido>();
-    public DbSet<LineaPedido> LineasPedido => Set<LineaPedido>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,19 +37,6 @@ public class TestDbContext : DbContext
             // Configurar Pedidos como subcollection con Lineas anidadas
             entity.SubCollection(c => c.Pedidos)
                   .SubCollection(p => p.Lineas);
-        });
-
-        // Configuración de Pedido
-        modelBuilder.Entity<Pedido>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.NumeroOrden).IsRequired();
-        });
-
-        // Configuración de LineaPedido
-        modelBuilder.Entity<LineaPedido>(entity =>
-        {
-            entity.HasKey(e => e.Id);
         });
 
         // Configuración de ProductoCompleto (para tests de conventions)

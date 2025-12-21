@@ -616,8 +616,8 @@ public class SubCollectionTests
 
         var pedidoAEliminar = clienteParaEliminar!.Pedidos.First(p => p.Id == pedidoAEliminarId);
 
-        // El provider ahora busca automáticamente el padre en el ChangeTracker
-        deleteContext.Pedidos.Remove(pedidoAEliminar);
+        // Usar Remove() directamente ya que Pedido no tiene DbSet (es SubCollection)
+        deleteContext.Remove(pedidoAEliminar);
 
         await deleteContext.SaveChangesAsync();
 
