@@ -27,7 +27,7 @@ Refactorización para:
 | 5 | `ICollection<T>` en navegaciones | ✅ | 2dc29f7 | 2 |
 | 6 | `HashSet<T>` en navegaciones | ✅ | 2dc29f7 | 3 |
 | 7 | `IFirestoreClientWrapper` - Agregar métodos faltantes | ✅ | 0762f46 | 11 |
-| 8 | `INavigationLoader` - Crear interfaz e implementación | ⏳ | | |
+| 8 | `INavigationLoader` - Crear interfaz e implementación | ✅ | PENDING | 7 |
 | 9 | Extraer `LoadSubCollectionAsync` del Visitor | ⏳ | | |
 | 10 | Extraer `LoadReferenceAsync` del Visitor | ⏳ | | |
 | 11 | Eliminar bypasses en agregaciones | ⏳ | | |
@@ -472,6 +472,19 @@ public async Task NavigationLoader_LoadReference_ShouldUseWrapper()
 
 **Objetivo:** Que `FirestoreQueryExecutor` use el wrapper para agregaciones.
 
+**Ubicación de bypasses (`FirestoreQueryExecutor.cs`):**
+
+| Línea | Método | Bypass | Wrapper Method |
+|-------|--------|--------|----------------|
+| 765 | `ExecuteCountAsync` | `aggregateQuery.GetSnapshotAsync()` | `ExecuteAggregateQueryAsync` |
+| 778 | `ExecuteAnyAsync` | `limitedQuery.GetSnapshotAsync()` | `ExecuteQueryAsync` |
+| 797 | `ExecuteSumAsync` | `aggregateQuery.GetSnapshotAsync()` | `ExecuteAggregateQueryAsync` |
+| 820 | `ExecuteAverageAsync` | `aggregateQuery.GetSnapshotAsync()` | `ExecuteAggregateQueryAsync` |
+| 848 | `ExecuteMinAsync` | `minQuery.GetSnapshotAsync()` | `ExecuteQueryAsync` (OrderBy+Limit) |
+| 876 | `ExecuteMaxAsync` | `maxQuery.GetSnapshotAsync()` | `ExecuteQueryAsync` (OrderByDesc+Limit) |
+
+**Nota:** Min y Max no usan agregaciones nativas de Firestore. Usan `OrderBy + Limit(1)`, por lo que deben usar `ExecuteQueryAsync` en lugar de `ExecuteAggregateQueryAsync`.
+
 **Test RED:**
 ```csharp
 [Fact]
@@ -490,11 +503,29 @@ public async Task ExecuteCountAsync_ShouldUseWrapper()
         It.IsAny<CancellationToken>()),
         Times.Once);
 }
+
+[Fact]
+public async Task ExecuteMinAsync_ShouldUseWrapper()
+{
+    // Arrange
+    var mockWrapper = new Mock<IFirestoreClientWrapper>();
+    var executor = new FirestoreQueryExecutor(mockWrapper.Object, ...);
+
+    // Act
+    await executor.ExecuteMinAsync<decimal>(...);
+
+    // Assert - Min usa ExecuteQueryAsync porque Firestore no tiene Min nativo
+    mockWrapper.Verify(w => w.ExecuteQueryAsync(
+        It.IsAny<Google.Cloud.Firestore.Query>(),
+        It.IsAny<CancellationToken>()),
+        Times.Once);
+}
 ```
 
 **Cambios:**
-1. Reemplazar 6 bypasses en `FirestoreQueryExecutor` (líneas 765, 778, 797, 820, 848, 876)
-2. Usar `IFirestoreClientWrapper.ExecuteAggregateQueryAsync()`
+1. Reemplazar 4 bypasses de agregaciones (Count, Sum, Average, Any) con `ExecuteAggregateQueryAsync` o `ExecuteQueryAsync`
+2. Reemplazar 2 bypasses de Min/Max con `ExecuteQueryAsync` (usan OrderBy+Limit, no agregaciones)
+3. El `FirestoreQueryExecutor` debe recibir `IFirestoreClientWrapper` por constructor
 
 ---
 
@@ -594,19 +625,19 @@ public interface IFirestoreQueryExecutor
 
 ## Resumen de Bypasses a Eliminar
 
-| # | Archivo | Línea | Bypass | Ciclo |
-|---|---------|-------|--------|-------|
-| 1 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1439 | `subCollectionRef.GetSnapshotAsync()` | 9 |
-| 2 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1568 | `docRef.GetSnapshotAsync()` | 10 |
-| 3 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1591 | `docRefFromId.GetSnapshotAsync()` | 10 |
-| 4 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1743 | `docRef.GetSnapshotAsync()` | 10 |
-| 5 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1754 | `docRefFromId.GetSnapshotAsync()` | 10 |
-| 6 | `FirestoreQueryExecutor.cs` | 765 | `aggregateQuery.GetSnapshotAsync()` | 11 |
-| 7 | `FirestoreQueryExecutor.cs` | 778 | `limitedQuery.GetSnapshotAsync()` | 11 |
-| 8 | `FirestoreQueryExecutor.cs` | 797 | `aggregateQuery.GetSnapshotAsync()` | 11 |
-| 9 | `FirestoreQueryExecutor.cs` | 820 | `aggregateQuery.GetSnapshotAsync()` | 11 |
-| 10 | `FirestoreQueryExecutor.cs` | 848 | `minQuery.GetSnapshotAsync()` | 11 |
-| 11 | `FirestoreQueryExecutor.cs` | 876 | `maxQuery.GetSnapshotAsync()` | 11 |
+| # | Archivo | Línea | Bypass | Wrapper Method | Ciclo |
+|---|---------|-------|--------|----------------|-------|
+| 1 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1439 | `subCollectionRef.GetSnapshotAsync()` | `GetSubCollectionAsync` | 9 |
+| 2 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1568 | `docRef.GetSnapshotAsync()` | `GetDocumentByReferenceAsync` | 10 |
+| 3 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1591 | `docRefFromId.GetSnapshotAsync()` | `GetDocumentByReferenceAsync` | 10 |
+| 4 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1743 | `docRef.GetSnapshotAsync()` | `GetDocumentByReferenceAsync` | 10 |
+| 5 | `FirestoreShapedQueryCompilingExpressionVisitor.cs` | 1754 | `docRefFromId.GetSnapshotAsync()` | `GetDocumentByReferenceAsync` | 10 |
+| 6 | `FirestoreQueryExecutor.cs` | 765 | `aggregateQuery.GetSnapshotAsync()` (Count) | `ExecuteAggregateQueryAsync` | 11 |
+| 7 | `FirestoreQueryExecutor.cs` | 778 | `limitedQuery.GetSnapshotAsync()` (Any) | `ExecuteQueryAsync` | 11 |
+| 8 | `FirestoreQueryExecutor.cs` | 797 | `aggregateQuery.GetSnapshotAsync()` (Sum) | `ExecuteAggregateQueryAsync` | 11 |
+| 9 | `FirestoreQueryExecutor.cs` | 820 | `aggregateQuery.GetSnapshotAsync()` (Avg) | `ExecuteAggregateQueryAsync` | 11 |
+| 10 | `FirestoreQueryExecutor.cs` | 848 | `minQuery.GetSnapshotAsync()` (Min) | `ExecuteQueryAsync` | 11 |
+| 11 | `FirestoreQueryExecutor.cs` | 876 | `maxQuery.GetSnapshotAsync()` (Max) | `ExecuteQueryAsync` | 11 |
 
 ---
 
