@@ -1556,7 +1556,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
                 }
 
-                referencedDoc = await docRef.GetSnapshotAsync();
+                // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
+                referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRef);
             }
             else if (referenceValue is string id)
             {
@@ -1579,7 +1580,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
                     var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
-                    referencedDoc = await docRefFromId.GetSnapshotAsync();
+                    // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
+                    referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRefFromId);
                 }
             }
 
@@ -1732,7 +1734,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
                 referencedId = docRef.Id;
-                referencedDoc = await docRef.GetSnapshotAsync();
+                // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
+                referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRef);
             }
             else if (referenceValue is string id)
             {
@@ -1743,7 +1746,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
                     var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
-                    referencedDoc = await docRefFromId.GetSnapshotAsync();
+                    // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
+                    referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRefFromId);
                 }
             }
 
