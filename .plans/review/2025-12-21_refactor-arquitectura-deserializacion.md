@@ -22,6 +22,7 @@ Refactorización para:
 | 1 | `IFirestoreDocumentDeserializer` - Crear interfaz | ✅ | 905a50e | 3 |
 | 2 | Constructor sin parámetros (ya funciona) | ✅ | 19bb387 | 2 |
 | 3 | Constructor con parámetros | ✅ | fc3e68d | 4+11 |
+| 3.1 | Mover creación de entidades del Visitor al Deserializer | ⏳ | | |
 | 4 | `List<T>` en navegaciones (ya funciona) | ⏳ | | |
 | 5 | `ICollection<T>` en navegaciones | ⏳ | | |
 | 6 | `HashSet<T>` en navegaciones | ⏳ | | |
@@ -139,6 +140,62 @@ public class OrderWithConstructor
 1. Detectar si el tipo tiene constructor sin parámetros
 2. Si no, buscar constructor con parámetros que coincidan con propiedades
 3. Usar `Activator.CreateInstance(type, args)` o reflexión del constructor
+
+---
+
+### Ciclo 3.1: Mover creación de entidades del Visitor al Deserializer
+
+**Objetivo:** El Visitor NO debe crear entidades. Solo debe llamar a `IFirestoreDocumentDeserializer`.
+
+**Problema actual (líneas 1210-1226 del Visitor):**
+```csharp
+// El Visitor decide cómo crear entidades - VIOLA SRP
+T? entity = null;
+if (typeof(T).GetConstructor(Type.EmptyTypes) != null)
+{
+    entity = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
+    if (entity != null)
+    {
+        deserializer.DeserializeIntoEntity(documentSnapshot, entity);
+    }
+}
+
+if (entity == null)
+{
+    entity = deserializer.DeserializeEntity<T>(documentSnapshot);
+}
+```
+
+**Solución esperada:**
+```csharp
+// El Visitor SOLO llama al deserializer
+entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext);
+```
+
+**Cambios requeridos:**
+
+1. **Extender `IFirestoreDocumentDeserializer`** - Añadir sobrecarga que reciba `DbContext`:
+   ```csharp
+   T DeserializeEntity<T>(DocumentSnapshot document, DbContext? dbContext = null) where T : class;
+   ```
+
+2. **Mover `TryCreateLazyLoadingProxy` al Deserializer** - El deserializer internamente:
+   - Si recibe `DbContext` y hay lazy loading habilitado, crea proxy
+   - Si no, crea entidad normal con constructor apropiado
+
+3. **Simplificar el Visitor** - Solo una línea:
+   ```csharp
+   entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext);
+   ```
+
+4. **Eliminar código duplicado del Visitor**:
+   - Eliminar `TryCreateLazyLoadingProxy<T>` del Visitor (mover al Deserializer)
+   - Eliminar lógica de decisión de creación
+
+**Beneficios:**
+- SRP: El Visitor solo orquesta, el Deserializer crea entidades
+- Un solo punto de creación de entidades
+- Testabilidad: El deserializer es más fácil de testear aislado
 
 ---
 
