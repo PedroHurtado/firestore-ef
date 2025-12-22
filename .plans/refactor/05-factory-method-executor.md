@@ -1,12 +1,16 @@
 # 05 - Factory Method para FirestoreQueryExecutor
 
+**Fecha:** 2025-12-22 (actualizado 09:45)
+**Estado:** COMPLETADO
+**Commit:** `f6ea4f7`
+
 ## Objetivo
 
 Centralizar la creación de `FirestoreQueryExecutor` en un factory method estático para preparar la inyección de dependencias futura.
 
 ---
 
-## Estado Actual
+## Estado Antes del Refactoring
 
 ### Violaciones (4 lugares con `new FirestoreQueryExecutor`)
 
@@ -19,26 +23,29 @@ Centralizar la creación de `FirestoreQueryExecutor` en un factory method estát
 
 ### Contrato Incompleto
 
-`IFirestoreQueryExecutor` no tiene:
+`IFirestoreQueryExecutor` no tenía:
 - `ExecuteAggregationAsync<T>`
-- `BuildQuery`
 - `EvaluateIntExpression`
 
 ---
 
-## Plan de Ejecución
+## Plan de Ejecución (COMPLETADO)
 
-### Paso 1: Agregar método Create en IFirestoreQueryExecutor
+### Paso 1: Agregar métodos al contrato IFirestoreQueryExecutor ✅
 
 ```csharp
-// En IFirestoreQueryExecutor.cs agregar:
+// En IFirestoreQueryExecutor.cs agregado:
 Task<T> ExecuteAggregationAsync<T>(
     FirestoreQueryExpression queryExpression,
     QueryContext queryContext,
     CancellationToken cancellationToken = default);
+
+int EvaluateIntExpression(
+    System.Linq.Expressions.Expression expression,
+    QueryContext queryContext);
 ```
 
-### Paso 2: Crear Factory Method en FirestoreQueryExecutor
+### Paso 2: Crear Factory Method en FirestoreQueryExecutor ✅
 
 ```csharp
 public class FirestoreQueryExecutor : IFirestoreQueryExecutor
@@ -59,132 +66,36 @@ public class FirestoreQueryExecutor : IFirestoreQueryExecutor
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-
-    // ... resto igual
 }
 ```
 
-### Paso 3: Modificar FirestoreQueryingEnumerable
+### Paso 3: Modificar FirestoreQueryingEnumerable ✅
 
-Agregar campo de clase y recibir executor en constructor:
+Agregado campo `_executor` y recibido en constructor. Eliminado Service Locator.
 
-```csharp
-public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>, IEnumerable<T>
-{
-    private readonly QueryContext _queryContext;
-    private readonly FirestoreQueryExpression _queryExpression;
-    private readonly Func<QueryContext, DocumentSnapshot, bool, T> _shaper;
-    private readonly Type _contextType;
-    private readonly bool _isTracking;
-    private readonly IFirestoreQueryExecutor _executor;  // NUEVO
+### Paso 4: Modificar FirestoreAggregationQueryingEnumerable ✅
 
-    public FirestoreQueryingEnumerable(
-        QueryContext queryContext,
-        FirestoreQueryExpression queryExpression,
-        Func<QueryContext, DocumentSnapshot, bool, T> shaper,
-        Type contextType,
-        bool isTracking,
-        IFirestoreQueryExecutor executor)  // NUEVO
-    {
-        // ... validaciones existentes
-        _executor = executor ?? throw new ArgumentNullException(nameof(executor));
-    }
-```
+Mismo patrón que Paso 3.
 
-Eliminar Service Locator y `new` en los Enumerators - usar `_enumerable._executor`:
+### Paso 5: Modificar FirestoreShapedQueryCompilingExpressionVisitor ✅
 
-```csharp
-// ANTES (en InitializeEnumerator / InitializeEnumeratorAsync):
-var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
-var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
-var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
-var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
+- Agregado campo `_queryExecutor`
+- Actualizado constructor
+- Actualizados 4 métodos que crean Enumerables vía Expression Trees
 
-// DESPUÉS:
-var executor = _enumerable._executor;
-```
-
-### Paso 4: Modificar FirestoreAggregationQueryingEnumerable
-
-Mismo patrón:
-
-```csharp
-public class FirestoreAggregationQueryingEnumerable<T> : IAsyncEnumerable<T>, IEnumerable<T>
-{
-    private readonly QueryContext _queryContext;
-    private readonly FirestoreQueryExpression _queryExpression;
-    private readonly Type _contextType;
-    private readonly IFirestoreQueryExecutor _executor;  // NUEVO
-
-    public FirestoreAggregationQueryingEnumerable(
-        QueryContext queryContext,
-        FirestoreQueryExpression queryExpression,
-        Type contextType,
-        IFirestoreQueryExecutor executor)  // NUEVO
-    {
-        // ... validaciones existentes
-        _executor = executor ?? throw new ArgumentNullException(nameof(executor));
-    }
-```
-
-### Paso 5: Modificar FirestoreShapedQueryCompilingExpressionVisitor
-
-Los Enumerables se crean vía Expression Trees en el Visitor:
-
-| Método | Línea | Crea |
-|--------|-------|------|
-| `CreateQueryingEnumerable` | 129 | `FirestoreQueryingEnumerable<T>` |
-| `CreateAggregationQueryExpression` | 158 | `FirestoreAggregationQueryingEnumerable<T>` |
-| `CreateProjectionQueryExpression` | 207 | `FirestoreQueryingEnumerable<T>` |
-| `CreateSubcollectionProjectionQueryExpression` | 260 | `FirestoreQueryingEnumerable<T>` |
-
-**Cambios necesarios:**
-
-1. El Visitor debe tener campo `_queryExecutor` (recibido por constructor)
-2. Agregar `IFirestoreQueryExecutor` como parámetro en `Expression.New()` de cada método
-3. Actualizar `GetConstructor()` para incluir el tipo adicional
-
-```csharp
-// ANTES (línea 130-137):
-var constructor = enumerableType.GetConstructor(new[]
-{
-    typeof(QueryContext),
-    typeof(FirestoreQueryExpression),
-    typeof(Func<,,,>).MakeGenericType(...),
-    typeof(Type),
-    typeof(bool)
-})!;
-
-// DESPUÉS:
-var constructor = enumerableType.GetConstructor(new[]
-{
-    typeof(QueryContext),
-    typeof(FirestoreQueryExpression),
-    typeof(Func<,,,>).MakeGenericType(...),
-    typeof(Type),
-    typeof(bool),
-    typeof(IFirestoreQueryExecutor)  // NUEVO
-})!;
-
-// Y en Expression.New agregar:
-Expression.Constant(_queryExecutor)  // NUEVO
-```
-
-### Paso 6: Modificar FirestoreShapedQueryCompilingExpressionVisitorFactory
-
-El Factory debe crear el executor y pasarlo al Visitor:
+### Paso 6: Modificar FirestoreShapedQueryCompilingExpressionVisitorFactory ✅
 
 ```csharp
 public class FirestoreShapedQueryCompilingExpressionVisitorFactory
 {
     private readonly ShapedQueryCompilingExpressionVisitorDependencies _dependencies;
-    private readonly IFirestoreClientWrapper _clientWrapper;  // NUEVO
-    private readonly ILoggerFactory _loggerFactory;           // NUEVO
+    private readonly IFirestoreClientWrapper _clientWrapper;
+    private readonly ILoggerFactory _loggerFactory;
 
     public FirestoreShapedQueryCompilingExpressionVisitorFactory(
         ShapedQueryCompilingExpressionVisitorDependencies dependencies,
-        IFirestoreClientWrapper clientWrapper,              // NUEVO
-        ILoggerFactory loggerFactory)                       // NUEVO
+        IFirestoreClientWrapper clientWrapper,
+        ILoggerFactory loggerFactory)
     {
         _dependencies = dependencies;
         _clientWrapper = clientWrapper;
@@ -193,7 +104,6 @@ public class FirestoreShapedQueryCompilingExpressionVisitorFactory
 
     public ShapedQueryCompilingExpressionVisitor Create(QueryCompilationContext ctx)
     {
-        // Crear executor usando factory method
         var executor = FirestoreQueryExecutor.Create(
             _clientWrapper,
             _loggerFactory.CreateLogger<FirestoreQueryExecutor>());
@@ -201,23 +111,34 @@ public class FirestoreShapedQueryCompilingExpressionVisitorFactory
         return new FirestoreShapedQueryCompilingExpressionVisitor(
             _dependencies,
             ctx,
-            executor);  // NUEVO
+            executor);
     }
 }
 ```
 
+### Paso 7: Eliminar Service Locator de Enumerators ✅
+
+Ya no resuelven dependencias - usan `_enumerable._executor` directamente.
+
+### Paso 8: Actualizar tests unitarios ✅
+
+- `FirestoreQueryExecutorTest.cs` - Cambiados tests de constructor a factory method
+- `FirestoreQueryingEnumerableTest.cs` - Actualizado para 6 parámetros
+
 ---
 
-## Orden de Cambios
+## Archivos Modificados
 
-1. `IFirestoreQueryExecutor.cs` - Agregar `ExecuteAggregationAsync<T>`
-2. `FirestoreQueryExecutor.cs` - Agregar `Create()`, cambiar constructor a `protected`
-3. `FirestoreQueryingEnumerable.cs` - Agregar campo `_executor`, modificar constructor
-4. `FirestoreAggregationQueryingEnumerable.cs` - Agregar campo `_executor`, modificar constructor
-5. `FirestoreShapedQueryCompilingExpressionVisitor.cs` - Agregar campo `_queryExecutor`, modificar constructor, actualizar 4 métodos que crean Enumerables
-6. `FirestoreShapedQueryCompilingExpressionVisitorFactory.cs` - Inyectar dependencias, crear executor con `Create()`, pasarlo al Visitor
-7. Eliminar Service Locator de los Enumerators (ya no necesitan resolver nada)
-8. Tests unitarios - Actualizar los que usen constructor directamente
+| Archivo | Cambio |
+|---------|--------|
+| `Query/Contracts/IFirestoreQueryExecutor.cs` | +`ExecuteAggregationAsync<T>`, +`EvaluateIntExpression` |
+| `Query/FirestoreQueryExecutor.cs` | +`Create()`, constructor → `protected` |
+| `Query/FirestoreQueryingEnumerable.cs` | +`_executor`, -Service Locator |
+| `Query/FirestoreAggregationQueryingEnumerable.cs` | +`_executor`, -Service Locator |
+| `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` | +`_queryExecutor`, 4 métodos actualizados |
+| `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitorFactory.cs` | +DI, +crear executor |
+| `tests/.../FirestoreQueryExecutorTest.cs` | Tests de factory method |
+| `tests/.../FirestoreQueryingEnumerableTest.cs` | 6 parámetros |
 
 ---
 
@@ -225,18 +146,18 @@ public class FirestoreShapedQueryCompilingExpressionVisitorFactory
 
 ```bash
 dotnet test
-# Esperado: 766 tests pasando
-# Posibles fallos: Tests unitarios que usen constructor directamente
+# Unit tests: 572 passed
+# Integration tests: 195 passed, 3 skipped
 ```
 
 ---
 
-## Resultado Esperado
+## Resultado Final
 
 | Métrica | Antes | Después |
 |---------|-------|---------|
 | `new FirestoreQueryExecutor()` en producción | 4 | 0 |
-| `new FirestoreQueryExecutor()` en tests | 3 | 3 (permitido) |
+| `new FirestoreQueryExecutor()` en tests | 3 | 0 (usan `Create()`) |
 | Service Locator en Enumerables | 8 | 0 |
 | Factory method centralizado | 0 | 1 |
 
@@ -244,9 +165,9 @@ dotnet test
 
 ## Siguiente Paso (Futuro)
 
-Cuando el factory method esté funcionando:
+Cuando se decida registrar en DI:
 
-1. Registrar `IFirestoreQueryExecutor` en DI
-2. Inyectar en el Visitor vía Factory
+1. Registrar `IFirestoreQueryExecutor` en `FirestoreServiceCollectionExtensions`
+2. Inyectar directamente en el Visitor vía Factory
 3. Eliminar el factory method estático
-4. El TODO se resuelve
+4. El TODO en `FirestoreQueryExecutor.Create()` se resuelve
