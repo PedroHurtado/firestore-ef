@@ -188,3 +188,50 @@ public class ProductoCompleto
     public List<int> Cantidades { get; set; } = [];
     public List<string> Etiquetas { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA TESTS DE CONSTRUCTORES CON PARÁMETROS (Ciclo 3)
+// ============================================================================
+
+/// <summary>
+/// Entidad con constructor que recibe TODOS los parámetros.
+/// No tiene constructor sin parámetros.
+/// </summary>
+public class EntityWithFullConstructor
+{
+    public EntityWithFullConstructor(string id, string nombre, decimal precio)
+    {
+        Id = id;
+        Nombre = nombre;
+        Precio = precio;
+    }
+
+    public string Id { get; private set; }
+    public string Nombre { get; private set; }
+    public decimal Precio { get; private set; }
+}
+
+/// <summary>
+/// Entidad con constructor que recibe SOLO ALGUNAS propiedades.
+/// Las demás propiedades tienen setters públicos.
+/// </summary>
+public class EntityWithPartialConstructor
+{
+    public EntityWithPartialConstructor(string id, string nombre)
+    {
+        Id = id;
+        Nombre = nombre;
+    }
+
+    public string Id { get; private set; }
+    public string Nombre { get; private set; }
+
+    // Estas propiedades NO están en el constructor
+    public decimal Precio { get; set; }
+    public bool Activo { get; set; }
+}
+
+/// <summary>
+/// Record (inmutable) - Solo constructor, propiedades son init-only.
+/// </summary>
+public record EntityRecord(string Id, string Nombre, decimal Precio);

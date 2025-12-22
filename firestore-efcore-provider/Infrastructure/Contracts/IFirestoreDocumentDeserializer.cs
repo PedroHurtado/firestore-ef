@@ -6,13 +6,19 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
     /// <summary>
     /// Define el contrato para deserializar DocumentSnapshots de Firestore a entidades C#.
     /// Es el proceso inverso de IFirestoreDocumentSerializer.
+    /// Soporta entidades con constructores sin parámetros, con parámetros, y records.
     /// </summary>
     public interface IFirestoreDocumentDeserializer
     {
         /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
+        /// Soporta:
+        /// - Constructor sin parámetros (new() + property setters)
+        /// - Constructor con parámetros que coinciden con propiedades
+        /// - Constructor parcial (algunos parámetros + property setters para el resto)
+        /// - Records (constructor con todos los parámetros)
         /// </summary>
-        T DeserializeEntity<T>(DocumentSnapshot document) where T : class, new();
+        T DeserializeEntity<T>(DocumentSnapshot document) where T : class;
 
         /// <summary>
         /// Deserializa un DocumentSnapshot en una instancia de entidad existente.
@@ -23,6 +29,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         /// <summary>
         /// Deserializa múltiples documentos
         /// </summary>
-        List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class, new();
+        List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class;
     }
 }

@@ -103,6 +103,38 @@ public class QueryTestDbContext : DbContext
 }
 
 /// <summary>
+/// DbContext para tests de constructores con parámetros (Ciclo 3).
+/// </summary>
+public class ConstructorTestDbContext : DbContext
+{
+    public ConstructorTestDbContext(DbContextOptions<ConstructorTestDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<EntityWithFullConstructor> EntitiesWithFullConstructor => Set<EntityWithFullConstructor>();
+    public DbSet<EntityWithPartialConstructor> EntitiesWithPartialConstructor => Set<EntityWithPartialConstructor>();
+    public DbSet<EntityRecord> EntityRecords => Set<EntityRecord>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<EntityWithFullConstructor>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<EntityWithPartialConstructor>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<EntityRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+    }
+}
+
+/// <summary>
 /// DbContext con Query Filter global para multi-tenancy.
 /// Implementa el patrón de filtrado automático por TenantId usando HasQueryFilter de EF Core.
 /// </summary>

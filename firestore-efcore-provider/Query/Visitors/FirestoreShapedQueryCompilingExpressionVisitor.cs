@@ -1178,7 +1178,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
             bool isTracking,
-            FirestoreQueryExpression queryExpression) where T : class, new()
+            FirestoreQueryExpression queryExpression) where T : class
         {
             var dbContext = queryContext.Context;
             var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
@@ -1207,16 +1207,21 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 collectionManager,
                 deserializerLogger);
 
-            // Intentar crear proxy si lazy loading está habilitado
-            var entity = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
-            if (entity != null)
+            // Intentar crear proxy si lazy loading está habilitado y el tipo tiene constructor sin parámetros
+            T? entity = null;
+            if (typeof(T).GetConstructor(Type.EmptyTypes) != null)
             {
-                // Poblar el proxy con los datos del documento
-                deserializer.DeserializeIntoEntity(documentSnapshot, entity);
+                entity = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
+                if (entity != null)
+                {
+                    // Poblar el proxy con los datos del documento
+                    deserializer.DeserializeIntoEntity(documentSnapshot, entity);
+                }
             }
-            else
+
+            // Si no hay proxy (o no tiene constructor sin parámetros), el deserializer crea la entidad
+            if (entity == null)
             {
-                // Crear entidad normal
                 entity = deserializer.DeserializeEntity<T>(documentSnapshot);
             }
 

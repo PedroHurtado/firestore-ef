@@ -37,12 +37,201 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
+        /// Soporta:
+        /// - Constructor sin parámetros (new() + property setters)
+        /// - Constructor con parámetros que coinciden con propiedades
+        /// - Constructor parcial (algunos parámetros + property setters para el resto)
+        /// - Records (constructor con todos los parámetros)
         /// </summary>
-        public T DeserializeEntity<T>(DocumentSnapshot document) where T : class, new()
+        public T DeserializeEntity<T>(DocumentSnapshot document) where T : class
         {
-            var entity = new T();
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            if (!document.Exists)
+                throw new InvalidOperationException($"Document does not exist: {document.Reference.Path}");
+
+            var entityType = _model.FindEntityType(typeof(T));
+            if (entityType == null)
+                throw new InvalidOperationException($"Entity type {typeof(T).Name} not found in model");
+
+            var data = document.ToDictionary();
+
+            // Crear entidad usando el constructor apropiado
+            var entity = CreateEntityInstance<T>(document.Id, data, entityType);
+
+            // Poblar propiedades que no fueron seteadas por el constructor
             return DeserializeIntoEntity(document, entity);
+        }
+
+        /// <summary>
+        /// Crea una instancia de la entidad usando el constructor apropiado.
+        /// Prioridad:
+        /// 1. Constructor sin parámetros (si existe)
+        /// 2. Constructor con parámetros que coinciden con propiedades del documento
+        /// </summary>
+        private T CreateEntityInstance<T>(string documentId, IDictionary<string, object> data, IEntityType entityType) where T : class
+        {
+            var type = typeof(T);
+            var constructors = type.GetConstructors();
+
+            // Primero intentar constructor sin parámetros
+            var parameterlessConstructor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
+            if (parameterlessConstructor != null)
+            {
+                return (T)parameterlessConstructor.Invoke(Array.Empty<object>());
+            }
+
+            // Si no hay constructor sin parámetros, buscar el mejor constructor con parámetros
+            var constructor = SelectBestConstructor(constructors, data, entityType);
+            if (constructor == null)
+            {
+                throw new InvalidOperationException(
+                    $"No suitable constructor found for type {type.Name}. " +
+                    "Ensure it has a parameterless constructor or a constructor with parameters matching property names.");
+            }
+
+            // Preparar argumentos para el constructor
+            var args = PrepareConstructorArguments(constructor, documentId, data, entityType);
+            return (T)constructor.Invoke(args);
+        }
+
+        /// <summary>
+        /// Selecciona el mejor constructor basado en los parámetros disponibles.
+        /// Busca constructores cuyos parámetros coincidan con propiedades de la entidad.
+        /// </summary>
+        private static ConstructorInfo? SelectBestConstructor(
+            ConstructorInfo[] constructors,
+            IDictionary<string, object> data,
+            IEntityType entityType)
+        {
+            var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
+
+            // Filtrar constructores cuyos parámetros coincidan con propiedades
+            var validConstructors = new List<(ConstructorInfo constructor, int matchCount)>();
+
+            foreach (var constructor in constructors)
+            {
+                var parameters = constructor.GetParameters();
+                var allMatch = true;
+                var matchCount = 0;
+
+                foreach (var param in parameters)
+                {
+                    // Verificar si el parámetro coincide con una propiedad (case-insensitive)
+                    var matchesKey = param.Name?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false;
+                    var matchesData = data.Keys.Any(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchesKey || matchesData)
+                    {
+                        matchCount++;
+                    }
+                    else
+                    {
+                        allMatch = false;
+                        break;
+                    }
+                }
+
+                if (allMatch)
+                {
+                    validConstructors.Add((constructor, matchCount));
+                }
+            }
+
+            // Retornar el constructor con más parámetros que coincidan
+            return validConstructors
+                .OrderByDescending(x => x.matchCount)
+                .Select(x => x.constructor)
+                .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Prepara los argumentos para invocar el constructor.
+        /// </summary>
+        private object?[] PrepareConstructorArguments(
+            ConstructorInfo constructor,
+            string documentId,
+            IDictionary<string, object> data,
+            IEntityType entityType)
+        {
+            var parameters = constructor.GetParameters();
+            var args = new object?[parameters.Length];
+            var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var param = parameters[i];
+                var paramName = param.Name;
+
+                // ¿Es la clave primaria (Id)?
+                if (paramName?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false)
+                {
+                    args[i] = ConvertToParameterType(documentId, param.ParameterType);
+                    continue;
+                }
+
+                // Buscar en el diccionario de datos (case-insensitive)
+                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(paramName, StringComparison.OrdinalIgnoreCase));
+                if (dataKey != null && data.TryGetValue(dataKey, out var value))
+                {
+                    // Buscar la propiedad correspondiente para aplicar conversiones
+                    var property = entityType.GetProperties()
+                        .FirstOrDefault(p => p.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
+
+                    if (property != null && value != null)
+                    {
+                        args[i] = ApplyReverseConverter(property, value);
+                    }
+                    else
+                    {
+                        args[i] = ConvertToParameterType(value, param.ParameterType);
+                    }
+                }
+                else
+                {
+                    // Usar valor por defecto del tipo
+                    args[i] = param.ParameterType.IsValueType
+                        ? Activator.CreateInstance(param.ParameterType)
+                        : null;
+                }
+            }
+
+            return args;
+        }
+
+        /// <summary>
+        /// Convierte un valor al tipo de parámetro esperado.
+        /// </summary>
+        private static object? ConvertToParameterType(object? value, Type targetType)
+        {
+            if (value == null)
+                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+
+            if (targetType.IsAssignableFrom(value.GetType()))
+                return value;
+
+            // Conversión double → decimal
+            if (value is double d && targetType == typeof(decimal))
+                return (decimal)d;
+
+            // Conversión Timestamp → DateTime
+            if (value is Google.Cloud.Firestore.Timestamp timestamp && targetType == typeof(DateTime))
+                return timestamp.ToDateTime();
+
+            // Conversión string → enum
+            if (value is string s && targetType.IsEnum)
+                return Enum.Parse(targetType, s, ignoreCase: true);
+
+            try
+            {
+                return Convert.ChangeType(value, targetType);
+            }
+            catch
+            {
+                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+            }
         }
 
         /// <summary>
@@ -85,7 +274,7 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// <summary>
         /// Deserializa múltiples documentos
         /// </summary>
-        public List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class, new()
+        public List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class
         {
             var results = new List<T>();
             foreach (var document in documents)
