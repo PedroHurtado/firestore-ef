@@ -1207,23 +1207,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 collectionManager,
                 deserializerLogger);
 
-            // Intentar crear proxy si lazy loading está habilitado y el tipo tiene constructor sin parámetros
-            T? entity = null;
-            if (typeof(T).GetConstructor(Type.EmptyTypes) != null)
-            {
-                entity = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
-                if (entity != null)
-                {
-                    // Poblar el proxy con los datos del documento
-                    deserializer.DeserializeIntoEntity(documentSnapshot, entity);
-                }
-            }
-
-            // Si no hay proxy (o no tiene constructor sin parámetros), el deserializer crea la entidad
-            if (entity == null)
-            {
-                entity = deserializer.DeserializeEntity<T>(documentSnapshot);
-            }
+            // El deserializer se encarga de crear la entidad (con proxy si lazy loading está habilitado)
+            var entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext, serviceProvider);
 
             // Cargar includes de navegaciones normales
             if (queryExpression.PendingIncludes.Count > 0)
@@ -1447,7 +1432,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
 
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .GetMethods()
+                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
 
             // Buscar IncludeInfo para esta navegación (para Filtered Includes)
@@ -1601,7 +1587,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return;
 
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .GetMethods()
+                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
 
             var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
@@ -1780,7 +1767,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             // Deserialize the referenced entity
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethod(nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity))!
+                .GetMethods()
+                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
                 .MakeGenericMethod(referenceProperty.PropertyType);
 
             var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
@@ -1795,93 +1783,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                 // Set the reference property on the ComplexType instance
                 referenceProperty.SetValue(complexTypeInstance, referencedEntity);
-            }
-        }
-
-        #endregion
-
-        #region Lazy Loading Proxy Support
-
-        /// <summary>
-        /// Attempts to create a lazy loading proxy for the entity type.
-        /// Returns null if lazy loading proxies are not enabled.
-        /// Uses reflection to avoid direct dependency on Microsoft.EntityFrameworkCore.Proxies.
-        /// </summary>
-        private static T? TryCreateLazyLoadingProxy<T>(DbContext dbContext, IServiceProvider serviceProvider) where T : class
-        {
-            try
-            {
-                // Find Proxies assembly (only loaded if UseLazyLoadingProxies() was called)
-                var proxiesAssembly = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Proxies");
-                if (proxiesAssembly == null)
-                    return null;
-
-                // Get IProxyFactory type and service
-                var proxyFactoryType = proxiesAssembly.GetTypes()
-                    .FirstOrDefault(t => t.Name == "IProxyFactory");
-                if (proxyFactoryType == null)
-                    return null;
-
-                var proxyFactory = serviceProvider.GetService(proxyFactoryType);
-                if (proxyFactory == null)
-                    return null;
-
-                var entityType = dbContext.Model.FindEntityType(typeof(T));
-                if (entityType == null)
-                    return null;
-
-                // Get ILazyLoader type from Abstractions assembly
-                var lazyLoaderType = AppDomain.CurrentDomain.GetAssemblies()
-                    .Where(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Abstractions")
-                    .SelectMany(a => a.GetTypes())
-                    .FirstOrDefault(t => t.Name == "ILazyLoader");
-                if (lazyLoaderType == null)
-                    return null;
-
-                // Get or create LazyLoader instance
-                object? lazyLoader = serviceProvider.GetService(lazyLoaderType);
-                if (lazyLoader == null)
-                {
-                    // LazyLoader is not a singleton - create via factory
-                    var loaderFactoryType = AppDomain.CurrentDomain.GetAssemblies()
-                        .SelectMany(a => a.GetTypes())
-                        .FirstOrDefault(t => t.Name == "ILazyLoaderFactory");
-
-                    if (loaderFactoryType != null)
-                    {
-                        var loaderFactory = serviceProvider.GetService(loaderFactoryType);
-                        var createMethod = loaderFactoryType.GetMethod("Create");
-                        if (loaderFactory != null && createMethod != null)
-                        {
-                            lazyLoader = createMethod.Invoke(loaderFactory, new object[] { dbContext });
-                        }
-                    }
-                }
-
-                if (lazyLoader == null)
-                    return null;
-
-                // Find and invoke CreateLazyLoadingProxy(DbContext, IEntityType, ILazyLoader, object[])
-                var createProxyMethod = proxyFactoryType.GetMethods()
-                    .FirstOrDefault(m => m.Name == "CreateLazyLoadingProxy" && m.GetParameters().Length == 4);
-                if (createProxyMethod == null)
-                    return null;
-
-                var proxy = createProxyMethod.Invoke(proxyFactory, new object[]
-                {
-                    dbContext,
-                    entityType,
-                    lazyLoader,
-                    Array.Empty<object>()
-                });
-
-                return proxy as T;
-            }
-            catch
-            {
-                // If proxy creation fails for any reason, fall back to normal entity
-                return null;
             }
         }
 

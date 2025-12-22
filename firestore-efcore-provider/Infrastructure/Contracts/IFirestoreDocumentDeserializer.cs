@@ -1,4 +1,6 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
+using System;
 using System.Collections.Generic;
 
 namespace Firestore.EntityFrameworkCore.Infrastructure
@@ -19,6 +21,15 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         /// - Records (constructor con todos los parámetros)
         /// </summary>
         T DeserializeEntity<T>(DocumentSnapshot document) where T : class;
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
+        /// Si se proporciona DbContext y lazy loading está habilitado, crea un proxy.
+        /// </summary>
+        /// <param name="document">El documento de Firestore a deserializar</param>
+        /// <param name="dbContext">DbContext para crear lazy loading proxies (opcional)</param>
+        /// <param name="serviceProvider">ServiceProvider para resolver dependencias de proxy (opcional)</param>
+        T DeserializeEntity<T>(DocumentSnapshot document, DbContext? dbContext, IServiceProvider? serviceProvider) where T : class;
 
         /// <summary>
         /// Deserializa un DocumentSnapshot en una instancia de entidad existente.

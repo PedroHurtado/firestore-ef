@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
@@ -46,6 +47,15 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         public T DeserializeEntity<T>(DocumentSnapshot document) where T : class
         {
+            return DeserializeEntity<T>(document, null, null);
+        }
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
+        /// Si se proporciona DbContext y lazy loading está habilitado, crea un proxy.
+        /// </summary>
+        public T DeserializeEntity<T>(DocumentSnapshot document, DbContext? dbContext, IServiceProvider? serviceProvider) where T : class
+        {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -55,6 +65,16 @@ namespace Firestore.EntityFrameworkCore.Storage
             var entityType = _model.FindEntityType(typeof(T));
             if (entityType == null)
                 throw new InvalidOperationException($"Entity type {typeof(T).Name} not found in model");
+
+            // Intentar crear lazy loading proxy si está habilitado
+            if (dbContext != null && serviceProvider != null && typeof(T).GetConstructor(Type.EmptyTypes) != null)
+            {
+                var proxy = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
+                if (proxy != null)
+                {
+                    return DeserializeIntoEntity(document, proxy);
+                }
+            }
 
             var data = document.ToDictionary();
 
@@ -741,5 +761,92 @@ namespace Firestore.EntityFrameworkCore.Storage
                 ?? throw new InvalidOperationException(
                     $"Type '{type.Name}' must have a 'Longitude' or 'Longitud' property to use HasGeoPoint()");
         }
+
+        #region Lazy Loading Proxy Support
+
+        /// <summary>
+        /// Attempts to create a lazy loading proxy for the entity type.
+        /// Returns null if lazy loading proxies are not enabled.
+        /// Uses reflection to avoid direct dependency on Microsoft.EntityFrameworkCore.Proxies.
+        /// </summary>
+        private static T? TryCreateLazyLoadingProxy<T>(DbContext dbContext, IServiceProvider serviceProvider) where T : class
+        {
+            try
+            {
+                // Find Proxies assembly (only loaded if UseLazyLoadingProxies() was called)
+                var proxiesAssembly = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Proxies");
+                if (proxiesAssembly == null)
+                    return null;
+
+                // Get IProxyFactory type and service
+                var proxyFactoryType = proxiesAssembly.GetTypes()
+                    .FirstOrDefault(t => t.Name == "IProxyFactory");
+                if (proxyFactoryType == null)
+                    return null;
+
+                var proxyFactory = serviceProvider.GetService(proxyFactoryType);
+                if (proxyFactory == null)
+                    return null;
+
+                var entityType = dbContext.Model.FindEntityType(typeof(T));
+                if (entityType == null)
+                    return null;
+
+                // Get ILazyLoader type from Abstractions assembly
+                var lazyLoaderType = AppDomain.CurrentDomain.GetAssemblies()
+                    .Where(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Abstractions")
+                    .SelectMany(a => a.GetTypes())
+                    .FirstOrDefault(t => t.Name == "ILazyLoader");
+                if (lazyLoaderType == null)
+                    return null;
+
+                // Get or create LazyLoader instance
+                object? lazyLoader = serviceProvider.GetService(lazyLoaderType);
+                if (lazyLoader == null)
+                {
+                    // LazyLoader is not a singleton - create via factory
+                    var loaderFactoryType = AppDomain.CurrentDomain.GetAssemblies()
+                        .SelectMany(a => a.GetTypes())
+                        .FirstOrDefault(t => t.Name == "ILazyLoaderFactory");
+
+                    if (loaderFactoryType != null)
+                    {
+                        var loaderFactory = serviceProvider.GetService(loaderFactoryType);
+                        var createMethod = loaderFactoryType.GetMethod("Create");
+                        if (loaderFactory != null && createMethod != null)
+                        {
+                            lazyLoader = createMethod.Invoke(loaderFactory, new object[] { dbContext });
+                        }
+                    }
+                }
+
+                if (lazyLoader == null)
+                    return null;
+
+                // Find and invoke CreateLazyLoadingProxy(DbContext, IEntityType, ILazyLoader, object[])
+                var createProxyMethod = proxyFactoryType.GetMethods()
+                    .FirstOrDefault(m => m.Name == "CreateLazyLoadingProxy" && m.GetParameters().Length == 4);
+                if (createProxyMethod == null)
+                    return null;
+
+                var proxy = createProxyMethod.Invoke(proxyFactory, new object[]
+                {
+                    dbContext,
+                    entityType,
+                    lazyLoader,
+                    Array.Empty<object>()
+                });
+
+                return proxy as T;
+            }
+            catch
+            {
+                // If proxy creation fails for any reason, fall back to normal entity
+                return null;
+            }
+        }
+
+        #endregion
     }
 }

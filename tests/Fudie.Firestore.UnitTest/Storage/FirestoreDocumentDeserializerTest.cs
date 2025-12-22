@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Linq;
 
 namespace Fudie.Firestore.UnitTest.Storage;
 
@@ -601,11 +602,15 @@ public class FirestoreDocumentDeserializerTest
         // Arrange
         var interfaceType = typeof(IFirestoreDocumentDeserializer);
 
-        // Act
-        var method = interfaceType.GetMethod("DeserializeEntity");
+        // Act - Hay dos sobrecargas de DeserializeEntity
+        var methods = interfaceType.GetMethods()
+            .Where(m => m.Name == "DeserializeEntity")
+            .ToArray();
 
-        // Assert
-        Assert.NotNull(method);
+        // Assert - Verificar que existen las dos sobrecargas
+        Assert.Equal(2, methods.Length);
+        Assert.Contains(methods, m => m.GetParameters().Length == 1); // Solo DocumentSnapshot
+        Assert.Contains(methods, m => m.GetParameters().Length == 3); // DocumentSnapshot, DbContext, IServiceProvider
     }
 
     [Fact]
