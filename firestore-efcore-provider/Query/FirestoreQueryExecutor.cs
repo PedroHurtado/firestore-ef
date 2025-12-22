@@ -762,7 +762,8 @@ namespace Firestore.EntityFrameworkCore.Query
         private async Task<T> ExecuteCountAsync<T>(Google.Cloud.Firestore.Query query, CancellationToken cancellationToken)
         {
             var aggregateQuery = query.Count();
-            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
             var count = snapshot.Count ?? 0;
 
             _logger.LogInformation("Count result: {Count}", count);
@@ -775,7 +776,8 @@ namespace Firestore.EntityFrameworkCore.Query
         {
             // Use Limit(1) and check if any documents exist
             var limitedQuery = query.Limit(1);
-            var snapshot = await limitedQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteQueryAsync(limitedQuery, cancellationToken);
             var exists = snapshot.Count > 0;
 
             _logger.LogInformation("Any result: {Exists}", exists);
@@ -794,7 +796,8 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var aggregateQuery = query.Aggregate(AggregateField.Sum(queryExpression.AggregationPropertyName));
-            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
 
             // Get the sum value - Firestore returns it as the first (and only) aggregate field
             var sumValue = snapshot.GetValue<double?>(AggregateField.Sum(queryExpression.AggregationPropertyName));
@@ -817,7 +820,8 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             var aggregateQuery = query.Aggregate(AggregateField.Average(queryExpression.AggregationPropertyName));
-            var snapshot = await aggregateQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
 
             var avgValue = snapshot.GetValue<double?>(AggregateField.Average(queryExpression.AggregationPropertyName));
 
@@ -845,7 +849,8 @@ namespace Firestore.EntityFrameworkCore.Query
 
             // Firestore doesn't support Min natively - use OrderBy + Limit(1)
             var minQuery = query.OrderBy(queryExpression.AggregationPropertyName).Limit(1);
-            var snapshot = await minQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteQueryAsync(minQuery, cancellationToken);
 
             if (snapshot.Count == 0)
             {
@@ -873,7 +878,8 @@ namespace Firestore.EntityFrameworkCore.Query
 
             // Firestore doesn't support Max natively - use OrderByDescending + Limit(1)
             var maxQuery = query.OrderByDescending(queryExpression.AggregationPropertyName).Limit(1);
-            var snapshot = await maxQuery.GetSnapshotAsync(cancellationToken);
+            // Ciclo 11: Usar wrapper en lugar de llamada directa al SDK
+            var snapshot = await _client.ExecuteQueryAsync(maxQuery, cancellationToken);
 
             if (snapshot.Count == 0)
             {
