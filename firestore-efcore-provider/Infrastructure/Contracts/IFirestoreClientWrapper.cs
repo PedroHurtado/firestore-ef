@@ -20,5 +20,23 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         WriteBatch CreateBatch();
         CollectionReference GetCollection(string collection);
         DocumentReference GetDocument(string collection, string documentId);
+
+        /// <summary>
+        /// Ejecuta una query de agregación (Count, Sum, Average, Min, Max).
+        /// Centraliza las operaciones de agregación para eliminar bypasses.
+        /// </summary>
+        Task<AggregateQuerySnapshot> ExecuteAggregateQueryAsync(AggregateQuery query, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Obtiene los documentos de una subcollection.
+        /// Centraliza la carga de subcollections para eliminar bypasses en el Visitor.
+        /// </summary>
+        Task<QuerySnapshot> GetSubCollectionAsync(DocumentReference parentDoc, string subCollectionName, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Obtiene un documento por su referencia directa.
+        /// Centraliza la resolución de referencias para eliminar bypasses en el Visitor.
+        /// </summary>
+        Task<DocumentSnapshot> GetDocumentByReferenceAsync(DocumentReference docRef, CancellationToken cancellationToken = default);
     }
 }

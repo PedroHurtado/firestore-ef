@@ -1,7 +1,7 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Infrastructure.Internal;
 using Google.Cloud.Firestore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
+using Moq;
 
 namespace Fudie.Firestore.UnitTest.Infrastructure;
 
@@ -152,4 +152,193 @@ public class FirestoreClientWrapperTest
         Assert.NotNull(interfaceType.GetMethod("GetCollection"));
         Assert.NotNull(interfaceType.GetMethod("GetDocument"));
     }
+
+    #region Ciclo 7: Nuevos métodos para eliminar bypasses
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper tiene método ExecuteAggregateQueryAsync.
+    /// Necesario para eliminar bypasses de agregaciones (Count, Sum, Average, Min, Max).
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_ShouldHaveExecuteAggregateQueryAsyncMethod()
+    {
+        // Assert
+        var method = typeof(IFirestoreClientWrapper).GetMethod("ExecuteAggregateQueryAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper tiene método GetSubCollectionAsync.
+    /// Necesario para eliminar bypass en LoadSubCollectionAsync del Visitor.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_ShouldHaveGetSubCollectionAsyncMethod()
+    {
+        // Assert
+        var method = typeof(IFirestoreClientWrapper).GetMethod("GetSubCollectionAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper tiene método GetDocumentByReferenceAsync.
+    /// Necesario para eliminar bypasses en LoadReferenceAsync del Visitor.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_ShouldHaveGetDocumentByReferenceAsyncMethod()
+    {
+        // Assert
+        var method = typeof(IFirestoreClientWrapper).GetMethod("GetDocumentByReferenceAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que FirestoreClientWrapper implementa el nuevo método ExecuteAggregateQueryAsync.
+    /// </summary>
+    [Fact]
+    public void FirestoreClientWrapper_ShouldHaveExecuteAggregateQueryAsyncMethod()
+    {
+        // Assert
+        var method = typeof(FirestoreClientWrapper).GetMethod("ExecuteAggregateQueryAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que FirestoreClientWrapper implementa el nuevo método GetSubCollectionAsync.
+    /// </summary>
+    [Fact]
+    public void FirestoreClientWrapper_ShouldHaveGetSubCollectionAsyncMethod()
+    {
+        // Assert
+        var method = typeof(FirestoreClientWrapper).GetMethod("GetSubCollectionAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que FirestoreClientWrapper implementa el nuevo método GetDocumentByReferenceAsync.
+    /// </summary>
+    [Fact]
+    public void FirestoreClientWrapper_ShouldHaveGetDocumentByReferenceAsyncMethod()
+    {
+        // Assert
+        var method = typeof(FirestoreClientWrapper).GetMethod("GetDocumentByReferenceAsync");
+        Assert.NotNull(method);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper puede ser mockeado con ExecuteAggregateQueryAsync.
+    /// Esto asegura que el método está correctamente definido para ser usado por otros componentes.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_ExecuteAggregateQueryAsync_CanBeMocked()
+    {
+        // Arrange
+        var mockWrapper = new Mock<IFirestoreClientWrapper>();
+
+        // Act - Configurar el mock (verifica que el método existe y tiene la firma correcta)
+        mockWrapper
+            .Setup(w => w.ExecuteAggregateQueryAsync(
+                It.IsAny<AggregateQuery>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult<AggregateQuerySnapshot>(null!));
+
+        // Assert - El mock se configura sin errores
+        Assert.NotNull(mockWrapper.Object);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper puede ser mockeado con GetSubCollectionAsync.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_GetSubCollectionAsync_CanBeMocked()
+    {
+        // Arrange
+        var mockWrapper = new Mock<IFirestoreClientWrapper>();
+
+        // Act - Configurar el mock
+        mockWrapper
+            .Setup(w => w.GetSubCollectionAsync(
+                It.IsAny<DocumentReference>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult<QuerySnapshot>(null!));
+
+        // Assert
+        Assert.NotNull(mockWrapper.Object);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que IFirestoreClientWrapper puede ser mockeado con GetDocumentByReferenceAsync.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_GetDocumentByReferenceAsync_CanBeMocked()
+    {
+        // Arrange
+        var mockWrapper = new Mock<IFirestoreClientWrapper>();
+
+        // Act - Configurar el mock
+        mockWrapper
+            .Setup(w => w.GetDocumentByReferenceAsync(
+                It.IsAny<DocumentReference>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult<DocumentSnapshot>(null!));
+
+        // Assert
+        Assert.NotNull(mockWrapper.Object);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que los nuevos métodos tienen los tipos de retorno correctos.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_NewMethods_ShouldHaveCorrectReturnTypes()
+    {
+        // Assert - ExecuteAggregateQueryAsync
+        var aggregateMethod = typeof(IFirestoreClientWrapper).GetMethod("ExecuteAggregateQueryAsync");
+        Assert.NotNull(aggregateMethod);
+        Assert.Equal(typeof(Task<AggregateQuerySnapshot>), aggregateMethod.ReturnType);
+
+        // Assert - GetSubCollectionAsync
+        var subCollectionMethod = typeof(IFirestoreClientWrapper).GetMethod("GetSubCollectionAsync");
+        Assert.NotNull(subCollectionMethod);
+        Assert.Equal(typeof(Task<QuerySnapshot>), subCollectionMethod.ReturnType);
+
+        // Assert - GetDocumentByReferenceAsync
+        var docByRefMethod = typeof(IFirestoreClientWrapper).GetMethod("GetDocumentByReferenceAsync");
+        Assert.NotNull(docByRefMethod);
+        Assert.Equal(typeof(Task<DocumentSnapshot>), docByRefMethod.ReturnType);
+    }
+
+    /// <summary>
+    /// Ciclo 7: Verifica que los nuevos métodos tienen los parámetros correctos.
+    /// </summary>
+    [Fact]
+    public void IFirestoreClientWrapper_NewMethods_ShouldHaveCorrectParameters()
+    {
+        // ExecuteAggregateQueryAsync: (AggregateQuery, CancellationToken)
+        var aggregateMethod = typeof(IFirestoreClientWrapper).GetMethod("ExecuteAggregateQueryAsync");
+        Assert.NotNull(aggregateMethod);
+        var aggregateParams = aggregateMethod.GetParameters();
+        Assert.Equal(2, aggregateParams.Length);
+        Assert.Equal(typeof(AggregateQuery), aggregateParams[0].ParameterType);
+        Assert.Equal(typeof(CancellationToken), aggregateParams[1].ParameterType);
+
+        // GetSubCollectionAsync: (DocumentReference, string, CancellationToken)
+        var subCollectionMethod = typeof(IFirestoreClientWrapper).GetMethod("GetSubCollectionAsync");
+        Assert.NotNull(subCollectionMethod);
+        var subCollectionParams = subCollectionMethod.GetParameters();
+        Assert.Equal(3, subCollectionParams.Length);
+        Assert.Equal(typeof(DocumentReference), subCollectionParams[0].ParameterType);
+        Assert.Equal(typeof(string), subCollectionParams[1].ParameterType);
+        Assert.Equal(typeof(CancellationToken), subCollectionParams[2].ParameterType);
+
+        // GetDocumentByReferenceAsync: (DocumentReference, CancellationToken)
+        var docByRefMethod = typeof(IFirestoreClientWrapper).GetMethod("GetDocumentByReferenceAsync");
+        Assert.NotNull(docByRefMethod);
+        var docByRefParams = docByRefMethod.GetParameters();
+        Assert.Equal(2, docByRefParams.Length);
+        Assert.Equal(typeof(DocumentReference), docByRefParams[0].ParameterType);
+        Assert.Equal(typeof(CancellationToken), docByRefParams[1].ParameterType);
+    }
+
+    #endregion
 }

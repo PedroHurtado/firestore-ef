@@ -26,7 +26,7 @@ Refactorización para:
 | 4 | `List<T>` en navegaciones (ya funciona) | ✅ | 2dc29f7 | 1 |
 | 5 | `ICollection<T>` en navegaciones | ✅ | 2dc29f7 | 2 |
 | 6 | `HashSet<T>` en navegaciones | ✅ | 2dc29f7 | 3 |
-| 7 | `IFirestoreClientWrapper` - Agregar métodos faltantes | ⏳ | | |
+| 7 | `IFirestoreClientWrapper` - Agregar métodos faltantes | ✅ | 0762f46 | 11 |
 | 8 | `INavigationLoader` - Crear interfaz e implementación | ⏳ | | |
 | 9 | Extraer `LoadSubCollectionAsync` del Visitor | ⏳ | | |
 | 10 | Extraer `LoadReferenceAsync` del Visitor | ⏳ | | |

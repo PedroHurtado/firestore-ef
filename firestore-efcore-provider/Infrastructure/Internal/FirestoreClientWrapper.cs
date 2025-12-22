@@ -135,6 +135,25 @@ namespace Firestore.EntityFrameworkCore.Infrastructure.Internal
             return _db.Collection(collection).Document(documentId);
         }
 
+        public async Task<AggregateQuerySnapshot> ExecuteAggregateQueryAsync(
+            AggregateQuery query, CancellationToken cancellationToken = default)
+        {
+            return await query.GetSnapshotAsync(cancellationToken);
+        }
+
+        public async Task<QuerySnapshot> GetSubCollectionAsync(
+            DocumentReference parentDoc, string subCollectionName, CancellationToken cancellationToken = default)
+        {
+            var subCollectionRef = parentDoc.Collection(subCollectionName);
+            return await subCollectionRef.GetSnapshotAsync(cancellationToken);
+        }
+
+        public async Task<DocumentSnapshot> GetDocumentByReferenceAsync(
+            DocumentReference docRef, CancellationToken cancellationToken = default)
+        {
+            return await docRef.GetSnapshotAsync(cancellationToken);
+        }
+
         public void Dispose()
         {
             if (!_disposed)
