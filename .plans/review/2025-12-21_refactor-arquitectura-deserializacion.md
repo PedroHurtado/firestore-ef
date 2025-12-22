@@ -29,7 +29,7 @@ Refactorización para:
 | 7 | `IFirestoreClientWrapper` - Agregar métodos faltantes | ✅ | 0762f46 | 11 |
 | 8 | `INavigationLoader` - Crear interfaz e implementación | ✅ | 9d39e29 | 7 |
 | 9 | Eliminar bypass subcollection del Visitor | ✅ | c02bf88 | 1 |
-| 10 | Extraer `LoadReferenceAsync` del Visitor | ⏳ | | |
+| 10 | Eliminar bypasses de referencias del Visitor | ✅ | ea0baff | 4 |
 | 11 | Eliminar bypasses en agregaciones | ⏳ | | |
 | 12 | `IFirestoreQueryExecutor` - Crear interfaz | ⏳ | | |
 
