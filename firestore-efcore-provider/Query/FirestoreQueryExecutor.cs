@@ -15,7 +15,7 @@ namespace Firestore.EntityFrameworkCore.Query
     /// Ejecuta queries de Firestore construyendo Google.Cloud.Firestore.Query
     /// desde FirestoreQueryExpression y retornando QuerySnapshot.
     /// </summary>
-    public class FirestoreQueryExecutor
+    public class FirestoreQueryExecutor : IFirestoreQueryExecutor
     {
         private readonly IFirestoreClientWrapper _client;
         private readonly ILogger<FirestoreQueryExecutor> _logger;

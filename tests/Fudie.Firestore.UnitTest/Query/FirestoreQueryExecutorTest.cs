@@ -274,4 +274,62 @@ public class FirestoreQueryExecutorTest
     }
 
     #endregion
+
+    #region Ciclo 12: IFirestoreQueryExecutor Interface Tests
+
+    /// <summary>
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor existe.
+    /// </summary>
+    [Fact]
+    public void IFirestoreQueryExecutor_ShouldExist()
+    {
+        var interfaceType = typeof(IFirestoreQueryExecutor);
+
+        interfaceType.Should().NotBeNull();
+        interfaceType.IsInterface.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Ciclo 12: Verifica que FirestoreQueryExecutor implementa IFirestoreQueryExecutor.
+    /// </summary>
+    [Fact]
+    public void FirestoreQueryExecutor_ShouldImplementIFirestoreQueryExecutor()
+    {
+        typeof(IFirestoreQueryExecutor).IsAssignableFrom(typeof(FirestoreQueryExecutor)).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteQueryAsync.
+    /// </summary>
+    [Fact]
+    public void IFirestoreQueryExecutor_ShouldHaveExecuteQueryAsyncMethod()
+    {
+        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteQueryAsync");
+
+        method.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync.
+    /// </summary>
+    [Fact]
+    public void IFirestoreQueryExecutor_ShouldHaveExecuteIdQueryAsyncMethod()
+    {
+        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteIdQueryAsync");
+
+        method.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor puede ser mockeado.
+    /// </summary>
+    [Fact]
+    public void IFirestoreQueryExecutor_CanBeMocked()
+    {
+        var mockExecutor = new Mock<IFirestoreQueryExecutor>();
+
+        mockExecutor.Object.Should().NotBeNull();
+    }
+
+    #endregion
 }

@@ -30,8 +30,8 @@ Refactorización para:
 | 8 | `INavigationLoader` - Crear interfaz e implementación | ✅ | 9d39e29 | 7 |
 | 9 | Eliminar bypass subcollection del Visitor | ✅ | c02bf88 | 1 |
 | 10 | Eliminar bypasses de referencias del Visitor | ✅ | c5fde6a | 4 |
-| 11 | Eliminar bypasses en agregaciones (6) | ✅ | 2c40643 | 6 |
-| 12 | `IFirestoreQueryExecutor` - Crear interfaz | ⏳ | | |
+| 11 | Eliminar bypasses en agregaciones (6) | ✅ | 618ebe6 | 6 |
+| 12 | `IFirestoreQueryExecutor` - Crear interfaz | ✅ | fd47a13 | 5 |
 
 ---
 
