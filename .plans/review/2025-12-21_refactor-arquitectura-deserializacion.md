@@ -21,7 +21,7 @@ Refactorización para:
 |-------|----------------|--------|--------|-------|
 | 1 | `IFirestoreDocumentDeserializer` - Crear interfaz | ✅ | 905a50e | 3 |
 | 2 | Constructor sin parámetros (ya funciona) | ✅ | 19bb387 | 2 |
-| 3 | Constructor con parámetros | ✅ | PENDING | 4+11 |
+| 3 | Constructor con parámetros | ✅ | fc3e68d | 4+11 |
 | 4 | `List<T>` en navegaciones (ya funciona) | ⏳ | | |
 | 5 | `ICollection<T>` en navegaciones | ⏳ | | |
 | 6 | `HashSet<T>` en navegaciones | ⏳ | | |
