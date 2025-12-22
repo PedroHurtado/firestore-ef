@@ -23,6 +23,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
         public ShapedQueryCompilingExpressionVisitor Create(QueryCompilationContext queryCompilationContext)
         {
+            // TODO: Inyectar IFirestoreQueryExecutor directamente cuando se registre en DI.
+            // Actualmente usamos factory method porque el executor no está registrado en el contenedor.
+            // Ver FirestoreQueryExecutor.Create() para más contexto.
             var executor = FirestoreQueryExecutor.Create(
                 _clientWrapper,
                 _loggerFactory.CreateLogger<FirestoreQueryExecutor>());
