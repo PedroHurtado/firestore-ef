@@ -193,6 +193,93 @@ public class ProductoCompleto
 // ENTIDADES PARA TESTS DE CONSTRUCTORES CON PARÁMETROS (Ciclo 3)
 // ============================================================================
 
+// ============================================================================
+// ENTIDADES PARA TESTS DE TIPOS DE COLECCIÓN EN NAVEGACIONES (Ciclos 4, 5, 6)
+// ============================================================================
+
+/// <summary>
+/// Base para pedidos en tests de tipos de colección.
+/// </summary>
+public abstract class PedidoBase
+{
+    public string? Id { get; set; }
+    public required string NumeroOrden { get; set; }
+    public decimal Total { get; set; }
+    public DateTime FechaPedido { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Pedido para ClienteConList (Ciclo 4).
+/// </summary>
+public class PedidoList : PedidoBase { }
+
+/// <summary>
+/// Pedido para ClienteConICollection (Ciclo 5).
+/// </summary>
+public class PedidoICollection : PedidoBase { }
+
+/// <summary>
+/// Pedido para ClienteConHashSet (Ciclo 6).
+/// Incluye Equals y GetHashCode para funcionamiento correcto del HashSet.
+/// </summary>
+public class PedidoHashSet : PedidoBase
+{
+    public override bool Equals(object? obj)
+    {
+        if (obj is PedidoHashSet other)
+            return Id == other.Id;
+        return false;
+    }
+
+    public override int GetHashCode()
+    {
+        return Id?.GetHashCode() ?? 0;
+    }
+}
+
+/// <summary>
+/// Cliente con List{T} para subcollection (Ciclo 4 - baseline, ya funciona).
+/// </summary>
+public class ClienteConList
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+
+    // SubCollection como List<T>
+    public List<PedidoList> Pedidos { get; set; } = [];
+}
+
+/// <summary>
+/// Cliente con ICollection{T} para subcollection (Ciclo 5).
+/// </summary>
+public class ClienteConICollection
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+
+    // SubCollection como ICollection<T>
+    public ICollection<PedidoICollection> Pedidos { get; set; } = new List<PedidoICollection>();
+}
+
+/// <summary>
+/// Cliente con HashSet{T} para subcollection (Ciclo 6).
+/// </summary>
+public class ClienteConHashSet
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+
+    // SubCollection como HashSet<T>
+    public HashSet<PedidoHashSet> Pedidos { get; set; } = [];
+}
+
+// ============================================================================
+// ENTIDADES PARA TESTS DE CONSTRUCTORES CON PARÁMETROS (Ciclo 3)
+// ============================================================================
+
 /// <summary>
 /// Entidad con constructor que recibe TODOS los parámetros.
 /// No tiene constructor sin parámetros.

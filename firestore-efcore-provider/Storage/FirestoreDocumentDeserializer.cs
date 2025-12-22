@@ -762,6 +762,113 @@ namespace Firestore.EntityFrameworkCore.Storage
                     $"Type '{type.Name}' must have a 'Longitude' or 'Longitud' property to use HasGeoPoint()");
         }
 
+        #region Collection Deserialization
+
+        /// <summary>
+        /// Deserializa múltiples documentos a una colección del tipo apropiado según la navegación.
+        /// Soporta List{T}, ICollection{T}, HashSet{T}, y otras colecciones.
+        /// </summary>
+        public object DeserializeCollection(IEnumerable<DocumentSnapshot> documents, IReadOnlyNavigation navigation)
+        {
+            var elementType = navigation.TargetEntityType.ClrType;
+            var propertyType = navigation.PropertyInfo?.PropertyType
+                ?? throw new InvalidOperationException($"Navigation {navigation.Name} has no PropertyInfo");
+
+            // Crear la colección del tipo apropiado
+            var collection = CreateCollectionInstance(propertyType, elementType);
+
+            // Deserializar cada documento y agregarlo a la colección
+            var deserializeMethod = typeof(FirestoreDocumentDeserializer)
+                .GetMethods()
+                .First(m => m.Name == nameof(DeserializeEntity) && m.GetParameters().Length == 1)
+                .MakeGenericMethod(elementType);
+
+            foreach (var document in documents)
+            {
+                if (!document.Exists)
+                    continue;
+
+                var entity = deserializeMethod.Invoke(this, new object[] { document });
+                if (entity != null)
+                {
+                    AddToCollection(collection, entity);
+                }
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Crea una instancia de colección del tipo apropiado.
+        /// </summary>
+        private static object CreateCollectionInstance(Type propertyType, Type elementType)
+        {
+            // Si es HashSet<T>
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(hashSetType)!;
+            }
+
+            // Si es ICollection<T>, IEnumerable<T>, IList<T>, o List<T> -> usar List<T>
+            if (propertyType.IsInterface ||
+                (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(List<>)))
+            {
+                var listType = typeof(List<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(listType)!;
+            }
+
+            // Intentar crear el tipo concreto directamente
+            try
+            {
+                return Activator.CreateInstance(propertyType)!;
+            }
+            catch
+            {
+                // Fallback a List<T>
+                var listType = typeof(List<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(listType)!;
+            }
+        }
+
+        /// <summary>
+        /// Agrega un elemento a una colección usando el método Add apropiado.
+        /// </summary>
+        public void AddToCollection(object collection, object element)
+        {
+            // Usar ICollection<T>.Add si está disponible
+            var collectionType = collection.GetType();
+            var addMethod = collectionType.GetMethod("Add");
+
+            if (addMethod != null)
+            {
+                addMethod.Invoke(collection, new[] { element });
+            }
+            else if (collection is IList list)
+            {
+                list.Add(element);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Collection type {collectionType.Name} does not have an Add method");
+            }
+        }
+
+        /// <summary>
+        /// Crea una colección vacía del tipo apropiado según la navegación.
+        /// </summary>
+        public object CreateEmptyCollection(IReadOnlyNavigation navigation)
+        {
+            var elementType = navigation.TargetEntityType.ClrType;
+            var propertyType = navigation.PropertyInfo?.PropertyType
+                ?? throw new InvalidOperationException($"Navigation {navigation.Name} has no PropertyInfo");
+
+            return CreateCollectionInstance(propertyType, elementType);
+        }
+
+        #endregion
+
         #region Lazy Loading Proxy Support
 
         /// <summary>

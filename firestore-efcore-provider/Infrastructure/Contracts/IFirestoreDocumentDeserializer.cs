@@ -1,5 +1,6 @@
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 
@@ -38,8 +39,34 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         T DeserializeIntoEntity<T>(DocumentSnapshot document, T entity) where T : class;
 
         /// <summary>
-        /// Deserializa múltiples documentos
+        /// Deserializa múltiples documentos a una lista.
         /// </summary>
         List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class;
+
+        /// <summary>
+        /// Deserializa múltiples documentos a una colección del tipo apropiado según la navegación.
+        /// Soporta List{T}, ICollection{T}, HashSet{T}, y otras colecciones.
+        /// </summary>
+        /// <param name="documents">Documentos a deserializar</param>
+        /// <param name="navigation">Navegación que define el tipo de colección de la propiedad</param>
+        /// <returns>Colección del tipo apropiado (List, HashSet, etc.) con las entidades deserializadas</returns>
+        object DeserializeCollection(IEnumerable<DocumentSnapshot> documents, IReadOnlyNavigation navigation);
+
+        /// <summary>
+        /// Crea una colección vacía del tipo apropiado según la navegación.
+        /// Útil cuando el Visitor necesita control granular sobre qué elementos agregar
+        /// (por ejemplo, para filtros, identity resolution, etc.).
+        /// </summary>
+        /// <param name="navigation">Navegación que define el tipo de colección</param>
+        /// <returns>Colección vacía del tipo apropiado (List, HashSet, etc.)</returns>
+        object CreateEmptyCollection(IReadOnlyNavigation navigation);
+
+        /// <summary>
+        /// Agrega un elemento a una colección.
+        /// Soporta List{T}, HashSet{T}, ICollection{T}, etc.
+        /// </summary>
+        /// <param name="collection">La colección a la que agregar</param>
+        /// <param name="element">El elemento a agregar</param>
+        void AddToCollection(object collection, object element);
     }
 }

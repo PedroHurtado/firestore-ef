@@ -17,7 +17,7 @@ Enpieza con la siguiente fase
 
 **Para cada fase, sigue estos pasos:**
 
-### 1. Escribir test de integración
+### 1. Escribir test de integración y test unitarios necesarios
 - Crea los test integración según el ciclo definido en el plan
 - Ejecútalo para confirmar estado **RED**
 - Te esperas a revisar Test por parte mia

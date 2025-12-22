@@ -135,6 +135,79 @@ public class ConstructorTestDbContext : DbContext
 }
 
 /// <summary>
+/// DbContext para tests de tipos de colección en navegaciones (Ciclos 4, 5, 6).
+/// Prueba List{T}, ICollection{T} y HashSet{T} en subcollections.
+/// </summary>
+public class CollectionTypesDbContext : DbContext
+{
+    public CollectionTypesDbContext(DbContextOptions<CollectionTypesDbContext> options) : base(options)
+    {
+    }
+
+    // Entidades raíz con diferentes tipos de colección
+    public DbSet<ClienteConList> ClientesConList => Set<ClienteConList>();
+    public DbSet<ClienteConICollection> ClientesConICollection => Set<ClienteConICollection>();
+    public DbSet<ClienteConHashSet> ClientesConHashSet => Set<ClienteConHashSet>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // Configuración de ClienteConList (Ciclo 4 - baseline)
+        modelBuilder.Entity<ClienteConList>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+            entity.Property(e => e.Email).IsRequired();
+
+            // SubCollection con List<T>
+            entity.SubCollection(c => c.Pedidos);
+        });
+
+        // Configuración de PedidoList
+        modelBuilder.Entity<PedidoList>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.NumeroOrden).IsRequired();
+        });
+
+        // Configuración de ClienteConICollection (Ciclo 5)
+        modelBuilder.Entity<ClienteConICollection>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+            entity.Property(e => e.Email).IsRequired();
+
+            // SubCollection con ICollection<T>
+            entity.SubCollection(c => c.Pedidos);
+        });
+
+        // Configuración de PedidoICollection
+        modelBuilder.Entity<PedidoICollection>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.NumeroOrden).IsRequired();
+        });
+
+        // Configuración de ClienteConHashSet (Ciclo 6)
+        modelBuilder.Entity<ClienteConHashSet>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired();
+            entity.Property(e => e.Email).IsRequired();
+
+            // SubCollection con HashSet<T>
+            entity.SubCollection(c => c.Pedidos);
+        });
+
+        // Configuración de PedidoHashSet
+        modelBuilder.Entity<PedidoHashSet>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.NumeroOrden).IsRequired();
+        });
+    }
+}
+
+/// <summary>
 /// DbContext con Query Filter global para multi-tenancy.
 /// Implementa el patrón de filtrado automático por TenantId usando HasQueryFilter de EF Core.
 /// </summary>

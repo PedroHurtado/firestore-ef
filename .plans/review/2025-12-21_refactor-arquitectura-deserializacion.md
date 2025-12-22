@@ -23,9 +23,9 @@ Refactorización para:
 | 2 | Constructor sin parámetros (ya funciona) | ✅ | 19bb387 | 2 |
 | 3 | Constructor con parámetros | ✅ | fc3e68d | 4+11 |
 | 3.1 | Mover creación de entidades del Visitor al Deserializer | ✅ | 80fb01f | 547+189 |
-| 4 | `List<T>` en navegaciones (ya funciona) | ⏳ | | |
-| 5 | `ICollection<T>` en navegaciones | ⏳ | | |
-| 6 | `HashSet<T>` en navegaciones | ⏳ | | |
+| 4 | `List<T>` en navegaciones (ya funciona) | ✅ | 2dc29f7 | 1 |
+| 5 | `ICollection<T>` en navegaciones | ✅ | 2dc29f7 | 2 |
+| 6 | `HashSet<T>` en navegaciones | ✅ | 2dc29f7 | 3 |
 | 7 | `IFirestoreClientWrapper` - Agregar métodos faltantes | ⏳ | | |
 | 8 | `INavigationLoader` - Crear interfaz e implementación | ⏳ | | |
 | 9 | Extraer `LoadSubCollectionAsync` del Visitor | ⏳ | | |

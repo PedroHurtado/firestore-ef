@@ -1428,8 +1428,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var snapshot = await subCollectionRef.GetSnapshotAsync();
 
-            var listType = typeof(List<>).MakeGenericType(navigation.TargetEntityType.ClrType);
-            var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
+            // Usar el Deserializer para crear la colección del tipo correcto (List<T>, HashSet<T>, etc.)
+            var collection = deserializer.CreateEmptyCollection(navigation);
 
             var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
                 .GetMethods()
@@ -1501,10 +1501,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                 ApplyFixup(parentEntity, childEntity, navigation);
 
-                list.Add(childEntity);
+                deserializer.AddToCollection(collection, childEntity);
             }
 
-            navigation.PropertyInfo?.SetValue(parentEntity, list);
+            navigation.PropertyInfo?.SetValue(parentEntity, collection);
         }
 
         private static async Task LoadReferenceAsync(
