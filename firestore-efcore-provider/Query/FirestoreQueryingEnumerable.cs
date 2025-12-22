@@ -24,19 +24,22 @@ namespace Firestore.EntityFrameworkCore.Query
         private readonly Func<QueryContext, DocumentSnapshot, bool, T> _shaper;
         private readonly Type _contextType;
         private readonly bool _isTracking;
+        private readonly IFirestoreQueryExecutor _executor;
 
         public FirestoreQueryingEnumerable(
             QueryContext queryContext,
             FirestoreQueryExpression queryExpression,
             Func<QueryContext, DocumentSnapshot, bool, T> shaper,
             Type contextType,
-            bool isTracking)
+            bool isTracking,
+            IFirestoreQueryExecutor executor)
         {
             _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             _queryExpression = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
             _shaper = shaper ?? throw new ArgumentNullException(nameof(shaper));
             _contextType = contextType ?? throw new ArgumentNullException(nameof(contextType));
             _isTracking = isTracking;
+            _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         }
 
         public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
@@ -93,16 +96,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
             private void InitializeEnumerator()
             {
-                var dbContext = _enumerable._queryContext.Context;
-                var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)dbContext).Instance;
-
-                // Obtener dependencias
-                var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
-                var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
-
-                // Crear executor
-                var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
-                var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
+                var executor = _enumerable._executor;
 
                 // Ejecutar query síncronamente (bloquea en async)
                 if (_enumerable._queryExpression.IsIdOnlyQuery)
@@ -189,16 +183,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
             private async Task InitializeEnumeratorAsync()
             {
-                var dbContext = _enumerable._queryContext.Context;
-                var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)dbContext).Instance;
-
-                // Obtener dependencias
-                var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
-                var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
-
-                // Crear executor
-                var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
-                var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
+                var executor = _enumerable._executor;
 
                 // 🔥 MANEJO ESPECIAL PARA QUERIES POR ID
                 // Las queries por ID usan GetDocumentAsync porque el ID es metadata del documento

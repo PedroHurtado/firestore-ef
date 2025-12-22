@@ -20,7 +20,18 @@ namespace Firestore.EntityFrameworkCore.Query
         private readonly IFirestoreClientWrapper _client;
         private readonly ILogger<FirestoreQueryExecutor> _logger;
 
-        public FirestoreQueryExecutor(
+        /// <summary>
+        /// Factory method para crear instancias de FirestoreQueryExecutor.
+        /// TODO: Reemplazar por inyección de dependencias cuando se registre IFirestoreQueryExecutor en DI.
+        /// </summary>
+        public static IFirestoreQueryExecutor Create(
+            IFirestoreClientWrapper client,
+            ILogger<FirestoreQueryExecutor> logger)
+        {
+            return new FirestoreQueryExecutor(client, logger);
+        }
+
+        protected FirestoreQueryExecutor(
             IFirestoreClientWrapper client,
             ILogger<FirestoreQueryExecutor> logger)
         {

@@ -23,29 +23,30 @@ public class FirestoreQueryExecutorTest
         public decimal Price { get; set; }
     }
 
-    #region Constructor Tests
+    #region Factory Method Tests
 
     [Fact]
-    public void Constructor_Accepts_Valid_Dependencies()
+    public void Create_Returns_Valid_Executor()
     {
-        var executor = new FirestoreQueryExecutor(_clientMock.Object, _loggerMock.Object);
+        var executor = FirestoreQueryExecutor.Create(_clientMock.Object, _loggerMock.Object);
 
         executor.Should().NotBeNull();
+        executor.Should().BeAssignableTo<IFirestoreQueryExecutor>();
     }
 
     [Fact]
-    public void Constructor_Throws_On_Null_Client()
+    public void Create_Throws_On_Null_Client()
     {
-        var action = () => new FirestoreQueryExecutor(null!, _loggerMock.Object);
+        var action = () => FirestoreQueryExecutor.Create(null!, _loggerMock.Object);
 
         action.Should().Throw<ArgumentNullException>()
             .WithParameterName("client");
     }
 
     [Fact]
-    public void Constructor_Throws_On_Null_Logger()
+    public void Create_Throws_On_Null_Logger()
     {
-        var action = () => new FirestoreQueryExecutor(_clientMock.Object, null!);
+        var action = () => FirestoreQueryExecutor.Create(_clientMock.Object, null!);
 
         action.Should().Throw<ArgumentNullException>()
             .WithParameterName("logger");

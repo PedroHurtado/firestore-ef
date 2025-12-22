@@ -1,0 +1,23 @@
+Usuario (LINQ)
+    ↓
+DbContext.Set<T>().Where(...)
+    ↓
+FirestoreQueryProvider
+    ↓
+FirestoreQueryCompilationContext
+    ↓
+FirestoreQueryableMethodTranslatingExpressionVisitor
+    ↓
+FirestoreQueryExpression (AST)
+    ↓
+FirestoreShapedQueryCompilingExpressionVisitor
+    ↓
+FirestoreQueryingEnumerable / FirestoreAggregationQueryingEnumerable
+    ↓
+FirestoreQueryExecutor
+    ↓
+FirestoreClientWrapper
+    ↓
+Google.Cloud.Firestore SDK
+    ↓
+Firestore (red)

@@ -26,5 +26,21 @@ namespace Firestore.EntityFrameworkCore.Query
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ejecuta una agregación (Count, Sum, Average, Min, Max, Any).
+        /// </summary>
+        Task<T> ExecuteAggregationAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            QueryContext queryContext,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Evalúa una expresión entera en runtime usando el QueryContext.
+        /// Usado para Limit (Take) y Skip cuando son expresiones parametrizadas.
+        /// </summary>
+        int EvaluateIntExpression(
+            System.Linq.Expressions.Expression expression,
+            QueryContext queryContext);
     }
 }

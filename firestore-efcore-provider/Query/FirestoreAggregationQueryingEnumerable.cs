@@ -20,15 +20,18 @@ namespace Firestore.EntityFrameworkCore.Query
         private readonly QueryContext _queryContext;
         private readonly FirestoreQueryExpression _queryExpression;
         private readonly Type _contextType;
+        private readonly IFirestoreQueryExecutor _executor;
 
         public FirestoreAggregationQueryingEnumerable(
             QueryContext queryContext,
             FirestoreQueryExpression queryExpression,
-            Type contextType)
+            Type contextType,
+            IFirestoreQueryExecutor executor)
         {
             _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             _queryExpression = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
             _contextType = contextType ?? throw new ArgumentNullException(nameof(contextType));
+            _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         }
 
         public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
@@ -69,16 +72,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
             private async Task<T> ExecuteAggregation()
             {
-                var dbContext = _enumerable._queryContext.Context;
-                var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)dbContext).Instance;
-
-                var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
-                var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
-
-                var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
-                var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
-
-                return await executor.ExecuteAggregationAsync<T>(
+                return await _enumerable._executor.ExecuteAggregationAsync<T>(
                     _enumerable._queryExpression,
                     _enumerable._queryContext,
                     CancellationToken.None);
@@ -117,16 +111,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
             private async Task<T> ExecuteAggregationAsync()
             {
-                var dbContext = _enumerable._queryContext.Context;
-                var serviceProvider = ((Microsoft.EntityFrameworkCore.Infrastructure.IInfrastructure<IServiceProvider>)dbContext).Instance;
-
-                var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
-                var loggerFactory = (ILoggerFactory)serviceProvider.GetService(typeof(ILoggerFactory))!;
-
-                var executorLogger = loggerFactory.CreateLogger<FirestoreQueryExecutor>();
-                var executor = new FirestoreQueryExecutor(clientWrapper, executorLogger);
-
-                return await executor.ExecuteAggregationAsync<T>(
+                return await _enumerable._executor.ExecuteAggregationAsync<T>(
                     _enumerable._queryExpression,
                     _enumerable._queryContext,
                     _cancellationToken);

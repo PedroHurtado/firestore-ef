@@ -21,14 +21,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
     public class FirestoreShapedQueryCompilingExpressionVisitor : ShapedQueryCompilingExpressionVisitor
     {
         private readonly FirestoreQueryCompilationContext _firestoreContext;
+        private readonly IFirestoreQueryExecutor _queryExecutor;
 
         public FirestoreShapedQueryCompilingExpressionVisitor(
             ShapedQueryCompilingExpressionVisitorDependencies dependencies,
-            QueryCompilationContext queryCompilationContext)
+            QueryCompilationContext queryCompilationContext,
+            IFirestoreQueryExecutor queryExecutor)
             : base(dependencies, queryCompilationContext)
         {
             // Direct cast - same pattern as Cosmos DB and other official providers
             _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
+            _queryExecutor = queryExecutor ?? throw new ArgumentNullException(nameof(queryExecutor));
         }
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
@@ -133,7 +136,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 typeof(FirestoreQueryExpression),
                 typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), entityType),
                 typeof(Type),
-                typeof(bool)
+                typeof(bool),
+                typeof(IFirestoreQueryExecutor)
             })!;
 
             var newExpression = Expression.New(
@@ -142,7 +146,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(firestoreQueryExpression),
                 Expression.Constant(shaperLambda.Compile()),
                 Expression.Constant(entityType),
-                Expression.Constant(isTracking));
+                Expression.Constant(isTracking),
+                Expression.Constant(_queryExecutor));
 
             return newExpression;
         }
@@ -160,14 +165,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             {
                 typeof(QueryContext),
                 typeof(FirestoreQueryExpression),
-                typeof(Type)
+                typeof(Type),
+                typeof(IFirestoreQueryExecutor)
             })!;
 
             var newExpression = Expression.New(
                 constructor,
                 QueryCompilationContext.QueryContextParameter,
                 Expression.Constant(firestoreQueryExpression),
-                Expression.Constant(entityType));
+                Expression.Constant(entityType),
+                Expression.Constant(_queryExecutor));
 
             return newExpression;
         }
@@ -211,7 +218,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 typeof(FirestoreQueryExpression),
                 typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), projectionType),
                 typeof(Type),
-                typeof(bool)
+                typeof(bool),
+                typeof(IFirestoreQueryExecutor)
             })!;
 
             var newExpression = Expression.New(
@@ -220,7 +228,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(firestoreQueryExpression),
                 Expression.Constant(shaperLambda.Compile()),
                 Expression.Constant(entityType),
-                Expression.Constant(isTracking));
+                Expression.Constant(isTracking),
+                Expression.Constant(_queryExecutor));
 
             return newExpression;
         }
@@ -264,7 +273,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 typeof(FirestoreQueryExpression),
                 typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), projectionType),
                 typeof(Type),
-                typeof(bool)
+                typeof(bool),
+                typeof(IFirestoreQueryExecutor)
             })!;
 
             var newExpression = Expression.New(
@@ -273,7 +283,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(firestoreQueryExpression),
                 Expression.Constant(shaperLambda.Compile()),
                 Expression.Constant(entityType),
-                Expression.Constant(isTracking));
+                Expression.Constant(isTracking),
+                Expression.Constant(_queryExecutor));
 
             return newExpression;
         }

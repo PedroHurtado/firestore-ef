@@ -38,12 +38,12 @@ public class FirestoreQueryingEnumerableTest
     #region Constructor Signature Tests
 
     [Fact]
-    public void Constructor_Has_Five_Parameters()
+    public void Constructor_Has_Six_Parameters()
     {
         var constructors = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors();
 
         constructors.Should().HaveCount(1);
-        constructors[0].GetParameters().Should().HaveCount(5);
+        constructors[0].GetParameters().Should().HaveCount(6);
     }
 
     [Fact]
@@ -91,6 +91,15 @@ public class FirestoreQueryingEnumerableTest
 
         constructor.GetParameters()[4].ParameterType.Should().Be(typeof(bool));
         constructor.GetParameters()[4].Name.Should().Be("isTracking");
+    }
+
+    [Fact]
+    public void Constructor_Sixth_Parameter_Is_Executor()
+    {
+        var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
+
+        constructor.GetParameters()[5].ParameterType.Should().Be(typeof(IFirestoreQueryExecutor));
+        constructor.GetParameters()[5].Name.Should().Be("executor");
     }
 
     #endregion
