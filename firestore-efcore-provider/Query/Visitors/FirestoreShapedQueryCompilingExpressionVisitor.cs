@@ -1424,9 +1424,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return;
 
             var subCollectionName = GetSubCollectionName(navigation);
-            var subCollectionRef = parentDoc.Reference.Collection(subCollectionName);
 
-            var snapshot = await subCollectionRef.GetSnapshotAsync();
+            // Ciclo 9: Usar el wrapper en lugar de llamada directa al SDK
+            var snapshot = await clientWrapper.GetSubCollectionAsync(parentDoc.Reference, subCollectionName);
 
             // Usar el Deserializer para crear la colección del tipo correcto (List<T>, HashSet<T>, etc.)
             var collection = deserializer.CreateEmptyCollection(navigation);
