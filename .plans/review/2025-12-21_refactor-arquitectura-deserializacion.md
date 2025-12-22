@@ -20,7 +20,7 @@ Refactorización para:
 | Ciclo | Comportamiento | Estado | Commit | Tests |
 |-------|----------------|--------|--------|-------|
 | 1 | `IFirestoreDocumentDeserializer` - Crear interfaz | ✅ | 905a50e | 3 |
-| 2 | Constructor sin parámetros (ya funciona) | ⏳ | | |
+| 2 | Constructor sin parámetros (ya funciona) | ✅ | 19bb387 | 2 |
 | 3 | Constructor con parámetros | ⏳ | | |
 | 4 | `List<T>` en navegaciones (ya funciona) | ⏳ | | |
 | 5 | `ICollection<T>` en navegaciones | ⏳ | | |
