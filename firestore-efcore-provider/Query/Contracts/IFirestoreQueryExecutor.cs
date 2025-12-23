@@ -47,7 +47,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// Obtiene los documentos de una subcollection.
         /// </summary>
         Task<QuerySnapshot> GetSubCollectionAsync(
-            DocumentReference parentDoc,
+            string parentDocPath,
             string subCollectionName,
             CancellationToken cancellationToken = default);
 
@@ -55,12 +55,7 @@ namespace Firestore.EntityFrameworkCore.Query
         /// Obtiene un documento por su referencia.
         /// </summary>
         Task<DocumentSnapshot> GetDocumentByReferenceAsync(
-            DocumentReference docRef,
+            string docPath,
             CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Obtiene la base de datos de Firestore.
-        /// </summary>
-        FirestoreDb Database { get; }
     }
 }

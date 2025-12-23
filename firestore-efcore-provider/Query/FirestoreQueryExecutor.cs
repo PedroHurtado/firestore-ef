@@ -952,23 +952,36 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <inheritdoc />
         public async Task<QuerySnapshot> GetSubCollectionAsync(
-            DocumentReference parentDoc,
+            string parentDocPath,
             string subCollectionName,
             CancellationToken cancellationToken = default)
         {
+            var relativePath = ExtractRelativePath(parentDocPath);
+            var parentDoc = _client.Database.Document(relativePath);
             return await _client.GetSubCollectionAsync(parentDoc, subCollectionName, cancellationToken);
         }
 
         /// <inheritdoc />
         public async Task<DocumentSnapshot> GetDocumentByReferenceAsync(
-            DocumentReference docRef,
+            string docPath,
             CancellationToken cancellationToken = default)
         {
+            var relativePath = ExtractRelativePath(docPath);
+            var docRef = _client.Database.Document(relativePath);
             return await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
         }
 
-        /// <inheritdoc />
-        public FirestoreDb Database => _client.Database;
+        /// <summary>
+        /// Extrae el path relativo de un path completo de Firestore.
+        /// Convierte "projects/{project}/databases/{db}/documents/Collection/DocId" a "Collection/DocId"
+        /// Si ya es un path relativo, lo devuelve tal cual.
+        /// </summary>
+        private static string ExtractRelativePath(string fullPath)
+        {
+            const string documentsMarker = "/documents/";
+            var index = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
+            return index >= 0 ? fullPath.Substring(index + documentsMarker.Length) : fullPath;
+        }
 
         #endregion
     }

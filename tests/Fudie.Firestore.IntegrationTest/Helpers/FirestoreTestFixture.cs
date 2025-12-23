@@ -9,7 +9,7 @@ namespace Fudie.Firestore.IntegrationTest.Helpers;
 public class FirestoreTestFixture : IAsyncLifetime
 {
     public const string ProjectId = "demo-project";
-    public const string EmulatorHost = "localhost:8080";
+    public const string EmulatorHost = "127.0.0.1:8080";
 
     public Task InitializeAsync()
     {

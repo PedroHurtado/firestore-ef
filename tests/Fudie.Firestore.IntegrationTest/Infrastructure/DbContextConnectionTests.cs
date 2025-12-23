@@ -9,7 +9,7 @@ namespace Fudie.Firestore.IntegrationTest.Infrastructure;
 public class DbContextConnectionTests : IAsyncLifetime
 {
     private const string ProjectId = "demo-project";
-    private const string EmulatorHost = "localhost:8080";
+    private const string EmulatorHost = "127.0.0.1:8080";
 
     public Task InitializeAsync()
     {

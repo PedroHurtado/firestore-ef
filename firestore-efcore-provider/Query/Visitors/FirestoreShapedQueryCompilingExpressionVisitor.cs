@@ -1435,7 +1435,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var subCollectionName = GetSubCollectionName(navigation);
 
-            var snapshot = await _queryExecutor.GetSubCollectionAsync(parentDoc.Reference, subCollectionName);
+            var snapshot = await _queryExecutor.GetSubCollectionAsync(parentDoc.Reference.Path, subCollectionName);
 
             // Usar el Deserializer para crear la colección del tipo correcto (List<T>, HashSet<T>, etc.)
             var collection = deserializer.CreateEmptyCollection(navigation);
@@ -1564,7 +1564,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
                 }
 
-                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef);
+                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
             }
             else if (referenceValue is string id)
             {
@@ -1586,8 +1586,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (targetEntityType != null)
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docRefFromId = _queryExecutor.Database.Collection(collectionName).Document(id);
-                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRefFromId);
+                    var docPath = $"{collectionName}/{id}";
+                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
                 }
             }
 
@@ -1738,7 +1738,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
                 referencedId = docRef.Id;
-                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef);
+                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
             }
             else if (referenceValue is string id)
             {
@@ -1748,8 +1748,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (targetEntityType != null)
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docRefFromId = _queryExecutor.Database.Collection(collectionName).Document(id);
-                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRefFromId);
+                    var docPath = $"{collectionName}/{id}";
+                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
                 }
             }
 
