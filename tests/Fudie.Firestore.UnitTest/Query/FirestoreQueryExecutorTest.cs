@@ -84,12 +84,23 @@ public class FirestoreQueryExecutorTest
     }
 
     [Fact]
-    public void FirestoreQueryExecutor_Has_ExecuteIdQueryAsync_Method()
+    public void FirestoreQueryExecutor_Has_ExecuteIdQueryAsync_Methods()
     {
-        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteIdQueryAsync");
+        // Verificar que existen ambos métodos ExecuteIdQueryAsync
+        var methods = typeof(FirestoreQueryExecutor).GetMethods()
+            .Where(m => m.Name == "ExecuteIdQueryAsync")
+            .ToList();
 
-        method.Should().NotBeNull();
-        method!.ReturnType.Should().Be(typeof(Task<DocumentSnapshot?>));
+        methods.Should().HaveCount(2, "Debe haber método genérico y no genérico");
+
+        // Verificar método genérico
+        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
+        genericMethod.Should().NotBeNull("El método genérico ExecuteIdQueryAsync<T> debería existir");
+
+        // Verificar método no genérico (obsoleto)
+        var nonGenericMethod = methods.FirstOrDefault(m => !m.IsGenericMethod);
+        nonGenericMethod.Should().NotBeNull("El método no genérico (obsoleto) debería existir");
+        nonGenericMethod!.ReturnType.Should().Be(typeof(Task<DocumentSnapshot?>));
     }
 
     [Fact]
@@ -110,12 +121,31 @@ public class FirestoreQueryExecutorTest
     }
 
     [Fact]
-    public void ExecuteIdQueryAsync_Has_Correct_Parameters()
+    public void ExecuteIdQueryAsync_GenericMethod_Has_Correct_Parameters()
     {
-        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteIdQueryAsync");
+        // Buscar el método genérico ExecuteIdQueryAsync<T>
+        var genericMethod = typeof(FirestoreQueryExecutor).GetMethods()
+            .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && m.IsGenericMethod);
 
-        method.Should().NotBeNull();
-        var parameters = method!.GetParameters();
+        genericMethod.Should().NotBeNull();
+        var parameters = genericMethod!.GetParameters();
+        parameters.Should().HaveCount(5);
+        parameters[0].ParameterType.Should().Be(typeof(FirestoreQueryExpression));
+        parameters[1].ParameterType.Should().Be(typeof(QueryContext));
+        parameters[2].ParameterType.Should().Be(typeof(DbContext));
+        parameters[3].ParameterType.Should().Be(typeof(bool));
+        parameters[4].ParameterType.Should().Be(typeof(CancellationToken));
+    }
+
+    [Fact]
+    public void ExecuteIdQueryAsync_NonGenericMethod_Has_Correct_Parameters()
+    {
+        // Buscar el método no genérico (obsoleto) ExecuteIdQueryAsync
+        var nonGenericMethod = typeof(FirestoreQueryExecutor).GetMethods()
+            .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && !m.IsGenericMethod);
+
+        nonGenericMethod.Should().NotBeNull();
+        var parameters = nonGenericMethod!.GetParameters();
         parameters.Should().HaveCount(3);
         parameters[0].ParameterType.Should().Be(typeof(FirestoreQueryExpression));
         parameters[1].ParameterType.Should().Be(typeof(QueryContext));
@@ -339,14 +369,20 @@ public class FirestoreQueryExecutorTest
     }
 
     /// <summary>
-    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync.
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync (genérico y obsoleto).
     /// </summary>
     [Fact]
     public void IFirestoreQueryExecutor_ShouldHaveExecuteIdQueryAsyncMethod()
     {
-        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteIdQueryAsync");
+        var methods = typeof(IFirestoreQueryExecutor).GetMethods()
+            .Where(m => m.Name == "ExecuteIdQueryAsync")
+            .ToList();
 
-        method.Should().NotBeNull();
+        methods.Should().HaveCount(2, "Debe haber método genérico y no genérico");
+
+        // Verificar que existe el método genérico
+        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
+        genericMethod.Should().NotBeNull("El método genérico ExecuteIdQueryAsync<T> debería existir");
     }
 
     /// <summary>

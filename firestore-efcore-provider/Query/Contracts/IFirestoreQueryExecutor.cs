@@ -35,8 +35,19 @@ namespace Firestore.EntityFrameworkCore.Query
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Ejecuta una query por ID y retorna la entidad deserializada con navegaciones cargadas.
+        /// </summary>
+        Task<T?> ExecuteIdQueryAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            QueryContext queryContext,
+            DbContext dbContext,
+            bool isTracking,
+            CancellationToken cancellationToken = default) where T : class;
+
+        /// <summary>
         /// Ejecuta una query por ID usando GetDocumentAsync.
         /// </summary>
+        [System.Obsolete("Use ExecuteIdQueryAsync<T> instead. This method will be removed.")]
         Task<DocumentSnapshot?> ExecuteIdQueryAsync(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,

@@ -251,24 +251,36 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
-        /// Ejecuta una query por ID y retorna la entidad con navegaciones cargadas.
+        /// Ejecuta una query por ID y retorna la entidad deserializada con navegaciones cargadas.
         /// </summary>
-        private async IAsyncEnumerable<T> ExecuteIdQueryInternalAsync<T>(
+        public async Task<T?> ExecuteIdQueryAsync<T>(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,
             DbContext dbContext,
             bool isTracking,
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken) where T : class
+            CancellationToken cancellationToken = default) where T : class
         {
-            _logger.LogInformation("Executing ID-only query for type {EntityType}", typeof(T).Name);
+            ArgumentNullException.ThrowIfNull(queryExpression);
+            ArgumentNullException.ThrowIfNull(dbContext);
 
-            // Obtener el documento por ID
+            if (!queryExpression.IsIdOnlyQuery)
+            {
+                throw new InvalidOperationException(
+                    "ExecuteIdQueryAsync<T> can only be called for ID-only queries. " +
+                    "Use ExecuteQueryAsync<T> for regular queries.");
+            }
+
+            _logger.LogInformation("Executing ID-only query (generic) for type {EntityType}", typeof(T).Name);
+
+            // Obtener el documento por ID usando el método obsoleto (internamente)
+#pragma warning disable CS0618 // Obsolete
             var doc = await ExecuteIdQueryAsync(queryExpression, queryContext, cancellationToken);
+#pragma warning restore CS0618
 
             if (doc == null || !doc.Exists)
             {
                 _logger.LogInformation("Document not found");
-                yield break;
+                return null;
             }
 
             var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
@@ -327,7 +339,25 @@ namespace Firestore.EntityFrameworkCore.Query
                 }
             }
 
-            yield return entity;
+            return entity;
+        }
+
+        /// <summary>
+        /// Ejecuta una query por ID y retorna la entidad con navegaciones cargadas.
+        /// Usado internamente para convertir a IAsyncEnumerable.
+        /// </summary>
+        private async IAsyncEnumerable<T> ExecuteIdQueryInternalAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            QueryContext queryContext,
+            DbContext dbContext,
+            bool isTracking,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken) where T : class
+        {
+            var entity = await ExecuteIdQueryAsync<T>(queryExpression, queryContext, dbContext, isTracking, cancellationToken);
+            if (entity != null)
+            {
+                yield return entity;
+            }
         }
 
         /// <summary>
