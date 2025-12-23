@@ -1,4 +1,5 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.UnitTest.Query;
 
@@ -70,10 +71,16 @@ public class FirestoreQueryExecutorTest
     [Fact]
     public void FirestoreQueryExecutor_Has_ExecuteQueryAsync_Method()
     {
-        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteQueryAsync");
+        // El método genérico ExecuteQueryAsync<T> es el nuevo método principal
+        var methods = typeof(FirestoreQueryExecutor).GetMethods()
+            .Where(m => m.Name == "ExecuteQueryAsync")
+            .ToList();
 
-        method.Should().NotBeNull();
-        method!.ReturnType.Should().Be(typeof(Task<QuerySnapshot>));
+        methods.Should().HaveCountGreaterOrEqualTo(1);
+
+        // Verificar que existe el método genérico
+        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
+        genericMethod.Should().NotBeNull("El método genérico ExecuteQueryAsync<T> debería existir");
     }
 
     [Fact]
@@ -86,16 +93,20 @@ public class FirestoreQueryExecutorTest
     }
 
     [Fact]
-    public void ExecuteQueryAsync_Has_Correct_Parameters()
+    public void ExecuteQueryAsync_GenericMethod_Has_Correct_Parameters()
     {
-        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteQueryAsync");
+        // Buscar el método genérico ExecuteQueryAsync<T>
+        var genericMethod = typeof(FirestoreQueryExecutor).GetMethods()
+            .FirstOrDefault(m => m.Name == "ExecuteQueryAsync" && m.IsGenericMethod);
 
-        method.Should().NotBeNull();
-        var parameters = method!.GetParameters();
-        parameters.Should().HaveCount(3);
+        genericMethod.Should().NotBeNull();
+        var parameters = genericMethod!.GetParameters();
+        parameters.Should().HaveCount(5);
         parameters[0].ParameterType.Should().Be(typeof(FirestoreQueryExpression));
         parameters[1].ParameterType.Should().Be(typeof(QueryContext));
-        parameters[2].ParameterType.Should().Be(typeof(CancellationToken));
+        parameters[2].ParameterType.Should().Be(typeof(DbContext));
+        parameters[3].ParameterType.Should().Be(typeof(bool));
+        parameters[4].ParameterType.Should().Be(typeof(CancellationToken));
     }
 
     [Fact]
@@ -311,14 +322,20 @@ public class FirestoreQueryExecutorTest
     }
 
     /// <summary>
-    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteQueryAsync.
+    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteQueryAsync (genérico).
     /// </summary>
     [Fact]
     public void IFirestoreQueryExecutor_ShouldHaveExecuteQueryAsyncMethod()
     {
-        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteQueryAsync");
+        var methods = typeof(IFirestoreQueryExecutor).GetMethods()
+            .Where(m => m.Name == "ExecuteQueryAsync")
+            .ToList();
 
-        method.Should().NotBeNull();
+        methods.Should().NotBeEmpty();
+
+        // Verificar que existe el método genérico
+        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
+        genericMethod.Should().NotBeNull("El método genérico ExecuteQueryAsync<T> debería existir");
     }
 
     /// <summary>

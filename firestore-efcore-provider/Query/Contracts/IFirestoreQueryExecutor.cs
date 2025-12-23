@@ -1,6 +1,8 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,8 +15,20 @@ namespace Firestore.EntityFrameworkCore.Query
     public interface IFirestoreQueryExecutor
     {
         /// <summary>
+        /// Ejecuta una query y retorna entidades deserializadas con navegaciones cargadas.
+        /// Este método encapsula toda la lógica de ejecución, deserialización y carga de includes.
+        /// </summary>
+        IAsyncEnumerable<T> ExecuteQueryAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            QueryContext queryContext,
+            DbContext dbContext,
+            bool isTracking,
+            CancellationToken cancellationToken = default) where T : class;
+
+        /// <summary>
         /// Ejecuta una FirestoreQueryExpression y retorna los documentos resultantes.
         /// </summary>
+        [System.Obsolete("Use ExecuteQueryAsync<T> instead. This method will be removed.")]
         Task<QuerySnapshot> ExecuteQueryAsync(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,

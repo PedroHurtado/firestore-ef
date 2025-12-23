@@ -1,9 +1,13 @@
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Firestore.EntityFrameworkCore.Infrastructure;
@@ -117,6 +121,134 @@ namespace Firestore.EntityFrameworkCore.Query
                 _logger.LogInformation("Document not found with ID: {Id}", idString);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Ejecuta una query y retorna entidades deserializadas con navegaciones cargadas.
+        /// Este método encapsula toda la lógica de ejecución, deserialización y carga de includes.
+        /// </summary>
+        public async IAsyncEnumerable<T> ExecuteQueryAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            DbContext dbContext,
+            bool isTracking,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            ArgumentNullException.ThrowIfNull(queryExpression);
+            ArgumentNullException.ThrowIfNull(dbContext);
+
+            _logger.LogInformation("=== Executing Firestore query (generic) ===");
+            _logger.LogInformation("Collection: {Collection}, EntityType: {EntityType}",
+                queryExpression.CollectionName, typeof(T).Name);
+
+            // Queries por ID no deben llegar aquí
+            if (queryExpression.IsIdOnlyQuery)
+            {
+                throw new InvalidOperationException(
+                    "ID-only queries should use ExecuteIdQueryAsync<T> instead.");
+            }
+
+            // Construir y ejecutar la query
+            var query = BuildQuery(queryExpression, queryContext);
+            var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+            _logger.LogInformation("Query returned {Count} documents", snapshot.Count);
+
+            // Calcular Skip para aplicar en memoria
+            int skipValue = 0;
+            if (queryExpression.Skip.HasValue)
+            {
+                skipValue = queryExpression.Skip.Value;
+            }
+            else if (queryExpression.SkipExpression != null)
+            {
+                skipValue = EvaluateIntExpression(queryExpression.SkipExpression, queryContext);
+            }
+
+            var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
+            var model = dbContext.Model;
+            var stateManager = dbContext.GetService<IStateManager>();
+            var entityType = model.FindEntityType(typeof(T));
+            var key = entityType?.FindPrimaryKey();
+
+            int currentIndex = 0;
+            foreach (var doc in snapshot.Documents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Aplicar Skip en memoria
+                if (currentIndex < skipValue)
+                {
+                    currentIndex++;
+                    continue;
+                }
+
+                if (!doc.Exists)
+                    continue;
+
+                // Identity Resolution: verificar si la entidad ya está trackeada
+                T? entity = null;
+                if (isTracking && key != null)
+                {
+                    entity = TryGetTrackedEntity<T>(stateManager, key, doc.Id);
+                }
+
+                // Si no está trackeada, deserializar
+                if (entity == null)
+                {
+                    entity = _deserializer.DeserializeEntity<T>(doc, dbContext, serviceProvider);
+
+                    // TODO: Cargar Includes aquí (Ciclo 3-5)
+
+                    // Adjuntar al ChangeTracker como Unchanged
+                    if (isTracking)
+                    {
+                        dbContext.Attach(entity);
+                    }
+                }
+
+                currentIndex++;
+                yield return entity;
+            }
+        }
+
+        /// <summary>
+        /// Identity Resolution: busca si la entidad ya está siendo trackeada usando IStateManager.
+        /// Usa O(1) lookup por clave primaria.
+        /// </summary>
+        private T? TryGetTrackedEntity<T>(IStateManager stateManager, IKey key, string documentId) where T : class
+        {
+            if (key.Properties.Count == 0) return null;
+
+            var keyProperty = key.Properties[0];
+            var convertedKey = ConvertKeyValue(documentId, keyProperty);
+            var keyValues = new object[] { convertedKey };
+
+            var entry = stateManager.TryGetEntry(key, keyValues);
+            return entry?.Entity as T;
+        }
+
+        /// <summary>
+        /// Convierte el ID de Firestore (siempre string) al tipo de la clave primaria.
+        /// </summary>
+        private static object ConvertKeyValue(string firestoreId, IReadOnlyProperty keyProperty)
+        {
+            var targetType = keyProperty.ClrType;
+
+            // Usar ValueConverter si está configurado
+            var converter = keyProperty.GetValueConverter();
+            if (converter != null)
+            {
+                return converter.ConvertFromProvider(firestoreId)!;
+            }
+
+            // Conversión estándar por tipo
+            if (targetType == typeof(string)) return firestoreId;
+            if (targetType == typeof(int)) return int.Parse(firestoreId);
+            if (targetType == typeof(long)) return long.Parse(firestoreId);
+            if (targetType == typeof(Guid)) return Guid.Parse(firestoreId);
+
+            return Convert.ChangeType(firestoreId, targetType);
         }
 
         /// <summary>
