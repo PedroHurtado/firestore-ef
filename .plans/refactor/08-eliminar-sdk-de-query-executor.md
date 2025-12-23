@@ -24,10 +24,10 @@ Eliminar todos los tipos del SDK de Google (`QuerySnapshot`, `DocumentSnapshot`)
 | 4 | Mover carga de DocumentReferences al Executor | ✅ | 23582ac | ✅ |
 | 5 | Mover carga de ComplexType Includes al Executor | ✅ | 23582ac | ✅ |
 | 6 | Actualizar Visitor para solo iterar (delegando al Executor) | ✅ | 82b9c49 | ✅ |
-| 7 | Crear nuevo método `ExecuteIdQueryAsync<T>` que retorne `Task<T?>` | ⏳ | | |
-| 8 | Eliminar métodos antiguos del contrato | ⏳ | | |
-| 9 | Eliminar `using Google.Cloud.Firestore` de IFirestoreQueryExecutor | ⏳ | | |
-| 10 | Limpiar código muerto del Visitor | ⏳ | | |
+| 7 | Crear nuevo método `ExecuteIdQueryAsync<T>` que retorne `Task<T?>` | ✅ | 2c8b655 | ✅ |
+| 8 | Eliminar métodos antiguos del contrato | ⏸️ | | Bloqueado: ProjectionEnumerable usa métodos obsoletos |
+| 9 | Eliminar `using Google.Cloud.Firestore` de IFirestoreQueryExecutor | ⏸️ | | Bloqueado por ciclo 8 |
+| 10 | Limpiar código muerto del Visitor | ⏳ | | Puede hacerse independiente |
 
 ---
 
@@ -210,3 +210,24 @@ public interface IFirestoreQueryExecutor
 - El Deserializer ya sabe poblar el Id desde `documentSnapshot.Id`
 - Las navegaciones (SubCollections, References) son siempre entidades con Id
 - El tracking usa `entity.Id` que ya está deserializado
+
+---
+
+## Estado Actual (2025-12-23)
+
+**Completado:**
+- Ciclos 1-7: El Executor ahora tiene métodos genéricos para entidades
+- `ExecuteQueryAsync<T>`: Retorna entidades deserializadas con navegaciones cargadas
+- `ExecuteIdQueryAsync<T>`: Retorna entidad por ID con navegaciones cargadas
+
+**Bloqueado:**
+- Ciclo 8-9: `FirestoreProjectionQueryingEnumerable` usa los métodos obsoletos porque las proyecciones necesitan `DocumentSnapshot` para el shaper
+- El código del Visitor para cargar navegaciones NO es código muerto - se usa para proyecciones
+
+**Arquitectura Actual:**
+1. **Queries de entidades** → `FirestoreQueryingEnumerable` → `Executor.ExecuteQueryAsync<T>` → Navegaciones cargadas
+2. **Proyecciones** → `FirestoreProjectionQueryingEnumerable` → `Executor.ExecuteQueryAsync` (obsoleto) → Shaper con `DocumentSnapshot` → Visitor.DeserializeEntity + LoadIncludes
+
+**Para completar Ciclo 8-9:**
+- Opción A: Crear método `ExecuteQueryForProjectionAsync` que retorne `IAsyncEnumerable<DocumentSnapshot>`
+- Opción B: Aceptar que el contrato expone SDK types para proyecciones (breaking change para eliminarlos)
