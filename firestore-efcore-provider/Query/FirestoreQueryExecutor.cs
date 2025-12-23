@@ -44,24 +44,28 @@ namespace Firestore.EntityFrameworkCore.Query
         public IFirestoreDocumentDeserializer Deserializer => _deserializer;
 
         /// <summary>
-        /// Ejecuta una FirestoreQueryExpression y retorna los documentos resultantes
+        /// Ejecuta una query y retorna DocumentSnapshots para proyecciones.
+        /// Usado por FirestoreProjectionQueryingEnumerable para aplicar shapers.
         /// </summary>
-        public async Task<QuerySnapshot> ExecuteQueryAsync(
+        public async IAsyncEnumerable<DocumentSnapshot> ExecuteQueryForDocumentsAsync(
             FirestoreQueryExpression queryExpression,
-            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
-            CancellationToken cancellationToken = default)
+            QueryContext queryContext,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(queryExpression);
 
-            _logger.LogInformation("=== Executing Firestore query ===");
+            _logger.LogInformation("=== Executing Firestore query for documents ===");
             _logger.LogInformation("Collection: {Collection}", queryExpression.CollectionName);
 
-            // 🔥 Las queries por ID no deben llegar aquí - deben usar ExecuteIdQueryAsync
+            // Manejar queries por ID
             if (queryExpression.IsIdOnlyQuery)
             {
-                throw new InvalidOperationException(
-                    "ID-only queries should use ExecuteIdQueryAsync instead of ExecuteQueryAsync. " +
-                    "This is an internal error in the query execution pipeline.");
+                var doc = await ExecuteIdQueryForDocumentAsync(queryExpression, queryContext, cancellationToken);
+                if (doc != null && doc.Exists)
+                {
+                    yield return doc;
+                }
+                yield break;
             }
 
             // Query normal (no es por ID)
@@ -75,15 +79,44 @@ namespace Firestore.EntityFrameworkCore.Query
 
             _logger.LogInformation("Query returned {Count} documents", snapshot.Count);
 
-            return snapshot;
+            // Calcular Skip para aplicar en memoria
+            int skipValue = 0;
+            if (queryExpression.Skip.HasValue)
+            {
+                skipValue = queryExpression.Skip.Value;
+            }
+            else if (queryExpression.SkipExpression != null)
+            {
+                skipValue = EvaluateIntExpression(queryExpression.SkipExpression, queryContext);
+            }
+
+            int currentIndex = 0;
+            foreach (var doc in snapshot.Documents)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Aplicar Skip en memoria
+                if (currentIndex < skipValue)
+                {
+                    currentIndex++;
+                    continue;
+                }
+
+                if (doc.Exists)
+                {
+                    yield return doc;
+                }
+
+                currentIndex++;
+            }
         }
 
         /// <summary>
-        /// Ejecuta una query por ID usando GetDocumentAsync (el ID es metadata, no está en el documento)
+        /// Ejecuta una query por ID y retorna el DocumentSnapshot para proyecciones.
         /// </summary>
-        public async Task<DocumentSnapshot?> ExecuteIdQueryAsync(
+        public async Task<DocumentSnapshot?> ExecuteIdQueryForDocumentAsync(
             FirestoreQueryExpression queryExpression,
-            Microsoft.EntityFrameworkCore.Query.QueryContext queryContext,
+            QueryContext queryContext,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(queryExpression);
@@ -91,11 +124,11 @@ namespace Firestore.EntityFrameworkCore.Query
             if (!queryExpression.IsIdOnlyQuery)
             {
                 throw new InvalidOperationException(
-                    "ExecuteIdQueryAsync can only be called for ID-only queries. " +
-                    "Use ExecuteQueryAsync for regular queries.");
+                    "ExecuteIdQueryForDocumentAsync can only be called for ID-only queries. " +
+                    "Use ExecuteQueryForDocumentsAsync for regular queries.");
             }
 
-            _logger.LogInformation("=== Executing Firestore ID query ===");
+            _logger.LogInformation("=== Executing Firestore ID query for document ===");
             _logger.LogInformation("Collection: {Collection}", queryExpression.CollectionName);
 
             // Evaluar la expresión del ID en runtime
@@ -110,7 +143,7 @@ namespace Firestore.EntityFrameworkCore.Query
             var idString = idValue.ToString();
             _logger.LogInformation("Getting document by ID: {Id}", idString);
 
-            // 🔥 Usar GetDocumentAsync porque el ID es metadata del documento
+            // Usar GetDocumentAsync porque el ID es metadata del documento
             var documentSnapshot = await _client.GetDocumentAsync(
                 queryExpression.CollectionName,
                 idString!,
@@ -272,10 +305,8 @@ namespace Firestore.EntityFrameworkCore.Query
 
             _logger.LogInformation("Executing ID-only query (generic) for type {EntityType}", typeof(T).Name);
 
-            // Obtener el documento por ID usando el método obsoleto (internamente)
-#pragma warning disable CS0618 // Obsolete
-            var doc = await ExecuteIdQueryAsync(queryExpression, queryContext, cancellationToken);
-#pragma warning restore CS0618
+            // Obtener el documento por ID
+            var doc = await ExecuteIdQueryForDocumentAsync(queryExpression, queryContext, cancellationToken);
 
             if (doc == null || !doc.Exists)
             {

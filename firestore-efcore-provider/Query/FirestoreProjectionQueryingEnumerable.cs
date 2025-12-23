@@ -2,10 +2,8 @@ using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Firestore.EntityFrameworkCore.Infrastructure;
 using Google.Cloud.Firestore;
 
 namespace Firestore.EntityFrameworkCore.Query
@@ -55,7 +53,7 @@ namespace Firestore.EntityFrameworkCore.Query
         private sealed class SyncEnumerator : IEnumerator<T>
         {
             private readonly FirestoreProjectionQueryingEnumerable<T> _enumerable;
-            private IEnumerator<DocumentSnapshot>? _enumerator;
+            private IAsyncEnumerator<DocumentSnapshot>? _asyncEnumerator;
             private bool _initialized;
 
             public SyncEnumerator(FirestoreProjectionQueryingEnumerable<T> enumerable)
@@ -70,13 +68,18 @@ namespace Firestore.EntityFrameworkCore.Query
             {
                 if (!_initialized)
                 {
-                    InitializeEnumerator();
+                    _asyncEnumerator = _enumerable._executor.ExecuteQueryForDocumentsAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
                     _initialized = true;
                 }
 
-                if (_enumerator!.MoveNext())
+                // Block on async - required for synchronous enumeration
+                var hasNext = _asyncEnumerator!.MoveNextAsync().AsTask().GetAwaiter().GetResult();
+                if (hasNext)
                 {
-                    var document = _enumerator.Current;
+                    var document = _asyncEnumerator.Current;
                     Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
                     return true;
                 }
@@ -84,63 +87,19 @@ namespace Firestore.EntityFrameworkCore.Query
                 return false;
             }
 
-            private void InitializeEnumerator()
-            {
-                var executor = _enumerable._executor;
-
-                if (_enumerable._queryExpression.IsIdOnlyQuery)
-                {
-                    var documentSnapshot = executor.ExecuteIdQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        CancellationToken.None).GetAwaiter().GetResult();
-
-                    var documents = new List<DocumentSnapshot>();
-                    if (documentSnapshot != null && documentSnapshot.Exists)
-                    {
-                        documents.Add(documentSnapshot);
-                    }
-                    _enumerator = documents.GetEnumerator();
-                }
-                else
-                {
-#pragma warning disable CS0618 // Obsolete - usamos el método antiguo para proyecciones
-                    var snapshot = executor.ExecuteQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        CancellationToken.None).GetAwaiter().GetResult();
-#pragma warning restore CS0618
-
-                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
-
-                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
-                    {
-                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
-                    }
-                    else if (_enumerable._queryExpression.SkipExpression != null)
-                    {
-                        var skipValue = executor.EvaluateIntExpression(
-                            _enumerable._queryExpression.SkipExpression,
-                            _enumerable._queryContext);
-                        if (skipValue > 0)
-                        {
-                            documents = documents.Skip(skipValue);
-                        }
-                    }
-
-                    _enumerator = documents.GetEnumerator();
-                }
-            }
-
             public void Reset() => throw new NotSupportedException();
-            public void Dispose() => _enumerator?.Dispose();
+
+            public void Dispose()
+            {
+                _asyncEnumerator?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
         }
 
         private sealed class AsyncEnumerator : IAsyncEnumerator<T>
         {
             private readonly FirestoreProjectionQueryingEnumerable<T> _enumerable;
             private readonly CancellationToken _cancellationToken;
-            private IEnumerator<DocumentSnapshot>? _enumerator;
+            private IAsyncEnumerator<DocumentSnapshot>? _innerEnumerator;
 
             public AsyncEnumerator(
                 FirestoreProjectionQueryingEnumerable<T> enumerable,
@@ -154,14 +113,17 @@ namespace Firestore.EntityFrameworkCore.Query
 
             public async ValueTask<bool> MoveNextAsync()
             {
-                if (_enumerator == null)
+                if (_innerEnumerator == null)
                 {
-                    await InitializeEnumeratorAsync();
+                    _innerEnumerator = _enumerable._executor.ExecuteQueryForDocumentsAsync(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        _cancellationToken).GetAsyncEnumerator(_cancellationToken);
                 }
 
-                if (_enumerator!.MoveNext())
+                if (await _innerEnumerator.MoveNextAsync())
                 {
-                    var document = _enumerator.Current;
+                    var document = _innerEnumerator.Current;
                     Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
                     return true;
                 }
@@ -169,59 +131,12 @@ namespace Firestore.EntityFrameworkCore.Query
                 return false;
             }
 
-            private async Task InitializeEnumeratorAsync()
+            public async ValueTask DisposeAsync()
             {
-                var executor = _enumerable._executor;
-
-                if (_enumerable._queryExpression.IsIdOnlyQuery)
+                if (_innerEnumerator != null)
                 {
-                    var documentSnapshot = await executor.ExecuteIdQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        _cancellationToken);
-
-                    var documents = new List<DocumentSnapshot>();
-                    if (documentSnapshot != null && documentSnapshot.Exists)
-                    {
-                        documents.Add(documentSnapshot);
-                    }
-
-                    _enumerator = documents.GetEnumerator();
+                    await _innerEnumerator.DisposeAsync();
                 }
-                else
-                {
-#pragma warning disable CS0618 // Obsolete - usamos el método antiguo para proyecciones
-                    var snapshot = await executor.ExecuteQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        _cancellationToken);
-#pragma warning restore CS0618
-
-                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
-
-                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
-                    {
-                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
-                    }
-                    else if (_enumerable._queryExpression.SkipExpression != null)
-                    {
-                        var skipValue = executor.EvaluateIntExpression(
-                            _enumerable._queryExpression.SkipExpression,
-                            _enumerable._queryContext);
-                        if (skipValue > 0)
-                        {
-                            documents = documents.Skip(skipValue);
-                        }
-                    }
-
-                    _enumerator = documents.GetEnumerator();
-                }
-            }
-
-            public ValueTask DisposeAsync()
-            {
-                _enumerator?.Dispose();
-                return default;
             }
         }
     }

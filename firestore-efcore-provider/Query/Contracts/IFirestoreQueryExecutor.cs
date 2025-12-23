@@ -26,10 +26,10 @@ namespace Firestore.EntityFrameworkCore.Query
             CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
-        /// Ejecuta una FirestoreQueryExpression y retorna los documentos resultantes.
+        /// Ejecuta una query y retorna DocumentSnapshots para proyecciones.
+        /// Usado por FirestoreProjectionQueryingEnumerable para aplicar shapers.
         /// </summary>
-        [System.Obsolete("Use ExecuteQueryAsync<T> instead. This method will be removed.")]
-        Task<QuerySnapshot> ExecuteQueryAsync(
+        IAsyncEnumerable<DocumentSnapshot> ExecuteQueryForDocumentsAsync(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,
             CancellationToken cancellationToken = default);
@@ -45,10 +45,9 @@ namespace Firestore.EntityFrameworkCore.Query
             CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
-        /// Ejecuta una query por ID usando GetDocumentAsync.
+        /// Ejecuta una query por ID y retorna el DocumentSnapshot para proyecciones.
         /// </summary>
-        [System.Obsolete("Use ExecuteIdQueryAsync<T> instead. This method will be removed.")]
-        Task<DocumentSnapshot?> ExecuteIdQueryAsync(
+        Task<DocumentSnapshot?> ExecuteIdQueryForDocumentAsync(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,
             CancellationToken cancellationToken = default);
@@ -71,6 +70,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <summary>
         /// Obtiene los documentos de una subcollection.
+        /// Usado para carga de navegaciones en proyecciones.
         /// </summary>
         Task<QuerySnapshot> GetSubCollectionAsync(
             string parentDocPath,
@@ -79,6 +79,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <summary>
         /// Obtiene un documento por su referencia.
+        /// Usado para carga de navegaciones en proyecciones.
         /// </summary>
         Task<DocumentSnapshot> GetDocumentByReferenceAsync(
             string docPath,

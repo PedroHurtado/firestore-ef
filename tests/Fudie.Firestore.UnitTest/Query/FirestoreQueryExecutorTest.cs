@@ -86,21 +86,16 @@ public class FirestoreQueryExecutorTest
     [Fact]
     public void FirestoreQueryExecutor_Has_ExecuteIdQueryAsync_Methods()
     {
-        // Verificar que existen ambos métodos ExecuteIdQueryAsync
-        var methods = typeof(FirestoreQueryExecutor).GetMethods()
-            .Where(m => m.Name == "ExecuteIdQueryAsync")
-            .ToList();
+        // Verificar que existe el método genérico ExecuteIdQueryAsync<T>
+        var genericMethod = typeof(FirestoreQueryExecutor).GetMethods()
+            .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && m.IsGenericMethod);
 
-        methods.Should().HaveCount(2, "Debe haber método genérico y no genérico");
-
-        // Verificar método genérico
-        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
         genericMethod.Should().NotBeNull("El método genérico ExecuteIdQueryAsync<T> debería existir");
 
-        // Verificar método no genérico (obsoleto)
-        var nonGenericMethod = methods.FirstOrDefault(m => !m.IsGenericMethod);
-        nonGenericMethod.Should().NotBeNull("El método no genérico (obsoleto) debería existir");
-        nonGenericMethod!.ReturnType.Should().Be(typeof(Task<DocumentSnapshot?>));
+        // Verificar que existe ExecuteIdQueryForDocumentAsync (para proyecciones)
+        var forDocumentMethod = typeof(FirestoreQueryExecutor).GetMethod("ExecuteIdQueryForDocumentAsync");
+        forDocumentMethod.Should().NotBeNull("El método ExecuteIdQueryForDocumentAsync debería existir");
+        forDocumentMethod!.ReturnType.Should().Be(typeof(Task<DocumentSnapshot?>));
     }
 
     [Fact]
@@ -138,14 +133,27 @@ public class FirestoreQueryExecutorTest
     }
 
     [Fact]
-    public void ExecuteIdQueryAsync_NonGenericMethod_Has_Correct_Parameters()
+    public void ExecuteIdQueryForDocumentAsync_Has_Correct_Parameters()
     {
-        // Buscar el método no genérico (obsoleto) ExecuteIdQueryAsync
-        var nonGenericMethod = typeof(FirestoreQueryExecutor).GetMethods()
-            .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && !m.IsGenericMethod);
+        // Buscar el método ExecuteIdQueryForDocumentAsync (para proyecciones)
+        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteIdQueryForDocumentAsync");
 
-        nonGenericMethod.Should().NotBeNull();
-        var parameters = nonGenericMethod!.GetParameters();
+        method.Should().NotBeNull();
+        var parameters = method!.GetParameters();
+        parameters.Should().HaveCount(3);
+        parameters[0].ParameterType.Should().Be(typeof(FirestoreQueryExpression));
+        parameters[1].ParameterType.Should().Be(typeof(QueryContext));
+        parameters[2].ParameterType.Should().Be(typeof(CancellationToken));
+    }
+
+    [Fact]
+    public void ExecuteQueryForDocumentsAsync_Has_Correct_Parameters()
+    {
+        // Buscar el método ExecuteQueryForDocumentsAsync (para proyecciones)
+        var method = typeof(FirestoreQueryExecutor).GetMethod("ExecuteQueryForDocumentsAsync");
+
+        method.Should().NotBeNull();
+        var parameters = method!.GetParameters();
         parameters.Should().HaveCount(3);
         parameters[0].ParameterType.Should().Be(typeof(FirestoreQueryExpression));
         parameters[1].ParameterType.Should().Be(typeof(QueryContext));
@@ -369,20 +377,30 @@ public class FirestoreQueryExecutorTest
     }
 
     /// <summary>
-    /// Ciclo 12: Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync (genérico y obsoleto).
+    /// Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync<T> y ExecuteIdQueryForDocumentAsync.
     /// </summary>
     [Fact]
     public void IFirestoreQueryExecutor_ShouldHaveExecuteIdQueryAsyncMethod()
     {
-        var methods = typeof(IFirestoreQueryExecutor).GetMethods()
-            .Where(m => m.Name == "ExecuteIdQueryAsync")
-            .ToList();
+        // Verificar que existe el método genérico ExecuteIdQueryAsync<T>
+        var genericMethod = typeof(IFirestoreQueryExecutor).GetMethods()
+            .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && m.IsGenericMethod);
 
-        methods.Should().HaveCount(2, "Debe haber método genérico y no genérico");
-
-        // Verificar que existe el método genérico
-        var genericMethod = methods.FirstOrDefault(m => m.IsGenericMethod);
         genericMethod.Should().NotBeNull("El método genérico ExecuteIdQueryAsync<T> debería existir");
+
+        // Verificar que existe ExecuteIdQueryForDocumentAsync (para proyecciones)
+        var forDocumentMethod = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteIdQueryForDocumentAsync");
+        forDocumentMethod.Should().NotBeNull("El método ExecuteIdQueryForDocumentAsync debería existir");
+    }
+
+    /// <summary>
+    /// Verifica que IFirestoreQueryExecutor tiene ExecuteQueryForDocumentsAsync.
+    /// </summary>
+    [Fact]
+    public void IFirestoreQueryExecutor_ShouldHaveExecuteQueryForDocumentsAsyncMethod()
+    {
+        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteQueryForDocumentsAsync");
+        method.Should().NotBeNull("El método ExecuteQueryForDocumentsAsync debería existir");
     }
 
     /// <summary>
