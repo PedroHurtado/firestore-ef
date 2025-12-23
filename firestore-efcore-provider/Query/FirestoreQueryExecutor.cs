@@ -3,15 +3,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Extensions;
+using Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -198,12 +202,41 @@ namespace Firestore.EntityFrameworkCore.Query
                 {
                     entity = _deserializer.DeserializeEntity<T>(doc, dbContext, serviceProvider);
 
-                    // TODO: Cargar Includes aquí (Ciclo 3-5)
+                    // Cargar navegaciones (SubCollections y DocumentReferences)
+                    if (queryExpression.PendingIncludes.Count > 0)
+                    {
+                        await LoadIncludesAsync(
+                            entity,
+                            doc,
+                            queryExpression.PendingIncludes,
+                            queryExpression.PendingIncludesWithFilters,
+                            model,
+                            isTracking,
+                            dbContext,
+                            queryContext,
+                            cancellationToken);
+                    }
+
+                    // Cargar includes en ComplexTypes
+                    if (queryExpression.ComplexTypeIncludes.Count > 0)
+                    {
+                        await LoadComplexTypeIncludesAsync(
+                            entity,
+                            doc,
+                            queryExpression.ComplexTypeIncludes,
+                            model,
+                            isTracking,
+                            dbContext,
+                            cancellationToken);
+                    }
 
                     // Adjuntar al ChangeTracker como Unchanged
                     if (isTracking)
                     {
                         dbContext.Attach(entity);
+
+                        // Establecer shadow FK properties para navegaciones con DocumentReference
+                        SetShadowForeignKeys(entity, doc, model.FindEntityType(typeof(T))!, dbContext);
                     }
                 }
 
@@ -250,6 +283,534 @@ namespace Firestore.EntityFrameworkCore.Query
 
             return Convert.ChangeType(firestoreId, targetType);
         }
+
+        #region Include Loading
+
+        /// <summary>
+        /// Carga las navegaciones (Includes) para una entidad.
+        /// </summary>
+        private async Task LoadIncludesAsync<T>(
+            T entity,
+            DocumentSnapshot documentSnapshot,
+            List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            QueryContext queryContext,
+            CancellationToken cancellationToken) where T : class
+        {
+            var entityType = model.FindEntityType(typeof(T));
+            if (entityType == null) return;
+
+            var rootNavigations = allIncludes
+                .Where(n => n.DeclaringEntityType == entityType)
+                .ToList();
+
+            foreach (var navigation in rootNavigations)
+            {
+                if (navigation.IsCollection)
+                {
+                    await LoadSubCollectionAsync(
+                        entity, documentSnapshot, navigation,
+                        allIncludes, allIncludesWithFilters,
+                        model, isTracking, dbContext, queryContext, cancellationToken);
+                }
+                else
+                {
+                    await LoadReferenceAsync(
+                        entity, documentSnapshot, navigation,
+                        allIncludes, allIncludesWithFilters,
+                        model, isTracking, dbContext, queryContext, cancellationToken);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Carga una SubCollection para una entidad.
+        /// </summary>
+        private async Task LoadSubCollectionAsync(
+            object parentEntity,
+            DocumentSnapshot parentDoc,
+            IReadOnlyNavigation navigation,
+            List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            QueryContext queryContext,
+            CancellationToken cancellationToken)
+        {
+            if (!navigation.IsSubCollection())
+                return;
+
+            var subCollectionName = GetSubCollectionName(navigation);
+            var snapshot = await GetSubCollectionAsync(parentDoc.Reference.Path, subCollectionName, cancellationToken);
+
+            // Crear colección vacía del tipo correcto
+            var collection = _deserializer.CreateEmptyCollection(navigation);
+
+            var targetEntityType = navigation.TargetEntityType;
+            var stateManager = dbContext.GetService<IStateManager>();
+            var key = targetEntityType.FindPrimaryKey();
+
+            foreach (var doc in snapshot.Documents)
+            {
+                if (!doc.Exists)
+                    continue;
+
+                // Identity Resolution
+                object? childEntity = null;
+                if (isTracking && key != null)
+                {
+                    childEntity = TryGetTrackedEntityNonGeneric(stateManager, key, doc.Id);
+                }
+
+                // Deserializar si no está trackeada
+                if (childEntity == null)
+                {
+                    childEntity = DeserializeEntityNonGeneric(doc, targetEntityType.ClrType);
+                    if (childEntity == null)
+                        continue;
+
+                    // Cargar Includes recursivamente
+                    var childIncludes = allIncludes
+                        .Where(inc => inc.DeclaringEntityType == targetEntityType)
+                        .ToList();
+
+                    if (childIncludes.Count > 0)
+                    {
+                        await LoadIncludesNonGenericAsync(
+                            childEntity, doc, childIncludes, allIncludesWithFilters,
+                            model, isTracking, dbContext, queryContext, cancellationToken);
+                    }
+
+                    // Adjuntar al ChangeTracker
+                    if (isTracking)
+                    {
+                        dbContext.Attach(childEntity);
+                    }
+                }
+
+                ApplyFixup(parentEntity, childEntity, navigation);
+                _deserializer.AddToCollection(collection, childEntity);
+            }
+
+            navigation.PropertyInfo?.SetValue(parentEntity, collection);
+        }
+
+        /// <summary>
+        /// Carga una referencia (DocumentReference) para una entidad.
+        /// </summary>
+        private async Task LoadReferenceAsync(
+            object entity,
+            DocumentSnapshot documentSnapshot,
+            IReadOnlyNavigation navigation,
+            List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            QueryContext queryContext,
+            CancellationToken cancellationToken)
+        {
+            var data = documentSnapshot.ToDictionary();
+
+            object? referenceValue = null;
+            if (data.TryGetValue(navigation.Name, out var directValue))
+            {
+                referenceValue = directValue;
+            }
+            else if (data.TryGetValue($"{navigation.Name}Id", out var idValue))
+            {
+                referenceValue = idValue;
+            }
+
+            if (referenceValue == null)
+                return;
+
+            var targetEntityType = navigation.TargetEntityType;
+            var stateManager = dbContext.GetService<IStateManager>();
+            var key = targetEntityType.FindPrimaryKey();
+
+            string? referencedId = null;
+            DocumentSnapshot? referencedDoc = null;
+
+            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+            {
+                referencedId = docRef.Id;
+
+                // Identity Resolution
+                if (isTracking && key != null)
+                {
+                    var existingEntity = TryGetTrackedEntityNonGeneric(stateManager, key, referencedId);
+                    if (existingEntity != null)
+                    {
+                        ApplyFixup(entity, existingEntity, navigation);
+                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
+                        return;
+                    }
+                }
+
+                referencedDoc = await GetDocumentByReferenceAsync(docRef.Path, cancellationToken);
+            }
+            else if (referenceValue is string id)
+            {
+                referencedId = id;
+
+                // Identity Resolution
+                if (isTracking && key != null)
+                {
+                    var existingEntity = TryGetTrackedEntityNonGeneric(stateManager, key, referencedId);
+                    if (existingEntity != null)
+                    {
+                        ApplyFixup(entity, existingEntity, navigation);
+                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
+                        return;
+                    }
+                }
+
+                var collectionName = GetCollectionNameForEntityType(model.FindEntityType(targetEntityType.ClrType)!);
+                var docPath = $"{collectionName}/{id}";
+                referencedDoc = await GetDocumentByReferenceAsync(docPath, cancellationToken);
+            }
+
+            if (referencedDoc == null || !referencedDoc.Exists)
+                return;
+
+            var referencedEntity = DeserializeEntityNonGeneric(referencedDoc, targetEntityType.ClrType);
+
+            if (referencedEntity != null)
+            {
+                // Cargar Includes recursivamente
+                var childIncludes = allIncludes
+                    .Where(inc => inc.DeclaringEntityType == targetEntityType)
+                    .ToList();
+
+                if (childIncludes.Count > 0)
+                {
+                    await LoadIncludesNonGenericAsync(
+                        referencedEntity, referencedDoc, childIncludes, allIncludesWithFilters,
+                        model, isTracking, dbContext, queryContext, cancellationToken);
+                }
+
+                if (isTracking)
+                {
+                    dbContext.Attach(referencedEntity);
+                }
+
+                ApplyFixup(entity, referencedEntity, navigation);
+                navigation.PropertyInfo?.SetValue(entity, referencedEntity);
+            }
+        }
+
+        /// <summary>
+        /// Carga Includes en ComplexTypes.
+        /// </summary>
+        private async Task LoadComplexTypeIncludesAsync<T>(
+            T entity,
+            DocumentSnapshot documentSnapshot,
+            List<System.Linq.Expressions.LambdaExpression> complexTypeIncludes,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            CancellationToken cancellationToken) where T : class
+        {
+            var data = documentSnapshot.ToDictionary();
+
+            foreach (var includeExpr in complexTypeIncludes)
+            {
+                await LoadComplexTypeIncludeAsync(entity, data, includeExpr, model, isTracking, dbContext, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Carga una referencia dentro de un ComplexType.
+        /// </summary>
+        private async Task LoadComplexTypeIncludeAsync(
+            object entity,
+            Dictionary<string, object> data,
+            System.Linq.Expressions.LambdaExpression includeExpr,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            CancellationToken cancellationToken)
+        {
+            if (includeExpr.Body is not System.Linq.Expressions.MemberExpression refMemberExpr)
+                return;
+
+            var referenceProperty = refMemberExpr.Member as PropertyInfo;
+            if (referenceProperty == null)
+                return;
+
+            if (refMemberExpr.Expression is not System.Linq.Expressions.MemberExpression complexTypeMemberExpr)
+                return;
+
+            var complexTypeProperty = complexTypeMemberExpr.Member as PropertyInfo;
+            if (complexTypeProperty == null)
+                return;
+
+            var complexTypeInstance = complexTypeProperty.GetValue(entity);
+            if (complexTypeInstance == null)
+                return;
+
+            if (!data.TryGetValue(complexTypeProperty.Name, out var complexTypeData) ||
+                complexTypeData is not Dictionary<string, object> complexTypeDict)
+                return;
+
+            if (!complexTypeDict.TryGetValue(referenceProperty.Name, out var referenceValue))
+                return;
+
+            if (referenceValue == null)
+                return;
+
+            DocumentSnapshot? referencedDoc = null;
+            string? referencedId = null;
+
+            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+            {
+                referencedId = docRef.Id;
+                referencedDoc = await GetDocumentByReferenceAsync(docRef.Path, cancellationToken);
+            }
+            else if (referenceValue is string id)
+            {
+                referencedId = id;
+                var targetType = referenceProperty.PropertyType;
+                var targetEntityType = model.FindEntityType(targetType);
+                if (targetEntityType != null)
+                {
+                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
+                    var docPath = $"{collectionName}/{id}";
+                    referencedDoc = await GetDocumentByReferenceAsync(docPath, cancellationToken);
+                }
+            }
+
+            if (referencedDoc == null || !referencedDoc.Exists)
+                return;
+
+            // Identity Resolution
+            if (isTracking && referencedId != null)
+            {
+                var targetEntityType = model.FindEntityType(referenceProperty.PropertyType);
+                if (targetEntityType != null)
+                {
+                    var stateManager = dbContext.GetService<IStateManager>();
+                    var key = targetEntityType.FindPrimaryKey();
+                    if (key != null)
+                    {
+                        var existingEntity = TryGetTrackedEntityNonGeneric(stateManager, key, referencedId);
+                        if (existingEntity != null)
+                        {
+                            referenceProperty.SetValue(complexTypeInstance, existingEntity);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            var referencedEntity = DeserializeEntityNonGeneric(referencedDoc, referenceProperty.PropertyType);
+
+            if (referencedEntity != null)
+            {
+                if (isTracking)
+                {
+                    dbContext.Attach(referencedEntity);
+                }
+
+                referenceProperty.SetValue(complexTypeInstance, referencedEntity);
+            }
+        }
+
+        /// <summary>
+        /// Versión no genérica de LoadIncludesAsync para llamadas recursivas.
+        /// </summary>
+        private async Task LoadIncludesNonGenericAsync(
+            object entity,
+            DocumentSnapshot documentSnapshot,
+            List<IReadOnlyNavigation> allIncludes,
+            List<IncludeInfo> allIncludesWithFilters,
+            IModel model,
+            bool isTracking,
+            DbContext dbContext,
+            QueryContext queryContext,
+            CancellationToken cancellationToken)
+        {
+            var entityType = model.FindEntityType(entity.GetType());
+            if (entityType == null) return;
+
+            var rootNavigations = allIncludes
+                .Where(n => n.DeclaringEntityType == entityType)
+                .ToList();
+
+            foreach (var navigation in rootNavigations)
+            {
+                if (navigation.IsCollection)
+                {
+                    await LoadSubCollectionAsync(
+                        entity, documentSnapshot, navigation,
+                        allIncludes, allIncludesWithFilters,
+                        model, isTracking, dbContext, queryContext, cancellationToken);
+                }
+                else
+                {
+                    await LoadReferenceAsync(
+                        entity, documentSnapshot, navigation,
+                        allIncludes, allIncludesWithFilters,
+                        model, isTracking, dbContext, queryContext, cancellationToken);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deserializa una entidad de forma no genérica.
+        /// </summary>
+        private object? DeserializeEntityNonGeneric(DocumentSnapshot doc, Type entityType)
+        {
+            var deserializeMethod = typeof(IFirestoreDocumentDeserializer)
+                .GetMethods()
+                .First(m => m.Name == nameof(IFirestoreDocumentDeserializer.DeserializeEntity) &&
+                           m.GetParameters().Length == 1)
+                .MakeGenericMethod(entityType);
+
+            return deserializeMethod.Invoke(_deserializer, new object[] { doc });
+        }
+
+        /// <summary>
+        /// Identity Resolution no genérica.
+        /// </summary>
+        private static object? TryGetTrackedEntityNonGeneric(IStateManager stateManager, IReadOnlyKey key, string documentId)
+        {
+            if (key.Properties.Count == 0) return null;
+
+            var keyProperty = key.Properties[0];
+            var convertedKey = ConvertKeyValue(documentId, keyProperty);
+            var keyValues = new object[] { convertedKey };
+
+            var entry = stateManager.TryGetEntry((IKey)key, keyValues);
+            return entry?.Entity;
+        }
+
+        /// <summary>
+        /// Aplica fixup bidireccional entre entidades.
+        /// </summary>
+        private static void ApplyFixup(object parent, object child, IReadOnlyNavigation navigation)
+        {
+            if (navigation.Inverse == null) return;
+
+            var inverseProperty = navigation.Inverse.PropertyInfo;
+            if (inverseProperty == null) return;
+
+            if (navigation.IsCollection)
+            {
+                inverseProperty.SetValue(child, parent);
+            }
+            else
+            {
+                if (navigation.Inverse.IsCollection)
+                {
+                    var collection = inverseProperty.GetValue(parent) as System.Collections.IList;
+                    if (collection != null && !collection.Contains(child))
+                    {
+                        collection.Add(child);
+                    }
+                }
+                else
+                {
+                    inverseProperty.SetValue(parent, child);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Establece shadow FK properties para navegaciones con DocumentReference.
+        /// </summary>
+        private static void SetShadowForeignKeys(
+            object entity,
+            DocumentSnapshot documentSnapshot,
+            IEntityType entityType,
+            DbContext dbContext)
+        {
+            var data = documentSnapshot.ToDictionary();
+            var entry = dbContext.Entry(entity);
+
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                if (navigation.IsCollection)
+                    continue;
+
+                if (navigation.IsSubCollection())
+                    continue;
+
+                if (!data.TryGetValue(navigation.Name, out var value))
+                    continue;
+
+                if (value is not Google.Cloud.Firestore.DocumentReference docRef)
+                    continue;
+
+                var foreignKey = navigation.ForeignKey;
+                foreach (var fkProperty in foreignKey.Properties)
+                {
+                    if (fkProperty.IsShadowProperty())
+                    {
+                        var referencedId = docRef.Id;
+                        var convertedValue = ConvertKeyValue(referencedId, fkProperty);
+                        entry.Property(fkProperty.Name).CurrentValue = convertedValue;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Obtiene el nombre de una subcollection.
+        /// </summary>
+        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
+        {
+            var childEntityType = navigation.ForeignKey.DeclaringEntityType;
+            return Pluralize(childEntityType.ClrType.Name);
+        }
+
+        /// <summary>
+        /// Obtiene el nombre de colección para un EntityType.
+        /// </summary>
+        private static string GetCollectionNameForEntityType(IEntityType entityType)
+        {
+            var tableAttribute = entityType.ClrType
+                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
+
+            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
+                return tableAttribute.Name;
+
+            return Pluralize(entityType.ClrType.Name);
+        }
+
+        /// <summary>
+        /// Pluraliza un nombre.
+        /// </summary>
+        private static string Pluralize(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return name;
+
+            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
+                name.Length > 1 &&
+                !IsVowel(name[name.Length - 2]))
+            {
+                return name.Substring(0, name.Length - 1) + "ies";
+            }
+
+            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+                return name + "es";
+
+            return name + "s";
+        }
+
+        private static bool IsVowel(char c)
+        {
+            c = char.ToLowerInvariant(c);
+            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
+        }
+
+        #endregion
 
         /// <summary>
         /// Evalúa la expresión del ID en runtime usando el QueryContext
