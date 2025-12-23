@@ -9,6 +9,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -145,14 +146,18 @@ namespace Firestore.EntityFrameworkCore.Query
             _logger.LogInformation("Collection: {Collection}, EntityType: {EntityType}",
                 queryExpression.CollectionName, typeof(T).Name);
 
-            // Queries por ID no deben llegar aquí
+            // Manejar queries por ID
             if (queryExpression.IsIdOnlyQuery)
             {
-                throw new InvalidOperationException(
-                    "ID-only queries should use ExecuteIdQueryAsync<T> instead.");
+                await foreach (var entity in ExecuteIdQueryInternalAsync<T>(
+                    queryExpression, queryContext, dbContext, isTracking, cancellationToken))
+                {
+                    yield return entity;
+                }
+                yield break;
             }
 
-            // Construir y ejecutar la query
+            // Construir y ejecutar la query normal
             var query = BuildQuery(queryExpression, queryContext);
             var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
 
@@ -243,6 +248,86 @@ namespace Firestore.EntityFrameworkCore.Query
                 currentIndex++;
                 yield return entity;
             }
+        }
+
+        /// <summary>
+        /// Ejecuta una query por ID y retorna la entidad con navegaciones cargadas.
+        /// </summary>
+        private async IAsyncEnumerable<T> ExecuteIdQueryInternalAsync<T>(
+            FirestoreQueryExpression queryExpression,
+            QueryContext queryContext,
+            DbContext dbContext,
+            bool isTracking,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken) where T : class
+        {
+            _logger.LogInformation("Executing ID-only query for type {EntityType}", typeof(T).Name);
+
+            // Obtener el documento por ID
+            var doc = await ExecuteIdQueryAsync(queryExpression, queryContext, cancellationToken);
+
+            if (doc == null || !doc.Exists)
+            {
+                _logger.LogInformation("Document not found");
+                yield break;
+            }
+
+            var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
+            var model = dbContext.Model;
+            var stateManager = dbContext.GetService<IStateManager>();
+            var entityType = model.FindEntityType(typeof(T));
+            var key = entityType?.FindPrimaryKey();
+
+            // Identity Resolution: verificar si la entidad ya está trackeada
+            T? entity = null;
+            if (isTracking && key != null)
+            {
+                entity = TryGetTrackedEntity<T>(stateManager, key, doc.Id);
+            }
+
+            // Si no está trackeada, deserializar
+            if (entity == null)
+            {
+                entity = _deserializer.DeserializeEntity<T>(doc, dbContext, serviceProvider);
+
+                // Cargar navegaciones (SubCollections y DocumentReferences)
+                if (queryExpression.PendingIncludes.Count > 0)
+                {
+                    await LoadIncludesAsync(
+                        entity,
+                        doc,
+                        queryExpression.PendingIncludes,
+                        queryExpression.PendingIncludesWithFilters,
+                        model,
+                        isTracking,
+                        dbContext,
+                        queryContext,
+                        cancellationToken);
+                }
+
+                // Cargar includes en ComplexTypes
+                if (queryExpression.ComplexTypeIncludes.Count > 0)
+                {
+                    await LoadComplexTypeIncludesAsync(
+                        entity,
+                        doc,
+                        queryExpression.ComplexTypeIncludes,
+                        model,
+                        isTracking,
+                        dbContext,
+                        cancellationToken);
+                }
+
+                // Adjuntar al ChangeTracker como Unchanged
+                if (isTracking)
+                {
+                    dbContext.Attach(entity);
+
+                    // Establecer shadow FK properties para navegaciones con DocumentReference
+                    SetShadowForeignKeys(entity, doc, model.FindEntityType(typeof(T))!, dbContext);
+                }
+            }
+
+            yield return entity;
         }
 
         /// <summary>
@@ -354,6 +439,17 @@ namespace Firestore.EntityFrameworkCore.Query
             var stateManager = dbContext.GetService<IStateManager>();
             var key = targetEntityType.FindPrimaryKey();
 
+            // Buscar IncludeInfo para esta navegación (para Filtered Includes)
+            var includeInfo = allIncludesWithFilters.FirstOrDefault(i =>
+                i.EffectiveNavigationName == navigation.Name);
+
+            // Compilar el filtro si existe
+            Func<object, bool>? filterPredicate = null;
+            if (includeInfo?.FilterExpression != null)
+            {
+                filterPredicate = CompileFilterPredicate(includeInfo.FilterExpression, targetEntityType.ClrType, queryContext);
+            }
+
             foreach (var doc in snapshot.Documents)
             {
                 if (!doc.Exists)
@@ -390,6 +486,12 @@ namespace Firestore.EntityFrameworkCore.Query
                     {
                         dbContext.Attach(childEntity);
                     }
+                }
+
+                // Aplicar filtro si existe (Filtered Include)
+                if (filterPredicate != null && !filterPredicate(childEntity))
+                {
+                    continue; // No incluir esta entidad si no pasa el filtro
                 }
 
                 ApplyFixup(parentEntity, childEntity, navigation);
@@ -1696,6 +1798,106 @@ namespace Firestore.EntityFrameworkCore.Query
             const string documentsMarker = "/documents/";
             var index = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
             return index >= 0 ? fullPath.Substring(index + documentsMarker.Length) : fullPath;
+        }
+
+        #endregion
+
+        #region Filter Compilation
+
+        /// <summary>
+        /// Compila un filtro de Include en un predicado ejecutable.
+        /// </summary>
+        private static Func<object, bool>? CompileFilterPredicate(
+            LambdaExpression filterExpression,
+            Type entityType,
+            QueryContext queryContext)
+        {
+            try
+            {
+                // EF Core reescribe las variables capturadas como ParameterExpression con nombres como __variableName_N
+                // Estos valores están en QueryContext.ParameterValues
+                var parameterResolver = new EfCoreParameterResolvingVisitor(queryContext.ParameterValues);
+                var resolvedBody = parameterResolver.Visit(filterExpression.Body);
+
+                // También evaluar closures tradicionales (MemberExpression sobre ConstantExpression)
+                var evaluator = new ClosureEvaluatingVisitor();
+                var evaluatedBody = evaluator.Visit(resolvedBody);
+
+                var newLambda = Expression.Lambda(evaluatedBody, filterExpression.Parameters);
+
+                // Compilar la expresión con las constantes evaluadas
+                var compiledDelegate = newLambda.Compile();
+
+                // Crear un wrapper que llama al delegado compilado
+                return (obj) =>
+                {
+                    try
+                    {
+                        return (bool)compiledDelegate.DynamicInvoke(obj)!;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"CompileFilterPredicate failed: {ex.Message}, Filter: {filterExpression}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Visitor that resolves EF Core parameter expressions (e.g., __variableName_0)
+        /// using values from QueryContext.ParameterValues.
+        /// </summary>
+        private class EfCoreParameterResolvingVisitor : ExpressionVisitor
+        {
+            private readonly IReadOnlyDictionary<string, object?> _parameterValues;
+
+            public EfCoreParameterResolvingVisitor(IReadOnlyDictionary<string, object?> parameterValues)
+            {
+                _parameterValues = parameterValues;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                // Check if this is an EF Core parameter (starts with __)
+                if (node.Name != null && node.Name.StartsWith("__"))
+                {
+                    if (_parameterValues.TryGetValue(node.Name, out var value))
+                    {
+                        return Expression.Constant(value, node.Type);
+                    }
+                }
+
+                return base.VisitParameter(node);
+            }
+        }
+
+        /// <summary>
+        /// Visitor that evaluates closure references (captured variables) to their constant values.
+        /// </summary>
+        private class ClosureEvaluatingVisitor : ExpressionVisitor
+        {
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                // Check if this is a closure reference (accessing a field on a constant object)
+                if (node.Expression is ConstantExpression constantExpr && constantExpr.Value != null)
+                {
+                    var member = node.Member;
+                    var value = member switch
+                    {
+                        System.Reflection.FieldInfo field => field.GetValue(constantExpr.Value),
+                        System.Reflection.PropertyInfo prop => prop.GetValue(constantExpr.Value),
+                        _ => throw new NotSupportedException($"Unsupported member type: {member.GetType()}")
+                    };
+
+                    return Expression.Constant(value, node.Type);
+                }
+
+                return base.VisitMember(node);
+            }
         }
 
         #endregion

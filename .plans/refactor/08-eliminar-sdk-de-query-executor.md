@@ -20,10 +20,10 @@ Eliminar todos los tipos del SDK de Google (`QuerySnapshot`, `DocumentSnapshot`)
 |-------|----------------|--------|--------|-------|
 | 1 | Crear nuevo método `ExecuteQueryAsync<T>` que retorne `IAsyncEnumerable<T>` | ✅ | 474087a | ✅ |
 | 2 | Mover deserialización al Executor (sin Includes) | ✅ | 474087a | ✅ (incluido en Ciclo 1) |
-| 3 | Mover carga de SubCollections al Executor | ⏳ | | |
-| 4 | Mover carga de DocumentReferences al Executor | ⏳ | | |
-| 5 | Mover carga de ComplexType Includes al Executor | ⏳ | | |
-| 6 | Actualizar Visitor para solo hacer tracking | ⏳ | | |
+| 3 | Mover carga de SubCollections al Executor | ✅ | 23582ac | ✅ |
+| 4 | Mover carga de DocumentReferences al Executor | ✅ | 23582ac | ✅ |
+| 5 | Mover carga de ComplexType Includes al Executor | ✅ | 23582ac | ✅ |
+| 6 | Actualizar Visitor para solo iterar (delegando al Executor) | ✅ | c6d8ad7 | ✅ |
 | 7 | Crear nuevo método `ExecuteIdQueryAsync<T>` que retorne `Task<T?>` | ⏳ | | |
 | 8 | Eliminar métodos antiguos del contrato | ⏳ | | |
 | 9 | Eliminar `using Google.Cloud.Firestore` de IFirestoreQueryExecutor | ⏳ | | |

@@ -113,39 +113,27 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Determinar si debemos trackear las entidades
             var isTracking = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
 
-            var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
-            var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
-            var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
-
-            var shaperExpression = CreateShaperExpression(
-                queryContextParameter,
-                documentSnapshotParameter,
-                isTrackingParameter,
-                firestoreQueryExpression);
-
-            var shaperLambda = Expression.Lambda(
-                shaperExpression,
-                queryContextParameter,
-                documentSnapshotParameter,
-                isTrackingParameter);
-
+            // El nuevo Enumerable delega toda la ejecución, deserialización y carga de navegaciones al Executor
             var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(entityType);
             var constructor = enumerableType.GetConstructor(new[]
             {
                 typeof(QueryContext),
                 typeof(FirestoreQueryExpression),
-                typeof(Func<,,,>).MakeGenericType(typeof(QueryContext), typeof(DocumentSnapshot), typeof(bool), entityType),
-                typeof(Type),
+                typeof(DbContext),
                 typeof(bool),
                 typeof(IFirestoreQueryExecutor)
             })!;
+
+            // Obtener el DbContext desde QueryContext.Context
+            var dbContextExpression = Expression.Property(
+                QueryCompilationContext.QueryContextParameter,
+                nameof(QueryContext.Context));
 
             var newExpression = Expression.New(
                 constructor,
                 QueryCompilationContext.QueryContextParameter,
                 Expression.Constant(firestoreQueryExpression),
-                Expression.Constant(shaperLambda.Compile()),
-                Expression.Constant(entityType),
+                dbContextExpression,
                 Expression.Constant(isTracking),
                 Expression.Constant(_queryExecutor));
 
@@ -211,7 +199,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 documentSnapshotParameter,
                 isTrackingParameter);
 
-            var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(projectionType);
+            // Usar FirestoreProjectionQueryingEnumerable para proyecciones (no requiere where T : class)
+            var enumerableType = typeof(FirestoreProjectionQueryingEnumerable<>).MakeGenericType(projectionType);
             var constructor = enumerableType.GetConstructor(new[]
             {
                 typeof(QueryContext),
@@ -266,7 +255,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 documentSnapshotParameter,
                 isTrackingParameter);
 
-            var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(projectionType);
+            // Usar FirestoreProjectionQueryingEnumerable para proyecciones con subcollections
+            var enumerableType = typeof(FirestoreProjectionQueryingEnumerable<>).MakeGenericType(projectionType);
             var constructor = enumerableType.GetConstructor(new[]
             {
                 typeof(QueryContext),

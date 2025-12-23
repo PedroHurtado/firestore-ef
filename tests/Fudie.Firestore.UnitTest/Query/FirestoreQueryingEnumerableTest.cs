@@ -1,4 +1,4 @@
-using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.UnitTest.Query;
 
@@ -38,12 +38,14 @@ public class FirestoreQueryingEnumerableTest
     #region Constructor Signature Tests
 
     [Fact]
-    public void Constructor_Has_Six_Parameters()
+    public void Constructor_Has_Five_Parameters()
     {
+        // El nuevo constructor simplificado tiene 5 parámetros:
+        // QueryContext, FirestoreQueryExpression, DbContext, bool isTracking, IFirestoreQueryExecutor
         var constructors = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors();
 
         constructors.Should().HaveCount(1);
-        constructors[0].GetParameters().Should().HaveCount(6);
+        constructors[0].GetParameters().Should().HaveCount(5);
     }
 
     [Fact]
@@ -65,41 +67,31 @@ public class FirestoreQueryingEnumerableTest
     }
 
     [Fact]
-    public void Constructor_Third_Parameter_Is_Shaper_Func()
+    public void Constructor_Third_Parameter_Is_DbContext()
     {
+        // El tercer parámetro ahora es DbContext (no shaper)
         var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
-        // Shaper ahora incluye bool isTracking: Func<QueryContext, DocumentSnapshot, bool, T>
-        var shaperType = typeof(Func<QueryContext, DocumentSnapshot, bool, TestEntity>);
 
-        constructor.GetParameters()[2].ParameterType.Should().Be(shaperType);
-        constructor.GetParameters()[2].Name.Should().Be("shaper");
+        constructor.GetParameters()[2].ParameterType.Should().Be(typeof(DbContext));
+        constructor.GetParameters()[2].Name.Should().Be("dbContext");
     }
 
     [Fact]
-    public void Constructor_Fourth_Parameter_Is_Type()
+    public void Constructor_Fourth_Parameter_Is_IsTracking_Bool()
     {
         var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
 
-        constructor.GetParameters()[3].ParameterType.Should().Be(typeof(Type));
-        constructor.GetParameters()[3].Name.Should().Be("contextType");
+        constructor.GetParameters()[3].ParameterType.Should().Be(typeof(bool));
+        constructor.GetParameters()[3].Name.Should().Be("isTracking");
     }
 
     [Fact]
-    public void Constructor_Fifth_Parameter_Is_IsTracking_Bool()
+    public void Constructor_Fifth_Parameter_Is_Executor()
     {
         var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
 
-        constructor.GetParameters()[4].ParameterType.Should().Be(typeof(bool));
-        constructor.GetParameters()[4].Name.Should().Be("isTracking");
-    }
-
-    [Fact]
-    public void Constructor_Sixth_Parameter_Is_Executor()
-    {
-        var constructor = typeof(FirestoreQueryingEnumerable<TestEntity>).GetConstructors()[0];
-
-        constructor.GetParameters()[5].ParameterType.Should().Be(typeof(IFirestoreQueryExecutor));
-        constructor.GetParameters()[5].Name.Should().Be("executor");
+        constructor.GetParameters()[4].ParameterType.Should().Be(typeof(IFirestoreQueryExecutor));
+        constructor.GetParameters()[4].Name.Should().Be("executor");
     }
 
     #endregion
@@ -216,36 +208,6 @@ public class FirestoreQueryingEnumerableTest
             .WithLimit(10);
 
         queryExpression.Limit.Should().Be(10);
-    }
-
-    #endregion
-
-    #region Shaper Function Tests
-
-    [Fact]
-    public void Shaper_Function_Type_Is_Correct()
-    {
-        var shaperType = typeof(Func<QueryContext, DocumentSnapshot, TestEntity>);
-
-        shaperType.GetGenericArguments().Should().HaveCount(3);
-        shaperType.GetGenericArguments()[0].Should().Be(typeof(QueryContext));
-        shaperType.GetGenericArguments()[1].Should().Be(typeof(DocumentSnapshot));
-        shaperType.GetGenericArguments()[2].Should().Be(typeof(TestEntity));
-    }
-
-    [Fact]
-    public void Shaper_Returns_Entity_Type()
-    {
-        Func<QueryContext, DocumentSnapshot, TestEntity> shaper = (ctx, doc) => new TestEntity
-        {
-            Id = "test-id",
-            Name = "Test Name"
-        };
-
-        var result = shaper(null!, null!);
-
-        result.Should().NotBeNull();
-        result.Should().BeOfType<TestEntity>();
     }
 
     #endregion

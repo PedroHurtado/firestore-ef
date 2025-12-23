@@ -21,3 +21,17 @@ FirestoreClientWrapper
 Google.Cloud.Firestore SDK
     ↓
 Firestore (red)
+
+Traking
+
+Visitor (compila query)
+    ↓
+Pasa isTracking al Executor
+    ↓
+Executor.ExecuteQueryAsync<T>(..., isTracking)
+    ↓
+Executor deserializa + carga includes + hace tracking
+    ↓
+Retorna IAsyncEnumerable<T> (entidades ya trackeadas)
+    ↓
+Visitor solo itera y retorna

@@ -1,43 +1,36 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Firestore.EntityFrameworkCore.Infrastructure;
-
-using Google.Cloud.Firestore;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
     /// <summary>
     /// Implementa IAsyncEnumerable e IEnumerable para ejecutar queries de Firestore.
-    /// IEnumerable es necesario para lazy loading sincrónico.
-    /// Basado en el patrón de CosmosDB Provider.
+    /// Delega toda la ejecución, deserialización y carga de navegaciones al Executor.
+    /// El Enumerable solo itera las entidades ya procesadas.
     /// </summary>
-    public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>, IEnumerable<T>
+    public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>, IEnumerable<T> where T : class
     {
         private readonly QueryContext _queryContext;
         private readonly FirestoreQueryExpression _queryExpression;
-        private readonly Func<QueryContext, DocumentSnapshot, bool, T> _shaper;
-        private readonly Type _contextType;
+        private readonly DbContext _dbContext;
         private readonly bool _isTracking;
         private readonly IFirestoreQueryExecutor _executor;
 
         public FirestoreQueryingEnumerable(
             QueryContext queryContext,
             FirestoreQueryExpression queryExpression,
-            Func<QueryContext, DocumentSnapshot, bool, T> shaper,
-            Type contextType,
+            DbContext dbContext,
             bool isTracking,
             IFirestoreQueryExecutor executor)
         {
             _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             _queryExpression = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
-            _shaper = shaper ?? throw new ArgumentNullException(nameof(shaper));
-            _contextType = contextType ?? throw new ArgumentNullException(nameof(contextType));
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _isTracking = isTracking;
             _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         }
@@ -65,7 +58,7 @@ namespace Firestore.EntityFrameworkCore.Query
         private sealed class SyncEnumerator : IEnumerator<T>
         {
             private readonly FirestoreQueryingEnumerable<T> _enumerable;
-            private IEnumerator<DocumentSnapshot>? _enumerator;
+            private IAsyncEnumerator<T>? _asyncEnumerator;
             private bool _initialized;
 
             public SyncEnumerator(FirestoreQueryingEnumerable<T> enumerable)
@@ -80,79 +73,40 @@ namespace Firestore.EntityFrameworkCore.Query
             {
                 if (!_initialized)
                 {
-                    InitializeEnumerator();
+                    // El Executor maneja tanto queries normales como queries por ID
+                    _asyncEnumerator = _enumerable._executor.ExecuteQueryAsync<T>(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        _enumerable._dbContext,
+                        _enumerable._isTracking,
+                        CancellationToken.None).GetAsyncEnumerator(CancellationToken.None);
                     _initialized = true;
                 }
 
-                if (_enumerator!.MoveNext())
+                // Block on async - required for lazy loading
+                var hasNext = _asyncEnumerator!.MoveNextAsync().AsTask().GetAwaiter().GetResult();
+                if (hasNext)
                 {
-                    var document = _enumerator.Current;
-                    Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
+                    Current = _asyncEnumerator.Current;
                     return true;
                 }
 
                 return false;
             }
 
-            private void InitializeEnumerator()
-            {
-                var executor = _enumerable._executor;
-
-                // Ejecutar query síncronamente (bloquea en async)
-                if (_enumerable._queryExpression.IsIdOnlyQuery)
-                {
-                    var documentSnapshot = executor.ExecuteIdQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        CancellationToken.None).GetAwaiter().GetResult();
-
-                    var documents = new List<DocumentSnapshot>();
-                    if (documentSnapshot != null && documentSnapshot.Exists)
-                    {
-                        documents.Add(documentSnapshot);
-                    }
-                    _enumerator = documents.GetEnumerator();
-                }
-                else
-                {
-                    var snapshot = executor.ExecuteQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        CancellationToken.None).GetAwaiter().GetResult();
-
-                    // Apply Skip in-memory (Firestore doesn't support offset natively)
-                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
-
-                    // Check for constant Skip value
-                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
-                    {
-                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
-                    }
-                    // Check for Skip expression (parameterized value)
-                    else if (_enumerable._queryExpression.SkipExpression != null)
-                    {
-                        var skipValue = executor.EvaluateIntExpression(
-                            _enumerable._queryExpression.SkipExpression,
-                            _enumerable._queryContext);
-                        if (skipValue > 0)
-                        {
-                            documents = documents.Skip(skipValue);
-                        }
-                    }
-
-                    _enumerator = documents.GetEnumerator();
-                }
-            }
-
             public void Reset() => throw new NotSupportedException();
-            public void Dispose() => _enumerator?.Dispose();
+
+            public void Dispose()
+            {
+                _asyncEnumerator?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
         }
 
         private sealed class AsyncEnumerator : IAsyncEnumerator<T>
         {
             private readonly FirestoreQueryingEnumerable<T> _enumerable;
             private readonly CancellationToken _cancellationToken;
-            private IEnumerator<DocumentSnapshot>? _enumerator;
+            private IAsyncEnumerator<T>? _innerEnumerator;
 
             public AsyncEnumerator(
                 FirestoreQueryingEnumerable<T> enumerable,
@@ -166,82 +120,33 @@ namespace Firestore.EntityFrameworkCore.Query
 
             public async ValueTask<bool> MoveNextAsync()
             {
-                if (_enumerator == null)
+                if (_innerEnumerator == null)
                 {
-                    await InitializeEnumeratorAsync();
+                    // El Executor maneja tanto queries normales como queries por ID
+                    // y retorna entidades ya deserializadas con navegaciones cargadas
+                    _innerEnumerator = _enumerable._executor.ExecuteQueryAsync<T>(
+                        _enumerable._queryExpression,
+                        _enumerable._queryContext,
+                        _enumerable._dbContext,
+                        _enumerable._isTracking,
+                        _cancellationToken).GetAsyncEnumerator(_cancellationToken);
                 }
 
-                if (_enumerator!.MoveNext())
+                if (await _innerEnumerator.MoveNextAsync())
                 {
-                    var document = _enumerator.Current;
-                    Current = _enumerable._shaper(_enumerable._queryContext, document, _enumerable._isTracking);
+                    Current = _innerEnumerator.Current;
                     return true;
                 }
 
                 return false;
             }
 
-            private async Task InitializeEnumeratorAsync()
+            public async ValueTask DisposeAsync()
             {
-                var executor = _enumerable._executor;
-
-                // 🔥 MANEJO ESPECIAL PARA QUERIES POR ID
-                // Las queries por ID usan GetDocumentAsync porque el ID es metadata del documento
-                if (_enumerable._queryExpression.IsIdOnlyQuery)
+                if (_innerEnumerator != null)
                 {
-                    // Ejecutar query de ID que retorna un solo DocumentSnapshot
-                    var documentSnapshot = await executor.ExecuteIdQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        _cancellationToken);
-
-                    // Crear lista con el documento (si existe) o lista vacía (si no existe)
-                    var documents = new List<DocumentSnapshot>();
-                    if (documentSnapshot != null && documentSnapshot.Exists)
-                    {
-                        documents.Add(documentSnapshot);
-                    }
-
-                    // Inicializar enumerador con la lista
-                    _enumerator = documents.GetEnumerator();
+                    await _innerEnumerator.DisposeAsync();
                 }
-                else
-                {
-                    // Query normal - ejecutar y obtener QuerySnapshot
-                    var snapshot = await executor.ExecuteQueryAsync(
-                        _enumerable._queryExpression,
-                        _enumerable._queryContext,
-                        _cancellationToken);
-
-                    // Apply Skip in-memory (Firestore doesn't support offset natively)
-                    IEnumerable<DocumentSnapshot> documents = snapshot.Documents;
-
-                    // Check for constant Skip value
-                    if (_enumerable._queryExpression.Skip.HasValue && _enumerable._queryExpression.Skip.Value > 0)
-                    {
-                        documents = documents.Skip(_enumerable._queryExpression.Skip.Value);
-                    }
-                    // Check for Skip expression (parameterized value)
-                    else if (_enumerable._queryExpression.SkipExpression != null)
-                    {
-                        var skipValue = executor.EvaluateIntExpression(
-                            _enumerable._queryExpression.SkipExpression,
-                            _enumerable._queryContext);
-                        if (skipValue > 0)
-                        {
-                            documents = documents.Skip(skipValue);
-                        }
-                    }
-
-                    // Inicializar enumerador con los documentos
-                    _enumerator = documents.GetEnumerator();
-                }
-            }
-
-            public ValueTask DisposeAsync()
-            {
-                _enumerator?.Dispose();
-                return default;
             }
         }
     }
