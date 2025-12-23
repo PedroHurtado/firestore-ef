@@ -1,4 +1,3 @@
-using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
@@ -95,9 +94,10 @@ namespace Firestore.EntityFrameworkCore.Query
         public Expression? SkipExpression { get; set; }
 
         /// <summary>
-        /// Documento desde el cual empezar (para paginación/Skip)
+        /// Cursor desde el cual empezar (para paginación/Skip).
+        /// Contiene el ID del documento y los valores de los campos ordenados.
         /// </summary>
-        public DocumentSnapshot? StartAfterDocument { get; set; }
+        public FirestoreCursor? StartAfterCursor { get; set; }
 
         /// <summary>
         /// Si la query es solo por ID, contiene la expresión del ID.
@@ -217,7 +217,7 @@ namespace Firestore.EntityFrameworkCore.Query
             Expression? limitToLastExpression = null,
             int? skip = null,
             Expression? skipExpression = null,
-            DocumentSnapshot? startAfterDocument = null,
+            FirestoreCursor? startAfterCursor = null,
             Expression? idValueExpression = null,
             List<IReadOnlyNavigation>? pendingIncludes = null,
             List<IncludeInfo>? pendingIncludesWithFilters = null,
@@ -242,7 +242,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 LimitToLastExpression = limitToLastExpression ?? LimitToLastExpression,
                 Skip = skip ?? Skip,
                 SkipExpression = skipExpression ?? SkipExpression,
-                StartAfterDocument = startAfterDocument ?? StartAfterDocument,
+                StartAfterCursor = startAfterCursor ?? StartAfterCursor,
                 IdValueExpression = idValueExpression ?? IdValueExpression,
                 PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
                 PendingIncludesWithFilters = pendingIncludesWithFilters ?? new List<IncludeInfo>(PendingIncludesWithFilters),
@@ -424,11 +424,11 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
-        /// Establece el documento desde el cual empezar (para paginación)
+        /// Establece el cursor desde el cual empezar (para paginación)
         /// </summary>
-        public FirestoreQueryExpression WithStartAfter(DocumentSnapshot document)
+        public FirestoreQueryExpression WithStartAfter(FirestoreCursor cursor)
         {
-            return Update(startAfterDocument: document);
+            return Update(startAfterCursor: cursor);
         }
 
         /// <summary>
@@ -472,9 +472,9 @@ namespace Firestore.EntityFrameworkCore.Query
                 parts.Add($"Limit: {Limit.Value}");
             }
 
-            if (StartAfterDocument != null)
+            if (StartAfterCursor != null)
             {
-                parts.Add($"StartAfter: {StartAfterDocument.Id}");
+                parts.Add($"StartAfter: {StartAfterCursor}");
             }
 
             return string.Join(" | ", parts);

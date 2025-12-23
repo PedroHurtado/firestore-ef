@@ -44,7 +44,7 @@ public class FirestoreQueryExpressionTest
         var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
 
         query.Limit.Should().BeNull();
-        query.StartAfterDocument.Should().BeNull();
+        query.StartAfterCursor.Should().BeNull();
         query.IdValueExpression.Should().BeNull();
     }
 

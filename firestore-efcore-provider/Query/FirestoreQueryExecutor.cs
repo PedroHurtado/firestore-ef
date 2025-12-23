@@ -289,14 +289,41 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             // Aplicar cursor START AFTER (Skip con paginación)
-            if (queryExpression.StartAfterDocument != null)
+            if (queryExpression.StartAfterCursor != null)
             {
-                query = query.StartAfter(queryExpression.StartAfterDocument);
-                _logger.LogTrace("Applied StartAfter: {DocumentId}",
-                    queryExpression.StartAfterDocument.Id);
+                query = ApplyStartAfterCursor(query, queryExpression.StartAfterCursor);
             }
 
             return query;
+        }
+
+        /// <summary>
+        /// Aplica un FirestoreCursor al query usando StartAfter.
+        /// Si el cursor tiene OrderByValues, los usa; de lo contrario, usa solo el DocumentId.
+        /// </summary>
+        private Google.Cloud.Firestore.Query ApplyStartAfterCursor(
+            Google.Cloud.Firestore.Query query,
+            FirestoreCursor cursor)
+        {
+            _logger.LogTrace("Applied StartAfter: {Cursor}", cursor);
+
+            // Si hay valores de OrderBy, usarlos junto con el ID
+            if (cursor.OrderByValues.Count > 0)
+            {
+                // Firestore StartAfter acepta los valores en el orden de los OrderBy clauses
+                var values = new List<object?>(cursor.OrderByValues);
+
+                // Agregar el Document ID al final (para desempatar si hay valores iguales)
+                // Firestore SDK espera que el último valor sea el ID del documento cuando
+                // se usa FieldPath.DocumentId en el OrderBy
+                values.Add(cursor.DocumentId);
+
+                return query.StartAfter(values.ToArray());
+            }
+
+            // Si no hay valores de OrderBy, usar solo el Document ID
+            // Esto asume que la query está ordenada por __name__ (DocumentId)
+            return query.StartAfter(cursor.DocumentId);
         }
 
         /// <summary>

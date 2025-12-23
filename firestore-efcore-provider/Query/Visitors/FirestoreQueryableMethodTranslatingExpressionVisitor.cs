@@ -815,7 +815,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
                     OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
                     Limit = firestoreQueryExpression.Limit,
-                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument,
+                    StartAfterCursor = firestoreQueryExpression.StartAfterCursor,
                     PendingIncludes = firestoreQueryExpression.PendingIncludes
                 };
 
@@ -839,7 +839,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
                     OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
                     Limit = firestoreQueryExpression.Limit,
-                    StartAfterDocument = firestoreQueryExpression.StartAfterDocument,
+                    StartAfterCursor = firestoreQueryExpression.StartAfterCursor,
                     PendingIncludes = firestoreQueryExpression.PendingIncludes
                 };
 
