@@ -5,12 +5,14 @@ namespace Fudie.Firestore.UnitTest.Query;
 public class FirestoreQueryExecutorTest
 {
     private readonly Mock<IFirestoreClientWrapper> _clientMock;
+    private readonly Mock<IFirestoreDocumentDeserializer> _deserializerMock;
     private readonly Mock<ILogger<FirestoreQueryExecutor>> _loggerMock;
     private readonly Mock<IEntityType> _entityTypeMock;
 
     public FirestoreQueryExecutorTest()
     {
         _clientMock = new Mock<IFirestoreClientWrapper>();
+        _deserializerMock = new Mock<IFirestoreDocumentDeserializer>();
         _loggerMock = new Mock<ILogger<FirestoreQueryExecutor>>();
         _entityTypeMock = new Mock<IEntityType>();
         _entityTypeMock.Setup(e => e.ClrType).Returns(typeof(TestEntity));
@@ -23,30 +25,39 @@ public class FirestoreQueryExecutorTest
         public decimal Price { get; set; }
     }
 
-    #region Factory Method Tests
+    #region Constructor Tests
 
     [Fact]
-    public void Create_Returns_Valid_Executor()
+    public void Constructor_Creates_Valid_Executor()
     {
-        var executor = FirestoreQueryExecutor.Create(_clientMock.Object, _loggerMock.Object);
+        var executor = new FirestoreQueryExecutor(_clientMock.Object, _deserializerMock.Object, _loggerMock.Object);
 
         executor.Should().NotBeNull();
         executor.Should().BeAssignableTo<IFirestoreQueryExecutor>();
     }
 
     [Fact]
-    public void Create_Throws_On_Null_Client()
+    public void Constructor_Throws_On_Null_Client()
     {
-        var action = () => FirestoreQueryExecutor.Create(null!, _loggerMock.Object);
+        var action = () => new FirestoreQueryExecutor(null!, _deserializerMock.Object, _loggerMock.Object);
 
         action.Should().Throw<ArgumentNullException>()
             .WithParameterName("client");
     }
 
     [Fact]
-    public void Create_Throws_On_Null_Logger()
+    public void Constructor_Throws_On_Null_Deserializer()
     {
-        var action = () => FirestoreQueryExecutor.Create(_clientMock.Object, null!);
+        var action = () => new FirestoreQueryExecutor(_clientMock.Object, null!, _loggerMock.Object);
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName("deserializer");
+    }
+
+    [Fact]
+    public void Constructor_Throws_On_Null_Logger()
+    {
+        var action = () => new FirestoreQueryExecutor(_clientMock.Object, _deserializerMock.Object, null!);
 
         action.Should().Throw<ArgumentNullException>()
             .WithParameterName("logger");

@@ -18,24 +18,16 @@ namespace Firestore.EntityFrameworkCore.Query
     public class FirestoreQueryExecutor : IFirestoreQueryExecutor
     {
         private readonly IFirestoreClientWrapper _client;
+        private readonly IFirestoreDocumentDeserializer _deserializer;
         private readonly ILogger<FirestoreQueryExecutor> _logger;
 
-        /// <summary>
-        /// Factory method para crear instancias de FirestoreQueryExecutor.
-        /// TODO: Reemplazar por inyección de dependencias cuando se registre IFirestoreQueryExecutor en DI.
-        /// </summary>
-        public static IFirestoreQueryExecutor Create(
+        public FirestoreQueryExecutor(
             IFirestoreClientWrapper client,
-            ILogger<FirestoreQueryExecutor> logger)
-        {
-            return new FirestoreQueryExecutor(client, logger);
-        }
-
-        protected FirestoreQueryExecutor(
-            IFirestoreClientWrapper client,
+            IFirestoreDocumentDeserializer deserializer,
             ILogger<FirestoreQueryExecutor> logger)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
+            _deserializer = deserializer ?? throw new ArgumentNullException(nameof(deserializer));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
