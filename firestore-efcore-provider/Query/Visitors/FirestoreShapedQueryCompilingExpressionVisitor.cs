@@ -1196,7 +1196,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             var dbContext = queryContext.Context;
             var serviceProvider = ((IInfrastructure<IServiceProvider>)dbContext).Instance;
-
             var model = dbContext.Model;
 
             // Identity Resolution: verificar si la entidad ya está trackeada antes de deserializar
@@ -1209,16 +1208,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 }
             }
 
-            var typeMappingSource = (ITypeMappingSource)serviceProvider.GetService(typeof(ITypeMappingSource))!;
-            var collectionManager = (IFirestoreCollectionManager)serviceProvider.GetService(typeof(IFirestoreCollectionManager))!;
-            var loggerFactory = (Microsoft.Extensions.Logging.ILoggerFactory)serviceProvider.GetService(typeof(Microsoft.Extensions.Logging.ILoggerFactory))!;
-
-            var deserializerLogger = Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger<Storage.FirestoreDocumentDeserializer>(loggerFactory);
-            var deserializer = new Storage.FirestoreDocumentDeserializer(
-                model,
-                typeMappingSource,
-                collectionManager,
-                deserializerLogger);
+            var deserializer = _queryExecutor.Deserializer;
 
             // El deserializer se encarga de crear la entidad (con proxy si lazy loading está habilitado)
             var entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext, serviceProvider);
@@ -1380,7 +1370,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             DocumentSnapshot documentSnapshot,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -1402,7 +1392,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -1424,7 +1414,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -1522,7 +1512,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -1672,7 +1662,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             T entity,
             DocumentSnapshot documentSnapshot,
             List<LambdaExpression> complexTypeIncludes,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext) where T : class
@@ -1693,7 +1683,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             object entity,
             Dictionary<string, object> data,
             LambdaExpression includeExpr,
-            Storage.FirestoreDocumentDeserializer deserializer,
+            IFirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
             DbContext dbContext)

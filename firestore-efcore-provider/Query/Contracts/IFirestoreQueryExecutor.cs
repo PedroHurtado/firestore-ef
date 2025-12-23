@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Threading;
@@ -57,5 +58,10 @@ namespace Firestore.EntityFrameworkCore.Query
         Task<DocumentSnapshot> GetDocumentByReferenceAsync(
             string docPath,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Obtiene el deserializador de documentos.
+        /// </summary>
+        IFirestoreDocumentDeserializer Deserializer { get; }
     }
 }

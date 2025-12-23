@@ -31,6 +31,9 @@ namespace Firestore.EntityFrameworkCore.Query
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
+        /// <inheritdoc />
+        public IFirestoreDocumentDeserializer Deserializer => _deserializer;
+
         /// <summary>
         /// Ejecuta una FirestoreQueryExpression y retorna los documentos resultantes
         /// </summary>
