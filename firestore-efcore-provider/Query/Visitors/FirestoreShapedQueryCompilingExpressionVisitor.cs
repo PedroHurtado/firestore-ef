@@ -311,10 +311,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             // Llamar al método genérico DeserializeWithIncludesAndProject<TEntity, TProjection>
             var deserializeAndProjectMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                .GetMethod(nameof(DeserializeWithIncludesAndProject), BindingFlags.NonPublic | BindingFlags.Static)!
+                .GetMethod(nameof(DeserializeWithIncludesAndProject), BindingFlags.NonPublic | BindingFlags.Instance)!
                 .MakeGenericMethod(entityType, projectionType);
 
             return Expression.Call(
+                Expression.Constant(this),
                 deserializeAndProjectMethod,
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -1104,7 +1105,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         /// <summary>
         /// Deserializes an entity with its subcollections and applies the projection selector.
         /// </summary>
-        private static TProjection DeserializeWithIncludesAndProject<TEntity, TProjection>(
+        private TProjection DeserializeWithIncludesAndProject<TEntity, TProjection>(
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
             bool isTracking,
@@ -1134,10 +1135,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             // Llamar al método genérico DeserializeAndProject<TEntity, TProjection>
             var deserializeAndProjectMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                .GetMethod(nameof(DeserializeAndProject), BindingFlags.NonPublic | BindingFlags.Static)!
+                .GetMethod(nameof(DeserializeAndProject), BindingFlags.NonPublic | BindingFlags.Instance)!
                 .MakeGenericMethod(entityType, projectionType);
 
             return Expression.Call(
+                Expression.Constant(this),
                 deserializeAndProjectMethod,
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -1149,7 +1151,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         /// <summary>
         /// Deserializes an entity from a DocumentSnapshot and applies the projection selector.
         /// </summary>
-        private static TProjection DeserializeAndProject<TEntity, TProjection>(
+        private TProjection DeserializeAndProject<TEntity, TProjection>(
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
             bool isTracking,
@@ -1174,10 +1176,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             var entityType = queryExpression.EntityType.ClrType;
             var deserializeMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                .GetMethod(nameof(DeserializeEntity), BindingFlags.NonPublic | BindingFlags.Static)!
+                .GetMethod(nameof(DeserializeEntity), BindingFlags.NonPublic | BindingFlags.Instance)!
                 .MakeGenericMethod(entityType);
 
             return Expression.Call(
+                Expression.Constant(this),
                 deserializeMethod,
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -1185,7 +1188,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 Expression.Constant(queryExpression));
         }
 
-        private static T DeserializeEntity<T>(
+        private T DeserializeEntity<T>(
             QueryContext queryContext,
             DocumentSnapshot documentSnapshot,
             bool isTracking,
@@ -1209,7 +1212,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var typeMappingSource = (ITypeMappingSource)serviceProvider.GetService(typeof(ITypeMappingSource))!;
             var collectionManager = (IFirestoreCollectionManager)serviceProvider.GetService(typeof(IFirestoreCollectionManager))!;
             var loggerFactory = (Microsoft.Extensions.Logging.ILoggerFactory)serviceProvider.GetService(typeof(Microsoft.Extensions.Logging.ILoggerFactory))!;
-            var clientWrapper = (IFirestoreClientWrapper)serviceProvider.GetService(typeof(IFirestoreClientWrapper))!;
 
             var deserializerLogger = Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger<Storage.FirestoreDocumentDeserializer>(loggerFactory);
             var deserializer = new Storage.FirestoreDocumentDeserializer(
@@ -1224,14 +1226,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Cargar includes de navegaciones normales
             if (queryExpression.PendingIncludes.Count > 0)
             {
-                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, queryExpression.PendingIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext)
+                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, queryExpression.PendingIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext)
                     .GetAwaiter().GetResult();
             }
 
             // Cargar includes en ComplexTypes (ej: .Include(e => e.DireccionPrincipal.SucursalCercana))
             if (queryExpression.ComplexTypeIncludes.Count > 0)
             {
-                LoadComplexTypeIncludes(entity, documentSnapshot, queryExpression.ComplexTypeIncludes, clientWrapper, deserializer, model, isTracking, dbContext)
+                LoadComplexTypeIncludes(entity, documentSnapshot, queryExpression.ComplexTypeIncludes, deserializer, model, isTracking, dbContext)
                     .GetAwaiter().GetResult();
             }
 
@@ -1373,12 +1375,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
         #region Include Loading
 
-        private static async Task LoadIncludes<T>(
+        private async Task LoadIncludes<T>(
             T entity,
             DocumentSnapshot documentSnapshot,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1390,18 +1391,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 .ToList();
 
             var tasks = rootNavigations.Select(navigation =>
-                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext));
+                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext));
 
             await Task.WhenAll(tasks);
         }
 
-        private static async Task LoadNavigationAsync(
+        private async Task LoadNavigationAsync(
             object entity,
             DocumentSnapshot documentSnapshot,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1410,21 +1410,20 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             if (navigation.IsCollection)
             {
-                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext);
+                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
             }
             else
             {
-                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext);
+                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
             }
         }
 
-        private static async Task LoadSubCollectionAsync(
+        private async Task LoadSubCollectionAsync(
             object parentEntity,
             DocumentSnapshot parentDoc,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1436,8 +1435,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var subCollectionName = GetSubCollectionName(navigation);
 
-            // Ciclo 9: Usar el wrapper en lugar de llamada directa al SDK
-            var snapshot = await clientWrapper.GetSubCollectionAsync(parentDoc.Reference, subCollectionName);
+            var snapshot = await _queryExecutor.GetSubCollectionAsync(parentDoc.Reference, subCollectionName);
 
             // Usar el Deserializer para crear la colección del tipo correcto (List<T>, HashSet<T>, etc.)
             var collection = deserializer.CreateEmptyCollection(navigation);
@@ -1488,12 +1486,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     if (childIncludes.Count > 0)
                     {
                         var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                            .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
+                            .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
                             .MakeGenericMethod(navigation.TargetEntityType.ClrType);
 
-                        await (Task)loadIncludesMethod.Invoke(null, new object[]
+                        await (Task)loadIncludesMethod.Invoke(this, new object[]
                         {
-                            childEntity, doc, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext
+                            childEntity, doc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
                         })!;
                     }
 
@@ -1518,13 +1516,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             navigation.PropertyInfo?.SetValue(parentEntity, collection);
         }
 
-        private static async Task LoadReferenceAsync(
+        private async Task LoadReferenceAsync(
             object entity,
             DocumentSnapshot documentSnapshot,
             IReadOnlyNavigation navigation,
             List<IReadOnlyNavigation> allIncludes,
             List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1567,8 +1564,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     }
                 }
 
-                // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
-                referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRef);
+                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef);
             }
             else if (referenceValue is string id)
             {
@@ -1590,9 +1586,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (targetEntityType != null)
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
-                    // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
-                    referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRefFromId);
+                    var docRefFromId = _queryExecutor.Database.Collection(collectionName).Document(id);
+                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRefFromId);
                 }
             }
 
@@ -1615,12 +1610,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (childIncludes.Count > 0)
                 {
                     var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Static)!
+                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
                         .MakeGenericMethod(navigation.TargetEntityType.ClrType);
 
-                    await (Task)loadIncludesMethod.Invoke(null, new object[]
+                    await (Task)loadIncludesMethod.Invoke(this, new object[]
                     {
-                        referencedEntity, referencedDoc, allIncludes, allIncludesWithFilters, clientWrapper, deserializer, model, isTracking, dbContext, queryContext
+                        referencedEntity, referencedDoc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
                     })!;
                 }
 
@@ -1673,11 +1668,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         /// Loads references inside ComplexTypes based on extracted Include expressions.
         /// Example: .Include(e => e.DireccionPrincipal.SucursalCercana)
         /// </summary>
-        private static async Task LoadComplexTypeIncludes<T>(
+        private async Task LoadComplexTypeIncludes<T>(
             T entity,
             DocumentSnapshot documentSnapshot,
             List<LambdaExpression> complexTypeIncludes,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1687,7 +1681,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             foreach (var includeExpr in complexTypeIncludes)
             {
-                await LoadComplexTypeInclude(entity, data, includeExpr, clientWrapper, deserializer, model, isTracking, dbContext);
+                await LoadComplexTypeInclude(entity, data, includeExpr, deserializer, model, isTracking, dbContext);
             }
         }
 
@@ -1695,11 +1689,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         /// Loads a single reference inside a ComplexType.
         /// Parses the expression to get: ComplexTypeProperty.ReferenceProperty
         /// </summary>
-        private static async Task LoadComplexTypeInclude(
+        private async Task LoadComplexTypeInclude(
             object entity,
             Dictionary<string, object> data,
             LambdaExpression includeExpr,
-            IFirestoreClientWrapper clientWrapper,
             Storage.FirestoreDocumentDeserializer deserializer,
             IModel model,
             bool isTracking,
@@ -1745,8 +1738,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
             {
                 referencedId = docRef.Id;
-                // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
-                referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRef);
+                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef);
             }
             else if (referenceValue is string id)
             {
@@ -1756,9 +1748,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 if (targetEntityType != null)
                 {
                     var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docRefFromId = clientWrapper.Database.Collection(collectionName).Document(id);
-                    // Ciclo 10: Usar wrapper en lugar de llamada directa al SDK
-                    referencedDoc = await clientWrapper.GetDocumentByReferenceAsync(docRefFromId);
+                    var docRefFromId = _queryExecutor.Database.Collection(collectionName).Document(id);
+                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRefFromId);
                 }
             }
 

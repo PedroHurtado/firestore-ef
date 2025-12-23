@@ -947,5 +947,29 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         #endregion
+
+        #region Navigation Loading
+
+        /// <inheritdoc />
+        public async Task<QuerySnapshot> GetSubCollectionAsync(
+            DocumentReference parentDoc,
+            string subCollectionName,
+            CancellationToken cancellationToken = default)
+        {
+            return await _client.GetSubCollectionAsync(parentDoc, subCollectionName, cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public async Task<DocumentSnapshot> GetDocumentByReferenceAsync(
+            DocumentReference docRef,
+            CancellationToken cancellationToken = default)
+        {
+            return await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public FirestoreDb Database => _client.Database;
+
+        #endregion
     }
 }

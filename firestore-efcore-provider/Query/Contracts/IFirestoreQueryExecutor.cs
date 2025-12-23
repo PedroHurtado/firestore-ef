@@ -42,5 +42,25 @@ namespace Firestore.EntityFrameworkCore.Query
         int EvaluateIntExpression(
             System.Linq.Expressions.Expression expression,
             QueryContext queryContext);
+
+        /// <summary>
+        /// Obtiene los documentos de una subcollection.
+        /// </summary>
+        Task<QuerySnapshot> GetSubCollectionAsync(
+            DocumentReference parentDoc,
+            string subCollectionName,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Obtiene un documento por su referencia.
+        /// </summary>
+        Task<DocumentSnapshot> GetDocumentByReferenceAsync(
+            DocumentReference docRef,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Obtiene la base de datos de Firestore.
+        /// </summary>
+        FirestoreDb Database { get; }
     }
 }
