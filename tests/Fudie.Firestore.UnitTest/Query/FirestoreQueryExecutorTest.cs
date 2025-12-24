@@ -377,30 +377,15 @@ public class FirestoreQueryExecutorTest
     }
 
     /// <summary>
-    /// Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync<T> y ExecuteIdQueryForDocumentAsync.
+    /// Verifica que IFirestoreQueryExecutor tiene ExecuteIdQueryAsync&lt;T&gt;.
     /// </summary>
     [Fact]
     public void IFirestoreQueryExecutor_ShouldHaveExecuteIdQueryAsyncMethod()
     {
-        // Verificar que existe el método genérico ExecuteIdQueryAsync<T>
         var genericMethod = typeof(IFirestoreQueryExecutor).GetMethods()
             .FirstOrDefault(m => m.Name == "ExecuteIdQueryAsync" && m.IsGenericMethod);
 
         genericMethod.Should().NotBeNull("El método genérico ExecuteIdQueryAsync<T> debería existir");
-
-        // Verificar que existe ExecuteIdQueryForDocumentAsync (para proyecciones)
-        var forDocumentMethod = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteIdQueryForDocumentAsync");
-        forDocumentMethod.Should().NotBeNull("El método ExecuteIdQueryForDocumentAsync debería existir");
-    }
-
-    /// <summary>
-    /// Verifica que IFirestoreQueryExecutor tiene ExecuteQueryForDocumentsAsync.
-    /// </summary>
-    [Fact]
-    public void IFirestoreQueryExecutor_ShouldHaveExecuteQueryForDocumentsAsyncMethod()
-    {
-        var method = typeof(IFirestoreQueryExecutor).GetMethod("ExecuteQueryForDocumentsAsync");
-        method.Should().NotBeNull("El método ExecuteQueryForDocumentsAsync debería existir");
     }
 
     /// <summary>

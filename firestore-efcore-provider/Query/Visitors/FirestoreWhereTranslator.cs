@@ -459,8 +459,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         }
 
         /// <summary>
-        /// Translates StartsWith to a range query: field >= "prefix" AND field < "prefix\uffff"
-        /// This is a workaround since Firestore doesn't support native string operators.
+        /// Translates StartsWith to a range query: field &gt;= prefix AND field &lt; prefix\uffff.
+        /// This is a workaround since Firestore does not support native string operators.
         /// </summary>
         private List<FirestoreWhereClause>? TranslateStartsWith(MethodCallExpression methodCall)
         {

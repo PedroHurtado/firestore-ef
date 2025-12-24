@@ -526,7 +526,7 @@ public class FirestoreDocumentDeserializerTest
 
         // Assert
         Assert.NotNull(selected);
-        Assert.Equal(0, selected.GetParameters().Length);
+        Assert.Empty(selected.GetParameters());
     }
 
     [Fact]

@@ -1,5 +1,3 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Collections.Generic;
@@ -16,7 +14,6 @@ namespace Firestore.EntityFrameworkCore.Query
     {
         /// <summary>
         /// Ejecuta una query y retorna entidades deserializadas con navegaciones cargadas.
-        /// Este método encapsula toda la lógica de ejecución, deserialización y carga de includes.
         /// </summary>
         IAsyncEnumerable<T> ExecuteQueryAsync<T>(
             FirestoreQueryExpression queryExpression,
@@ -24,15 +21,6 @@ namespace Firestore.EntityFrameworkCore.Query
             DbContext dbContext,
             bool isTracking,
             CancellationToken cancellationToken = default) where T : class;
-
-        /// <summary>
-        /// Ejecuta una query y retorna DocumentSnapshots para proyecciones.
-        /// Usado por FirestoreProjectionQueryingEnumerable para aplicar shapers.
-        /// </summary>
-        IAsyncEnumerable<DocumentSnapshot> ExecuteQueryForDocumentsAsync(
-            FirestoreQueryExpression queryExpression,
-            QueryContext queryContext,
-            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Ejecuta una query por ID y retorna la entidad deserializada con navegaciones cargadas.
@@ -45,49 +33,11 @@ namespace Firestore.EntityFrameworkCore.Query
             CancellationToken cancellationToken = default) where T : class;
 
         /// <summary>
-        /// Ejecuta una query por ID y retorna el DocumentSnapshot para proyecciones.
-        /// </summary>
-        Task<DocumentSnapshot?> ExecuteIdQueryForDocumentAsync(
-            FirestoreQueryExpression queryExpression,
-            QueryContext queryContext,
-            CancellationToken cancellationToken = default);
-
-        /// <summary>
         /// Ejecuta una agregación (Count, Sum, Average, Min, Max, Any).
         /// </summary>
         Task<T> ExecuteAggregationAsync<T>(
             FirestoreQueryExpression queryExpression,
             QueryContext queryContext,
             CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Evalúa una expresión entera en runtime usando el QueryContext.
-        /// Usado para Limit (Take) y Skip cuando son expresiones parametrizadas.
-        /// </summary>
-        int EvaluateIntExpression(
-            System.Linq.Expressions.Expression expression,
-            QueryContext queryContext);
-
-        /// <summary>
-        /// Obtiene los documentos de una subcollection.
-        /// Usado para carga de navegaciones en proyecciones.
-        /// </summary>
-        Task<QuerySnapshot> GetSubCollectionAsync(
-            string parentDocPath,
-            string subCollectionName,
-            CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Obtiene un documento por su referencia.
-        /// Usado para carga de navegaciones en proyecciones.
-        /// </summary>
-        Task<DocumentSnapshot> GetDocumentByReferenceAsync(
-            string docPath,
-            CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Obtiene el deserializador de documentos.
-        /// </summary>
-        IFirestoreDocumentDeserializer Deserializer { get; }
     }
 }

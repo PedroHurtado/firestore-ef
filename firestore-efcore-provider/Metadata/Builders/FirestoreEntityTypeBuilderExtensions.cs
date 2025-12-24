@@ -16,7 +16,7 @@ public static class FirestoreEntityTypeBuilderExtensions
     /// </summary>
     public static SubCollectionBuilder<TRelatedEntity> SubCollection<TEntity, TRelatedEntity>(
         this EntityTypeBuilder<TEntity> builder,
-        Expression<Func<TEntity, IEnumerable<TRelatedEntity>>> navigationExpression)
+        Expression<Func<TEntity, IEnumerable<TRelatedEntity>?>> navigationExpression)
         where TEntity : class
         where TRelatedEntity : class
     {

@@ -66,6 +66,10 @@ namespace Firestore.EntityFrameworkCore.Query
 
             public bool MoveNext()
             {
+                // TODO: Proyecciones no soportadas de momento
+                throw new NotSupportedException("Projections are not yet supported. Use entity queries instead.");
+
+                /*
                 if (!_initialized)
                 {
                     _asyncEnumerator = _enumerable._executor.ExecuteQueryForDocumentsAsync(
@@ -75,7 +79,6 @@ namespace Firestore.EntityFrameworkCore.Query
                     _initialized = true;
                 }
 
-                // Block on async - required for synchronous enumeration
                 var hasNext = _asyncEnumerator!.MoveNextAsync().AsTask().GetAwaiter().GetResult();
                 if (hasNext)
                 {
@@ -85,6 +88,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 }
 
                 return false;
+                */
             }
 
             public void Reset() => throw new NotSupportedException();
@@ -111,8 +115,12 @@ namespace Firestore.EntityFrameworkCore.Query
 
             public T Current { get; private set; } = default!;
 
-            public async ValueTask<bool> MoveNextAsync()
+            public ValueTask<bool> MoveNextAsync()
             {
+                // TODO: Proyecciones no soportadas de momento
+                throw new NotSupportedException("Projections are not yet supported. Use entity queries instead.");
+
+                /*
                 if (_innerEnumerator == null)
                 {
                     _innerEnumerator = _enumerable._executor.ExecuteQueryForDocumentsAsync(
@@ -129,6 +137,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 }
 
                 return false;
+                */
             }
 
             public async ValueTask DisposeAsync()

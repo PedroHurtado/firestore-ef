@@ -25,7 +25,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 11: Select con subcollection completa
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithSubcollection_ReturnsRootFieldsAndSubcollection()
     {
         // Arrange
@@ -82,7 +82,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 12: Select con subcollection proyectada
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithProjectedSubcollection_ReturnsOnlySelectedFields()
     {
         // Arrange
@@ -139,7 +139,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 13: Select con subcollection filtrada
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithFilteredSubcollection_ReturnsOnlyMatchingItems()
     {
         // Arrange
@@ -202,7 +202,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 14: Select con subcollection filtrada + ordenada
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithFilteredAndOrderedSubcollection_ReturnsOrderedResults()
     {
         // Arrange
@@ -277,7 +277,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 15: Select con subcollection filtrada + ordenada + limitada
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithFilteredOrderedLimitedSubcollection_ReturnsTopN()
     {
         // Arrange
@@ -359,8 +359,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 16: Select con múltiples subcollections (cliente con pedidos y líneas)
 
-    
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithNestedSubcollections_ReturnsAllLevels()
     {
         // Arrange
@@ -453,7 +452,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 17: Query Completa (Where root + Select root + subcollection compleja)
 
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_CompleteQuery_WhereRootSelectRootAndComplexSubcollection()
     {
         // Arrange

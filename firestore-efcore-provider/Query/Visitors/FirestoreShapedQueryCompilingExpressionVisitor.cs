@@ -96,16 +96,19 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return CreateAggregationQueryExpression(firestoreQueryExpression);
             }
 
+            // TODO: Proyecciones necesitan rediseño - el shaper expone DocumentSnapshot (tipo SDK)
             // Handle projection queries with subcollections (load entity + includes, then project in memory)
             if (firestoreQueryExpression.HasSubcollectionProjection)
             {
-                return CreateSubcollectionProjectionQueryExpression(firestoreQueryExpression);
+                // return CreateSubcollectionProjectionQueryExpression(firestoreQueryExpression);
+                throw new NotSupportedException("Projections with subcollections are not yet supported. Use entity queries with Include() instead.");
             }
 
             // Handle simple projection queries (Select without subcollections)
             if (firestoreQueryExpression.HasProjection)
             {
-                return CreateProjectionQueryExpression(firestoreQueryExpression);
+                // return CreateProjectionQueryExpression(firestoreQueryExpression);
+                throw new NotSupportedException("Projections are not yet supported. Use entity queries instead.");
             }
 
             var entityType = firestoreQueryExpression.EntityType.ClrType;
@@ -167,24 +170,20 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return newExpression;
         }
 
-        /// <summary>
-        /// Creates the expression for projection queries (Select).
-        /// The shaper deserializes the entity and then applies the projection selector.
-        /// </summary>
+        // TODO: Métodos de proyección comentados - usan FirestoreProjectionQueryingEnumerable que expone DocumentSnapshot
+        // Necesitan rediseño para mover proyección al Executor
+        /*
         private Expression CreateProjectionQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
         {
             var entityType = firestoreQueryExpression.EntityType.ClrType;
             var projectionType = firestoreQueryExpression.ProjectionType!;
             var projectionSelector = firestoreQueryExpression.ProjectionSelector!;
-
-            // Proyecciones no deben trackearse (son DTOs/tipos anónimos)
             var isTracking = false;
 
             var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
             var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
             var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
 
-            // Crear el shaper que: 1) deserializa la entidad, 2) aplica la proyección
             var shaperExpression = CreateProjectionShaperExpression(
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -199,7 +198,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 documentSnapshotParameter,
                 isTrackingParameter);
 
-            // Usar FirestoreProjectionQueryingEnumerable para proyecciones (no requiere where T : class)
             var enumerableType = typeof(FirestoreProjectionQueryingEnumerable<>).MakeGenericType(projectionType);
             var constructor = enumerableType.GetConstructor(new[]
             {
@@ -223,24 +221,17 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return newExpression;
         }
 
-        /// <summary>
-        /// Creates the expression for projection queries that include subcollections.
-        /// The entity is loaded with all its subcollections, then the projection is applied in memory.
-        /// </summary>
         private Expression CreateSubcollectionProjectionQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
         {
             var entityType = firestoreQueryExpression.EntityType.ClrType;
             var projectionType = firestoreQueryExpression.ProjectionType!;
             var projectionSelector = firestoreQueryExpression.ProjectionSelector!;
-
-            // Proyecciones no deben trackearse (son DTOs/tipos anónimos)
             var isTracking = false;
 
             var queryContextParameter = Expression.Parameter(typeof(QueryContext), "queryContext");
             var documentSnapshotParameter = Expression.Parameter(typeof(DocumentSnapshot), "documentSnapshot");
             var isTrackingParameter = Expression.Parameter(typeof(bool), "isTracking");
 
-            // Crear el shaper que: 1) deserializa la entidad con subcollections, 2) aplica la proyección
             var shaperExpression = CreateSubcollectionProjectionShaperExpression(
                 queryContextParameter,
                 documentSnapshotParameter,
@@ -255,7 +246,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 documentSnapshotParameter,
                 isTrackingParameter);
 
-            // Usar FirestoreProjectionQueryingEnumerable para proyecciones con subcollections
             var enumerableType = typeof(FirestoreProjectionQueryingEnumerable<>).MakeGenericType(projectionType);
             var constructor = enumerableType.GetConstructor(new[]
             {
@@ -278,6 +268,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             return newExpression;
         }
+        */
 
         /// <summary>
         /// Creates a shaper expression for subcollection projections.
@@ -366,11 +357,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 {
                     var visited = Visit(arg);
                     // Debug: if types differ, log
-                    if (visited != null && arg != null && visited.Type != arg.Type)
+                    if (visited != null && visited.Type != arg.Type)
                     {
                         System.Diagnostics.Debug.WriteLine($"Type changed: {arg.Type.Name} -> {visited.Type.Name}");
                     }
-                    return visited;
+                    return visited ?? arg; // Si Visit retorna null, mantener el original
                 }).ToList();
 
                 // Check if any argument types changed
@@ -454,7 +445,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                             $"Expression: {originalArg}");
                     }
                 }
-                return node.Update(visitedArguments!);
+                return node.Update(visitedArguments);
             }
 
             protected override Expression VisitMethodCall(MethodCallExpression node)
@@ -1198,36 +1189,31 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 }
             }
 
-            var deserializer = _queryExecutor.Deserializer;
+            // TODO: Mover deserialización e includes al Executor
+            // var deserializer = _queryExecutor.Deserializer;
+            // var entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext, serviceProvider);
+            //
+            // if (queryExpression.PendingIncludes.Count > 0)
+            // {
+            //     LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, queryExpression.PendingIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext)
+            //         .GetAwaiter().GetResult();
+            // }
+            //
+            // if (queryExpression.ComplexTypeIncludes.Count > 0)
+            // {
+            //     LoadComplexTypeIncludes(entity, documentSnapshot, queryExpression.ComplexTypeIncludes, deserializer, model, isTracking, dbContext)
+            //         .GetAwaiter().GetResult();
+            // }
 
-            // El deserializer se encarga de crear la entidad (con proxy si lazy loading está habilitado)
-            var entity = deserializer.DeserializeEntity<T>(documentSnapshot, dbContext, serviceProvider);
+            // Temporal: El Executor ahora maneja deserialización e includes
+            // if (isTracking)
+            // {
+            //     dbContext.Attach(entity);
+            //     SetShadowForeignKeys(entity, documentSnapshot, model.FindEntityType(typeof(T))!, dbContext);
+            // }
+            // return entity;
 
-            // Cargar includes de navegaciones normales
-            if (queryExpression.PendingIncludes.Count > 0)
-            {
-                LoadIncludes(entity, documentSnapshot, queryExpression.PendingIncludes, queryExpression.PendingIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext)
-                    .GetAwaiter().GetResult();
-            }
-
-            // Cargar includes en ComplexTypes (ej: .Include(e => e.DireccionPrincipal.SucursalCercana))
-            if (queryExpression.ComplexTypeIncludes.Count > 0)
-            {
-                LoadComplexTypeIncludes(entity, documentSnapshot, queryExpression.ComplexTypeIncludes, deserializer, model, isTracking, dbContext)
-                    .GetAwaiter().GetResult();
-            }
-
-            // Adjuntar al ChangeTracker como Unchanged para habilitar tracking de cambios
-            // Solo si QueryTrackingBehavior es TrackAll (no NoTracking)
-            if (isTracking)
-            {
-                dbContext.Attach(entity);
-
-                // Establecer shadow FK properties para navegaciones con DocumentReference
-                SetShadowForeignKeys(entity, documentSnapshot, model.FindEntityType(typeof(T))!, dbContext);
-            }
-
-            return entity;
+            throw new NotImplementedException("DeserializeEntity debe ser movido al Executor");
         }
 
         /// <summary>
@@ -1354,423 +1340,397 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         #endregion
 
         #region Include Loading
+        // TODO: Toda esta región debe moverse al Executor - viola SRP
+        // El Visitor solo debe preparar el AST con PendingIncludes
+        // El Executor debe cargar las navegaciones en runtime
 
-        private async Task LoadIncludes<T>(
-            T entity,
-            DocumentSnapshot documentSnapshot,
-            List<IReadOnlyNavigation> allIncludes,
-            List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext,
-            QueryContext queryContext) where T : class
-        {
-            var rootNavigations = allIncludes
-                .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
-                .ToList();
+        // private async Task LoadIncludes<T>(
+        //     T entity,
+        //     DocumentSnapshot documentSnapshot,
+        //     List<IReadOnlyNavigation> allIncludes,
+        //     List<IncludeInfo> allIncludesWithFilters,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext,
+        //     QueryContext queryContext) where T : class
+        // {
+        //     var rootNavigations = allIncludes
+        //         .Where(n => n.DeclaringEntityType == model.FindEntityType(typeof(T)))
+        //         .ToList();
+        //
+        //     var tasks = rootNavigations.Select(navigation =>
+        //         LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext));
+        //
+        //     await Task.WhenAll(tasks);
+        // }
 
-            var tasks = rootNavigations.Select(navigation =>
-                LoadNavigationAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext));
+        // private async Task LoadNavigationAsync(
+        //     object entity,
+        //     DocumentSnapshot documentSnapshot,
+        //     IReadOnlyNavigation navigation,
+        //     List<IReadOnlyNavigation> allIncludes,
+        //     List<IncludeInfo> allIncludesWithFilters,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext,
+        //     QueryContext queryContext)
+        // {
+        //     if (navigation.IsCollection)
+        //     {
+        //         await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
+        //     }
+        //     else
+        //     {
+        //         await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
+        //     }
+        // }
 
-            await Task.WhenAll(tasks);
-        }
+        // private async Task LoadSubCollectionAsync(
+        //     object parentEntity,
+        //     DocumentSnapshot parentDoc,
+        //     IReadOnlyNavigation navigation,
+        //     List<IReadOnlyNavigation> allIncludes,
+        //     List<IncludeInfo> allIncludesWithFilters,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext,
+        //     QueryContext queryContext)
+        // {
+        //     if (!navigation.IsSubCollection())
+        //         return;
+        //
+        //     var subCollectionName = GetSubCollectionName(navigation);
+        //
+        //     var snapshot = await _queryExecutor.GetSubCollectionAsync(parentDoc.Reference.Path, subCollectionName);
+        //
+        //     var collection = deserializer.CreateEmptyCollection(navigation);
+        //
+        //     var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+        //         .GetMethods()
+        //         .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
+        //         .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+        //
+        //     var includeInfo = allIncludesWithFilters.FirstOrDefault(i =>
+        //         i.EffectiveNavigationName == navigation.Name);
+        //
+        //     Func<object, bool>? filterPredicate = null;
+        //     if (includeInfo?.FilterExpression != null)
+        //     {
+        //         filterPredicate = CompileFilterPredicate(includeInfo.FilterExpression, navigation.TargetEntityType.ClrType, queryContext);
+        //         if (filterPredicate == null)
+        //         {
+        //             throw new Exception($"Failed to compile filter for {navigation.Name}");
+        //         }
+        //     }
+        //
+        //     foreach (var doc in snapshot.Documents)
+        //     {
+        //         if (!doc.Exists)
+        //             continue;
+        //
+        //         object? childEntity = null;
+        //         if (isTracking)
+        //         {
+        //             childEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, doc.Id);
+        //         }
+        //
+        //         if (childEntity == null)
+        //         {
+        //             childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
+        //             if (childEntity == null)
+        //                 continue;
+        //
+        //             var childIncludes = allIncludes
+        //                 .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+        //                 .ToList();
+        //
+        //             if (childIncludes.Count > 0)
+        //             {
+        //                 var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+        //                     .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
+        //                     .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+        //
+        //                 await (Task)loadIncludesMethod.Invoke(this, new object[]
+        //                 {
+        //                     childEntity, doc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
+        //                 })!;
+        //             }
+        //
+        //             if (isTracking)
+        //             {
+        //                 dbContext.Attach(childEntity);
+        //             }
+        //         }
+        //
+        //         if (filterPredicate != null && !filterPredicate(childEntity))
+        //         {
+        //             continue;
+        //         }
+        //
+        //         ApplyFixup(parentEntity, childEntity, navigation);
+        //
+        //         deserializer.AddToCollection(collection, childEntity);
+        //     }
+        //
+        //     navigation.PropertyInfo?.SetValue(parentEntity, collection);
+        // }
 
-        private async Task LoadNavigationAsync(
-            object entity,
-            DocumentSnapshot documentSnapshot,
-            IReadOnlyNavigation navigation,
-            List<IReadOnlyNavigation> allIncludes,
-            List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext,
-            QueryContext queryContext)
-        {
-            if (navigation.IsCollection)
-            {
-                await LoadSubCollectionAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
-            }
-            else
-            {
-                await LoadReferenceAsync(entity, documentSnapshot, navigation, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext);
-            }
-        }
+        // private async Task LoadReferenceAsync(
+        //     object entity,
+        //     DocumentSnapshot documentSnapshot,
+        //     IReadOnlyNavigation navigation,
+        //     List<IReadOnlyNavigation> allIncludes,
+        //     List<IncludeInfo> allIncludesWithFilters,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext,
+        //     QueryContext queryContext)
+        // {
+        //     var data = documentSnapshot.ToDictionary();
+        //
+        //     object? referenceValue = null;
+        //
+        //     if (data.TryGetValue(navigation.Name, out var directValue))
+        //     {
+        //         referenceValue = directValue;
+        //     }
+        //     else if (data.TryGetValue($"{navigation.Name}Id", out var idValue))
+        //     {
+        //         referenceValue = idValue;
+        //     }
+        //
+        //     if (referenceValue == null)
+        //         return;
+        //
+        //     string? referencedId = null;
+        //     DocumentSnapshot? referencedDoc = null;
+        //
+        //     if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+        //     {
+        //         referencedId = docRef.Id;
+        //
+        //         if (isTracking)
+        //         {
+        //             var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
+        //             if (existingEntity != null)
+        //             {
+        //                 ApplyFixup(entity, existingEntity, navigation);
+        //                 navigation.PropertyInfo?.SetValue(entity, existingEntity);
+        //                 return;
+        //             }
+        //         }
+        //
+        //         referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
+        //     }
+        //     else if (referenceValue is string id)
+        //     {
+        //         referencedId = id;
+        //
+        //         if (isTracking)
+        //         {
+        //             var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
+        //             if (existingEntity != null)
+        //             {
+        //                 ApplyFixup(entity, existingEntity, navigation);
+        //                 navigation.PropertyInfo?.SetValue(entity, existingEntity);
+        //                 return;
+        //             }
+        //         }
+        //
+        //         var targetEntityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
+        //         if (targetEntityType != null)
+        //         {
+        //             var collectionName = GetCollectionNameForEntityType(targetEntityType);
+        //             var docPath = $"{collectionName}/{id}";
+        //             referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
+        //         }
+        //     }
+        //
+        //     if (referencedDoc == null || !referencedDoc.Exists)
+        //         return;
+        //
+        //     var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+        //         .GetMethods()
+        //         .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
+        //         .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+        //
+        //     var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
+        //
+        //     if (referencedEntity != null)
+        //     {
+        //         var childIncludes = allIncludes
+        //             .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
+        //             .ToList();
+        //
+        //         if (childIncludes.Count > 0)
+        //         {
+        //             var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+        //                 .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
+        //                 .MakeGenericMethod(navigation.TargetEntityType.ClrType);
+        //
+        //             await (Task)loadIncludesMethod.Invoke(this, new object[]
+        //             {
+        //                 referencedEntity, referencedDoc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
+        //             })!;
+        //         }
+        //
+        //         if (isTracking)
+        //         {
+        //             dbContext.Attach(referencedEntity);
+        //         }
+        //
+        //         ApplyFixup(entity, referencedEntity, navigation);
+        //
+        //         navigation.PropertyInfo?.SetValue(entity, referencedEntity);
+        //     }
+        // }
 
-        private async Task LoadSubCollectionAsync(
-            object parentEntity,
-            DocumentSnapshot parentDoc,
-            IReadOnlyNavigation navigation,
-            List<IReadOnlyNavigation> allIncludes,
-            List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext,
-            QueryContext queryContext)
-        {
-            if (!navigation.IsSubCollection())
-                return;
+        // private static void ApplyFixup(
+        //     object parent,
+        //     object child,
+        //     IReadOnlyNavigation navigation)
+        // {
+        //     if (navigation.Inverse != null)
+        //     {
+        //         var inverseProperty = navigation.Inverse.PropertyInfo;
+        //         if (inverseProperty != null)
+        //         {
+        //             if (navigation.IsCollection)
+        //             {
+        //                 inverseProperty.SetValue(child, parent);
+        //             }
+        //             else
+        //             {
+        //                 if (navigation.Inverse.IsCollection)
+        //                 {
+        //                     var collection = inverseProperty.GetValue(parent) as System.Collections.IList;
+        //                     if (collection != null && !collection.Contains(child))
+        //                     {
+        //                         collection.Add(child);
+        //                     }
+        //                 }
+        //                 else
+        //                 {
+        //                     inverseProperty.SetValue(parent, child);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-            var subCollectionName = GetSubCollectionName(navigation);
+        // private async Task LoadComplexTypeIncludes<T>(
+        //     T entity,
+        //     DocumentSnapshot documentSnapshot,
+        //     List<LambdaExpression> complexTypeIncludes,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext) where T : class
+        // {
+        //     var data = documentSnapshot.ToDictionary();
+        //
+        //     foreach (var includeExpr in complexTypeIncludes)
+        //     {
+        //         await LoadComplexTypeInclude(entity, data, includeExpr, deserializer, model, isTracking, dbContext);
+        //     }
+        // }
 
-            var snapshot = await _queryExecutor.GetSubCollectionAsync(parentDoc.Reference.Path, subCollectionName);
-
-            // Usar el Deserializer para crear la colección del tipo correcto (List<T>, HashSet<T>, etc.)
-            var collection = deserializer.CreateEmptyCollection(navigation);
-
-            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethods()
-                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
-                .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-            // Buscar IncludeInfo para esta navegación (para Filtered Includes)
-            var includeInfo = allIncludesWithFilters.FirstOrDefault(i =>
-                i.EffectiveNavigationName == navigation.Name);
-
-            // Compilar el filtro si existe
-            Func<object, bool>? filterPredicate = null;
-            if (includeInfo?.FilterExpression != null)
-            {
-                filterPredicate = CompileFilterPredicate(includeInfo.FilterExpression, navigation.TargetEntityType.ClrType, queryContext);
-                if (filterPredicate == null)
-                {
-                    throw new Exception($"Failed to compile filter for {navigation.Name}");
-                }
-            }
-
-            foreach (var doc in snapshot.Documents)
-            {
-                if (!doc.Exists)
-                    continue;
-
-                // Identity Resolution: verificar si la entidad ya está trackeada
-                object? childEntity = null;
-                if (isTracking)
-                {
-                    childEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, doc.Id);
-                }
-
-                // Si no está trackeada, deserializar
-                if (childEntity == null)
-                {
-                    childEntity = deserializeMethod.Invoke(deserializer, new object[] { doc });
-                    if (childEntity == null)
-                        continue;
-
-                    var childIncludes = allIncludes
-                        .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
-                        .ToList();
-
-                    if (childIncludes.Count > 0)
-                    {
-                        var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                            .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
-                            .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-                        await (Task)loadIncludesMethod.Invoke(this, new object[]
-                        {
-                            childEntity, doc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
-                        })!;
-                    }
-
-                    // Adjuntar al ChangeTracker como Unchanged
-                    if (isTracking)
-                    {
-                        dbContext.Attach(childEntity);
-                    }
-                }
-
-                // Aplicar filtro si existe (Filtered Include)
-                if (filterPredicate != null && !filterPredicate(childEntity))
-                {
-                    continue; // No incluir esta entidad si no pasa el filtro
-                }
-
-                ApplyFixup(parentEntity, childEntity, navigation);
-
-                deserializer.AddToCollection(collection, childEntity);
-            }
-
-            navigation.PropertyInfo?.SetValue(parentEntity, collection);
-        }
-
-        private async Task LoadReferenceAsync(
-            object entity,
-            DocumentSnapshot documentSnapshot,
-            IReadOnlyNavigation navigation,
-            List<IReadOnlyNavigation> allIncludes,
-            List<IncludeInfo> allIncludesWithFilters,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext,
-            QueryContext queryContext)
-        {
-            var data = documentSnapshot.ToDictionary();
-
-            object? referenceValue = null;
-
-            if (data.TryGetValue(navigation.Name, out var directValue))
-            {
-                referenceValue = directValue;
-            }
-            else if (data.TryGetValue($"{navigation.Name}Id", out var idValue))
-            {
-                referenceValue = idValue;
-            }
-
-            if (referenceValue == null)
-                return;
-
-            // Obtener el ID de la referencia para identity resolution
-            string? referencedId = null;
-            DocumentSnapshot? referencedDoc = null;
-
-            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
-            {
-                referencedId = docRef.Id;
-
-                // Identity Resolution: verificar si la entidad ya está trackeada
-                if (isTracking)
-                {
-                    var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
-                    if (existingEntity != null)
-                    {
-                        ApplyFixup(entity, existingEntity, navigation);
-                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
-                        return;
-                    }
-                }
-
-                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
-            }
-            else if (referenceValue is string id)
-            {
-                referencedId = id;
-
-                // Identity Resolution: verificar si la entidad ya está trackeada
-                if (isTracking)
-                {
-                    var existingEntity = TryGetTrackedEntity(dbContext, navigation.TargetEntityType, referencedId);
-                    if (existingEntity != null)
-                    {
-                        ApplyFixup(entity, existingEntity, navigation);
-                        navigation.PropertyInfo?.SetValue(entity, existingEntity);
-                        return;
-                    }
-                }
-
-                var targetEntityType = model.FindEntityType(navigation.TargetEntityType.ClrType);
-                if (targetEntityType != null)
-                {
-                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docPath = $"{collectionName}/{id}";
-                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
-                }
-            }
-
-            if (referencedDoc == null || !referencedDoc.Exists)
-                return;
-
-            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethods()
-                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
-                .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-            var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
-
-            if (referencedEntity != null)
-            {
-                var childIncludes = allIncludes
-                    .Where(inc => inc.DeclaringEntityType == navigation.TargetEntityType)
-                    .ToList();
-
-                if (childIncludes.Count > 0)
-                {
-                    var loadIncludesMethod = typeof(FirestoreShapedQueryCompilingExpressionVisitor)
-                        .GetMethod(nameof(LoadIncludes), BindingFlags.NonPublic | BindingFlags.Instance)!
-                        .MakeGenericMethod(navigation.TargetEntityType.ClrType);
-
-                    await (Task)loadIncludesMethod.Invoke(this, new object[]
-                    {
-                        referencedEntity, referencedDoc, allIncludes, allIncludesWithFilters, deserializer, model, isTracking, dbContext, queryContext
-                    })!;
-                }
-
-                // Adjuntar al ChangeTracker como Unchanged
-                if (isTracking)
-                {
-                    dbContext.Attach(referencedEntity);
-                }
-
-                ApplyFixup(entity, referencedEntity, navigation);
-
-                navigation.PropertyInfo?.SetValue(entity, referencedEntity);
-            }
-        }
-
-        private static void ApplyFixup(
-            object parent,
-            object child,
-            IReadOnlyNavigation navigation)
-        {
-            if (navigation.Inverse != null)
-            {
-                var inverseProperty = navigation.Inverse.PropertyInfo;
-                if (inverseProperty != null)
-                {
-                    if (navigation.IsCollection)
-                    {
-                        inverseProperty.SetValue(child, parent);
-                    }
-                    else
-                    {
-                        if (navigation.Inverse.IsCollection)
-                        {
-                            var collection = inverseProperty.GetValue(parent) as System.Collections.IList;
-                            if (collection != null && !collection.Contains(child))
-                            {
-                                collection.Add(child);
-                            }
-                        }
-                        else
-                        {
-                            inverseProperty.SetValue(parent, child);
-                        }
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Loads references inside ComplexTypes based on extracted Include expressions.
-        /// Example: .Include(e => e.DireccionPrincipal.SucursalCercana)
-        /// </summary>
-        private async Task LoadComplexTypeIncludes<T>(
-            T entity,
-            DocumentSnapshot documentSnapshot,
-            List<LambdaExpression> complexTypeIncludes,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext) where T : class
-        {
-            var data = documentSnapshot.ToDictionary();
-
-            foreach (var includeExpr in complexTypeIncludes)
-            {
-                await LoadComplexTypeInclude(entity, data, includeExpr, deserializer, model, isTracking, dbContext);
-            }
-        }
-
-        /// <summary>
-        /// Loads a single reference inside a ComplexType.
-        /// Parses the expression to get: ComplexTypeProperty.ReferenceProperty
-        /// </summary>
-        private async Task LoadComplexTypeInclude(
-            object entity,
-            Dictionary<string, object> data,
-            LambdaExpression includeExpr,
-            IFirestoreDocumentDeserializer deserializer,
-            IModel model,
-            bool isTracking,
-            DbContext dbContext)
-        {
-            // Parse the expression: e => e.DireccionPrincipal.SucursalCercana
-            // We need to extract: ComplexTypeProp = DireccionPrincipal, ReferenceProp = SucursalCercana
-            if (includeExpr.Body is not MemberExpression refMemberExpr)
-                return;
-
-            var referenceProperty = refMemberExpr.Member as PropertyInfo;
-            if (referenceProperty == null)
-                return;
-
-            if (refMemberExpr.Expression is not MemberExpression complexTypeMemberExpr)
-                return;
-
-            var complexTypeProperty = complexTypeMemberExpr.Member as PropertyInfo;
-            if (complexTypeProperty == null)
-                return;
-
-            // Get the ComplexType instance from the entity
-            var complexTypeInstance = complexTypeProperty.GetValue(entity);
-            if (complexTypeInstance == null)
-                return;
-
-            // Get the raw data for the ComplexType from the document
-            if (!data.TryGetValue(complexTypeProperty.Name, out var complexTypeData) ||
-                complexTypeData is not Dictionary<string, object> complexTypeDict)
-                return;
-
-            // Get the DocumentReference from the ComplexType data
-            if (!complexTypeDict.TryGetValue(referenceProperty.Name, out var referenceValue))
-                return;
-
-            if (referenceValue == null)
-                return;
-
-            // Load the referenced entity
-            DocumentSnapshot? referencedDoc = null;
-            string? referencedId = null;
-
-            if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
-            {
-                referencedId = docRef.Id;
-                referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
-            }
-            else if (referenceValue is string id)
-            {
-                referencedId = id;
-                var targetType = referenceProperty.PropertyType;
-                var targetEntityType = model.FindEntityType(targetType);
-                if (targetEntityType != null)
-                {
-                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
-                    var docPath = $"{collectionName}/{id}";
-                    referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
-                }
-            }
-
-            if (referencedDoc == null || !referencedDoc.Exists)
-                return;
-
-            // Identity Resolution
-            if (isTracking && referencedId != null)
-            {
-                var targetEntityType = model.FindEntityType(referenceProperty.PropertyType);
-                if (targetEntityType != null)
-                {
-                    var existingEntity = TryGetTrackedEntity(dbContext, targetEntityType, referencedId);
-                    if (existingEntity != null)
-                    {
-                        referenceProperty.SetValue(complexTypeInstance, existingEntity);
-                        return;
-                    }
-                }
-            }
-
-            // Deserialize the referenced entity
-            var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
-                .GetMethods()
-                .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
-                .MakeGenericMethod(referenceProperty.PropertyType);
-
-            var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
-
-            if (referencedEntity != null)
-            {
-                // Track the referenced entity
-                if (isTracking)
-                {
-                    dbContext.Attach(referencedEntity);
-                }
-
-                // Set the reference property on the ComplexType instance
-                referenceProperty.SetValue(complexTypeInstance, referencedEntity);
-            }
-        }
+        // private async Task LoadComplexTypeInclude(
+        //     object entity,
+        //     Dictionary<string, object> data,
+        //     LambdaExpression includeExpr,
+        //     IFirestoreDocumentDeserializer deserializer,
+        //     IModel model,
+        //     bool isTracking,
+        //     DbContext dbContext)
+        // {
+        //     if (includeExpr.Body is not MemberExpression refMemberExpr)
+        //         return;
+        //
+        //     var referenceProperty = refMemberExpr.Member as PropertyInfo;
+        //     if (referenceProperty == null)
+        //         return;
+        //
+        //     if (refMemberExpr.Expression is not MemberExpression complexTypeMemberExpr)
+        //         return;
+        //
+        //     var complexTypeProperty = complexTypeMemberExpr.Member as PropertyInfo;
+        //     if (complexTypeProperty == null)
+        //         return;
+        //
+        //     var complexTypeInstance = complexTypeProperty.GetValue(entity);
+        //     if (complexTypeInstance == null)
+        //         return;
+        //
+        //     if (!data.TryGetValue(complexTypeProperty.Name, out var complexTypeData) ||
+        //         complexTypeData is not Dictionary<string, object> complexTypeDict)
+        //         return;
+        //
+        //     if (!complexTypeDict.TryGetValue(referenceProperty.Name, out var referenceValue))
+        //         return;
+        //
+        //     if (referenceValue == null)
+        //         return;
+        //
+        //     DocumentSnapshot? referencedDoc = null;
+        //     string? referencedId = null;
+        //
+        //     if (referenceValue is Google.Cloud.Firestore.DocumentReference docRef)
+        //     {
+        //         referencedId = docRef.Id;
+        //         referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docRef.Path);
+        //     }
+        //     else if (referenceValue is string id)
+        //     {
+        //         referencedId = id;
+        //         var targetType = referenceProperty.PropertyType;
+        //         var targetEntityType = model.FindEntityType(targetType);
+        //         if (targetEntityType != null)
+        //         {
+        //             var collectionName = GetCollectionNameForEntityType(targetEntityType);
+        //             var docPath = $"{collectionName}/{id}";
+        //             referencedDoc = await _queryExecutor.GetDocumentByReferenceAsync(docPath);
+        //         }
+        //     }
+        //
+        //     if (referencedDoc == null || !referencedDoc.Exists)
+        //         return;
+        //
+        //     if (isTracking && referencedId != null)
+        //     {
+        //         var targetEntityType = model.FindEntityType(referenceProperty.PropertyType);
+        //         if (targetEntityType != null)
+        //         {
+        //             var existingEntity = TryGetTrackedEntity(dbContext, targetEntityType, referencedId);
+        //             if (existingEntity != null)
+        //             {
+        //                 referenceProperty.SetValue(complexTypeInstance, existingEntity);
+        //                 return;
+        //             }
+        //         }
+        //     }
+        //
+        //     var deserializeMethod = typeof(Storage.FirestoreDocumentDeserializer)
+        //         .GetMethods()
+        //         .First(m => m.Name == nameof(Storage.FirestoreDocumentDeserializer.DeserializeEntity) && m.GetParameters().Length == 1)
+        //         .MakeGenericMethod(referenceProperty.PropertyType);
+        //
+        //     var referencedEntity = deserializeMethod.Invoke(deserializer, new object[] { referencedDoc });
+        //
+        //     if (referencedEntity != null)
+        //     {
+        //         if (isTracking)
+        //         {
+        //             dbContext.Attach(referencedEntity);
+        //         }
+        //
+        //         referenceProperty.SetValue(complexTypeInstance, referencedEntity);
+        //     }
+        // }
 
         #endregion
 

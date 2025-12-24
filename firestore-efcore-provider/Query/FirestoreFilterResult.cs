@@ -22,7 +22,7 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <summary>
         /// Nested OR groups found within AND expressions.
-        /// Used for patterns like: A && (B || C)
+        /// Used for patterns like: A &amp;&amp; (B || C)
         /// </summary>
         public List<FirestoreOrFilterGroup> NestedOrGroups { get; } = new();
 

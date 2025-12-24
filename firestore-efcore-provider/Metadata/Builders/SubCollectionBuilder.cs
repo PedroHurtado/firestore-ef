@@ -31,7 +31,7 @@ public class SubCollectionBuilder<TEntity> where TEntity : class
     /// Auto-registra el entity type hijo si no está en el modelo.
     /// </summary>
     public SubCollectionBuilder<TRelatedEntity> SubCollection<TRelatedEntity>(
-        Expression<Func<TEntity, IEnumerable<TRelatedEntity>>> navigationExpression)
+        Expression<Func<TEntity, IEnumerable<TRelatedEntity>?>> navigationExpression)
         where TRelatedEntity : class
     {
         var memberInfo = navigationExpression.GetMemberAccess();

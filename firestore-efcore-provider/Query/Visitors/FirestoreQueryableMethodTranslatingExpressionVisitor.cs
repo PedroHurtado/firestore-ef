@@ -507,10 +507,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 // Agregar IncludeInfo con filtros extraídos
                 foreach (var includeInfo in includeVisitor.DetectedIncludes)
                 {
-                    // Evitar duplicados
+                    // Evitar duplicados usando EffectiveNavigationName
                     if (!firestoreQueryExpression.PendingIncludesWithFilters.Any(i =>
-                        i.Navigation.Name == includeInfo.Navigation.Name &&
-                        i.Navigation.DeclaringEntityType == includeInfo.Navigation.DeclaringEntityType))
+                        i.EffectiveNavigationName == includeInfo.EffectiveNavigationName))
                     {
                         firestoreQueryExpression.PendingIncludesWithFilters.Add(includeInfo);
                     }

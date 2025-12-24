@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;EF1001</NoWarn>
 
     <!-- Información del paquete -->
     <PackageId>Firestore.EntityFrameworkCore</PackageId>
