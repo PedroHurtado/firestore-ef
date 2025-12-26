@@ -1,0 +1,774 @@
+# Refactor: AST y Executor
+
+## Resumen Ejecutivo
+
+Este documento describe los problemas arquitectónicos identificados en el pipeline de queries del provider de Firestore para EF Core, y propone una solución integral.
+
+---
+
+## Problemas Identificados
+
+### 1. AST Híbrido
+
+El AST (`FirestoreQueryExpression`) tiene propiedades duplicadas para el mismo concepto:
+
+```csharp
+// Constante vs Expresión parametrizada
+public int? Limit { get; set; }
+public Expression? LimitExpression { get; set; }
+
+public int? Skip { get; set; }
+public Expression? SkipExpression { get; set; }
+
+public int? LimitToLast { get; set; }
+public Expression? LimitToLastExpression { get; set; }
+```
+
+**Causa:** EF Core cachea `Func<QueryContext, TResult>`. Las constantes se embeben directamente (una entrada de caché por valor), mientras que las expresiones parametrizadas se resuelven en runtime desde `QueryContext.ParameterValues`.
+
+**Decisión:** Aceptamos el AST híbrido como necesario por el modelo de cacheo de EF Core.
+
+---
+
+### 2. Lógica de Evaluación Dispersa
+
+La evaluación de `QueryContext.ParameterValues` ocurre en múltiples lugares:
+
+| Ubicación | Método | Qué evalúa |
+|-----------|--------|------------|
+| `FirestoreWhereClause` | `EvaluateValue()` | Valores de filtros WHERE |
+| `FirestoreQueryExecutor` | `EvaluateIntExpression()` | Limit, Skip, LimitToLast |
+| `FirestoreQueryExecutor` | `EvaluateIdExpression()` | IdValueExpression |
+| `FirestoreQueryExecutor` | `CompileFilterPredicate()` | Filtros de Include |
+| `FirestoreShapedQueryCompilingExpressionVisitor` | `CompileFilterPredicate()` | Filtros de Include (duplicado) |
+
+**Problema:** Viola SRP, código duplicado, difícil de mantener.
+
+---
+
+### 3. Executor Conoce QueryContext
+
+`FirestoreQueryExecutor` recibe `QueryContext` directamente:
+
+```csharp
+ExecuteQueryAsync<T>(
+    FirestoreQueryExpression queryExpression,
+    QueryContext queryContext,  // ← Dependencia de EF Core
+    DbContext dbContext,
+    bool isTracking,
+    CancellationToken cancellationToken)
+```
+
+**Problema:** El Executor debería ser agnóstico a EF Core. Solo debería recibir datos ya resueltos.
+
+---
+
+### 4. FirestoreQueryContext Vacío
+
+```csharp
+public class FirestoreQueryContext : QueryContext
+{
+    // Vacío - no expone nada
+}
+```
+
+Otros providers exponen su cliente:
+- **Cosmos:** `CosmosClient`
+- **InMemory:** `Store`
+- **Relational:** `Connection`
+
+**Problema:** No aprovechamos `FirestoreQueryContext` para exponer `IFirestoreQueryExecutor`.
+
+---
+
+### 5. DbContext Redundante en Executor
+
+`IFirestoreQueryExecutor` recibe `DbContext` como parámetro, pero ya está disponible en `QueryContext.Context`.
+
+**Problema:** Parámetro redundante, indica desconocimiento del pipeline.
+
+---
+
+### 6. Dependencias de EF Core en el AST
+
+`FirestoreQueryExpression` tiene dependencias directas de EF Core:
+
+```csharp
+public IEntityType EntityType { get; set; }
+public List<IReadOnlyNavigation> PendingIncludes { get; set; }
+public List<IncludeInfo> PendingIncludesWithFilters { get; set; }
+public List<LambdaExpression> ComplexTypeIncludes { get; set; }
+```
+
+**Problema:** El AST no es puro, tiene acoplamiento con tipos internos de EF Core.
+
+---
+
+### 7. Lógica en DTOs del AST
+
+`FirestoreWhereClause` tiene un Visitor embebido:
+
+```csharp
+public class FirestoreWhereClause
+{
+    public Expression ValueExpression { get; set; }
+
+    // ❌ Lógica de evaluación en un DTO
+    public object? EvaluateValue(QueryContext queryContext)
+    {
+        var replacer = new QueryContextParameterReplacer(queryContext);
+        // ...
+    }
+
+    // ❌ Visitor embebido en un DTO
+    private class QueryContextParameterReplacer : ExpressionVisitor { }
+}
+```
+
+**Problema:** Un DTO no debería tener lógica de evaluación ni visitors internos.
+
+---
+
+### 8. Falta de Translators
+
+Solo existe `FirestoreWhereTranslator`. La lógica de traducción para otras operaciones está dispersa en el Visitor principal.
+
+**Problema:** Inconsistencia en el patrón de traducción, viola SRP.
+
+---
+
+## Translators Necesarios
+
+Para consistencia total, necesitamos un Translator por cada operación LINQ:
+
+| Translator | Qué traduce | Estado actual |
+|------------|-------------|---------------|
+| `FirestoreWhereTranslator` | Where | ✅ Existe |
+| `FirestoreOrderByTranslator` | OrderBy/OrderByDescending/ThenBy | ❌ Disperso en Visitor |
+| `FirestoreProjectionTranslator` | Select | ❌ Pendiente |
+| `FirestoreLimitTranslator` | Take/TakeLast | ❌ Disperso en Visitor |
+| `FirestoreSkipTranslator` | Skip | ❌ Disperso en Visitor |
+| `FirestoreIncludeTranslator` | Include/ThenInclude | ❌ Disperso en Visitor |
+| `FirestoreIdTranslator` | FirstOrDefault(x => x.Id == ...) | ❌ Disperso en Visitor |
+| `FirestoreAggregationTranslator` | Count/Sum/Average/Min/Max/Any | ❌ Disperso en Visitor |
+
+**Principio:** El Visitor solo orquesta, cada Translator traduce una operación específica.
+
+---
+
+## Propuesta de Solución
+
+### Arquitectura Propuesta
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              VISITOR (Orquestador)                          │
+│  - Detecta qué operación LINQ se está procesando                            │
+│  - Delega a Translators específicos                                         │
+│  - NO contiene lógica de traducción                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              TRANSLATORS                                     │
+│  WhereTranslator, OrderByTranslator, LimitTranslator, SkipTranslator,       │
+│  ProjectionTranslator, IncludeTranslator, IdTranslator, AggregationTranslator│
+│  - Cada uno traduce una operación específica                                 │
+│  - Retornan estructuras del AST                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FirestoreQueryExpression (AST)                       │
+│  - Solo almacena datos                                                       │
+│  - Puede contener Expressions (para cacheo)                                  │
+│  - NO contiene lógica de evaluación                                          │
+│  - Se cachea por EF Core                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              SHAPER                                          │
+│  - Crea FirestoreQueryingEnumerable                                          │
+│  - Pasa QueryContext + AST + AstResolver + Executor                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FirestoreQueryingEnumerable                          │
+│  - Orquesta la ejecución                                                     │
+│  - Llama a AstResolver.Resolve(AST, QueryContext)                            │
+│  - Llama a Executor.Execute(ResolvedQuery)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    ▼                                   ▼
+┌───────────────────────────────────┐   ┌───────────────────────────────────┐
+│           AST RESOLVER            │   │            EXECUTOR               │
+│  - Recibe AST + QueryContext      │   │  - Recibe ResolvedFirestoreQuery  │
+│  - Evalúa todas las Expressions   │   │  - NO conoce QueryContext         │
+│  - Centraliza evaluación          │   │  - NO conoce Expression           │
+│  - Retorna ResolvedFirestoreQuery │   │  - Solo construye y ejecuta query │
+└───────────────────────────────────┘   └───────────────────────────────────┘
+```
+
+---
+
+## Estructuras de Datos
+
+### AST Actual (FirestoreQueryExpression)
+
+Se mantiene para el cacheo de EF Core. Puede contener Expressions.
+
+```csharp
+public class FirestoreQueryExpression : Expression
+{
+    // Dependencias de EF Core (necesarias para el Visitor)
+    public IEntityType EntityType { get; set; }
+    public List<IReadOnlyNavigation> PendingIncludes { get; set; }
+
+    // Valores híbridos (constante o expresión)
+    public int? Limit { get; set; }
+    public Expression? LimitExpression { get; set; }
+
+    // Filtros con expresiones
+    public List<FirestoreWhereClause> Filters { get; set; }
+
+    // ... resto igual
+}
+```
+
+### AST Resuelto (ResolvedFirestoreQuery)
+
+Nueva estructura que llega al Executor. Sin dependencias de EF Core ni Expressions.
+
+```csharp
+public class ResolvedFirestoreQuery
+{
+    // Información básica
+    public string CollectionName { get; set; }
+    public Type EntityClrType { get; set; }
+
+    // Valores ya resueltos (sin Expression)
+    public int? Limit { get; set; }
+    public int? LimitToLast { get; set; }
+    public int? Skip { get; set; }
+    public object? IdValue { get; set; }
+
+    // Filtros con valores resueltos
+    public List<ResolvedWhereClause> Filters { get; set; }
+    public List<ResolvedOrFilterGroup> OrFilterGroups { get; set; }
+
+    // Ordenamiento (ya es puro, no cambia)
+    public List<FirestoreOrderByClause> OrderByClauses { get; set; }
+
+    // Cursor (ya es puro, no cambia)
+    public FirestoreCursor? StartAfterCursor { get; set; }
+
+    // Includes resueltos
+    public List<ResolvedInclude> Includes { get; set; }
+
+    // Agregación (ya es puro, no cambia)
+    public FirestoreAggregationType AggregationType { get; set; }
+    public string? AggregationPropertyName { get; set; }
+    public Type? AggregationResultType { get; set; }
+
+    // Proyección (referencia a estructura existente)
+    public FirestoreProjectionDefinition? Projection { get; set; }
+
+    // Flags
+    public bool IsIdOnlyQuery => IdValue != null;
+    public bool IsAggregation => AggregationType != FirestoreAggregationType.None;
+    public bool IsTracking { get; set; }
+}
+```
+
+### ResolvedWhereClause
+
+```csharp
+public class ResolvedWhereClause
+{
+    public string PropertyName { get; set; }
+    public FirestoreOperator Operator { get; set; }
+    public object? Value { get; set; }  // Ya evaluado, no Expression
+    public Type? EnumType { get; set; }
+}
+```
+
+### ResolvedInclude
+
+```csharp
+public class ResolvedInclude
+{
+    public string NavigationName { get; set; }
+    public Type TargetEntityType { get; set; }
+    public string SubCollectionName { get; set; }
+    public bool IsCollection { get; set; }
+    public bool IsSubCollection { get; set; }
+
+    // Para Filtered Includes
+    public Func<object, bool>? FilterPredicate { get; set; }  // Ya compilado
+    public int? Take { get; set; }
+    public int? Skip { get; set; }
+
+    // Includes anidados
+    public List<ResolvedInclude> NestedIncludes { get; set; }
+}
+```
+
+---
+
+## AstResolver
+
+Nueva clase que centraliza toda la evaluación de Expressions.
+
+```csharp
+public class FirestoreAstResolver
+{
+    public ResolvedFirestoreQuery Resolve(
+        FirestoreQueryExpression ast,
+        QueryContext queryContext,
+        bool isTracking)
+    {
+        return new ResolvedFirestoreQuery
+        {
+            CollectionName = ast.CollectionName,
+            EntityClrType = ast.EntityType.ClrType,
+            IsTracking = isTracking,
+
+            // Resolver valores
+            Limit = ResolveLimit(ast, queryContext),
+            LimitToLast = ResolveLimitToLast(ast, queryContext),
+            Skip = ResolveSkip(ast, queryContext),
+            IdValue = ResolveIdValue(ast, queryContext),
+
+            // Resolver filtros
+            Filters = ResolveFilters(ast.Filters, queryContext),
+            OrFilterGroups = ResolveOrFilterGroups(ast.OrFilterGroups, queryContext),
+
+            // Copiar valores puros
+            OrderByClauses = ast.OrderByClauses,
+            StartAfterCursor = ast.StartAfterCursor,
+
+            // Resolver includes
+            Includes = ResolveIncludes(ast, queryContext),
+
+            // Copiar agregación
+            AggregationType = ast.AggregationType,
+            AggregationPropertyName = ast.AggregationPropertyName,
+            AggregationResultType = ast.AggregationResultType,
+
+            // Copiar proyección
+            Projection = ast.Projection
+        };
+    }
+
+    private int? ResolveLimit(FirestoreQueryExpression ast, QueryContext ctx)
+    {
+        if (ast.Limit.HasValue) return ast.Limit;
+        if (ast.LimitExpression != null) return EvaluateInt(ast.LimitExpression, ctx);
+        return null;
+    }
+
+    private List<ResolvedWhereClause> ResolveFilters(
+        List<FirestoreWhereClause> filters,
+        QueryContext ctx)
+    {
+        return filters.Select(f => new ResolvedWhereClause
+        {
+            PropertyName = f.PropertyName,
+            Operator = f.Operator,
+            Value = EvaluateExpression(f.ValueExpression, ctx),
+            EnumType = f.EnumType
+        }).ToList();
+    }
+
+    // ... métodos privados de evaluación
+}
+```
+
+---
+
+## FirestoreQueryContext Refactorizado
+
+```csharp
+public class FirestoreQueryContext : QueryContext
+{
+    public IFirestoreQueryExecutor QueryExecutor { get; }
+    public FirestoreAstResolver AstResolver { get; }
+
+    public FirestoreQueryContext(
+        QueryContextDependencies dependencies,
+        IFirestoreQueryExecutor queryExecutor,
+        FirestoreAstResolver astResolver)
+        : base(dependencies)
+    {
+        QueryExecutor = queryExecutor;
+        AstResolver = astResolver;
+    }
+}
+```
+
+---
+
+## Executor Refactorizado
+
+```csharp
+public interface IFirestoreQueryExecutor
+{
+    // Sin QueryContext, sin DbContext redundante
+    IAsyncEnumerable<T> ExecuteQueryAsync<T>(
+        ResolvedFirestoreQuery query,
+        CancellationToken cancellationToken = default) where T : class;
+
+    Task<T> ExecuteAggregationAsync<T>(
+        ResolvedFirestoreQuery query,
+        CancellationToken cancellationToken = default);
+}
+```
+
+---
+
+## FirestoreQueryingEnumerable Refactorizado
+
+```csharp
+public class FirestoreQueryingEnumerable<T> : IAsyncEnumerable<T>
+{
+    private readonly FirestoreQueryContext _queryContext;
+    private readonly FirestoreQueryExpression _ast;
+
+    public async IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken ct)
+    {
+        // 1. Resolver AST
+        var resolvedQuery = _queryContext.AstResolver.Resolve(
+            _ast,
+            _queryContext,
+            _isTracking);
+
+        // 2. Ejecutar
+        await foreach (var entity in _queryContext.QueryExecutor
+            .ExecuteQueryAsync<T>(resolvedQuery, ct))
+        {
+            yield return entity;
+        }
+    }
+}
+```
+
+---
+
+## Plan de Implementación (TDD)
+
+### Reglas de Ejecución
+
+1. **Pedir autorización** después de cada paso (TEST, IMPL, INTEGRAR, VERIFICAR)
+2. **Actualizar este documento** marcando el paso completado con [x]
+3. **Añadir commit ID** cuando se complete cada tarea
+4. **Commitear este documento** después de cada actualización
+
+### Flujo TDD por cada tarea
+
+```
+1. TEST     → Escribir tests que fallen     → Pedir autorización
+2. IMPL     → Implementar hasta que pasen   → Pedir autorización
+3. INTEGRAR → Usar en Visitor               → Pedir autorización
+4. VERIFICAR → Tests de integración pasan   → Pedir autorización + Commit
+```
+
+---
+
+## FASE 1: Translators
+
+Crear Translators nuevos. Por cada uno seguir el flujo TDD.
+
+### 1.1 FirestoreOrderByTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreOrderByTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreOrderByTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de OrderBy existentes | `Tests/Query/OrderByTests.cs` |
+
+**Qué traduce:** `OrderBy`, `OrderByDescending`, `ThenBy`, `ThenByDescending`
+
+**Commit:**
+
+---
+
+### 1.2 FirestoreLimitTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreLimitTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreLimitTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de Take/TakeLast existentes | `Tests/Query/TakeTests.cs` |
+
+**Qué traduce:** `Take`, `TakeLast`
+
+**Commit:**
+
+---
+
+### 1.3 FirestoreSkipTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreSkipTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreSkipTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de Skip existentes | `Tests/Query/SkipTests.cs` |
+
+**Qué traduce:** `Skip`
+
+**Commit:**
+
+---
+
+### 1.4 FirestoreIdTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreIdTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreIdTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de queries por Id | `Tests/Query/IdQueryTests.cs` |
+
+**Qué traduce:** `FirstOrDefault(x => x.Id == ...)`, `SingleOrDefault(x => x.Id == ...)`
+
+**Commit:**
+
+---
+
+### 1.5 FirestoreIncludeTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreIncludeTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreIncludeTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de Include existentes | `Tests/Query/IncludeTests.cs` |
+
+**Qué traduce:** `Include`, `ThenInclude`, Filtered Includes
+
+**Commit:**
+
+---
+
+### 1.6 FirestoreAggregationTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreAggregationTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreAggregationTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Ejecutar tests de agregación existentes | `Tests/Query/AggregationTests.cs` |
+
+**Qué traduce:** `Count`, `Any`, `Sum`, `Average`, `Min`, `Max`
+
+**Commit:**
+
+---
+
+### 1.7 FirestoreProjectionTranslator
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreProjectionTranslatorTests.cs` |
+| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreProjectionTranslator.cs` |
+| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [ ] | Habilitar tests de Select (actualmente en Skip) | `Tests/Query/SelectTests.cs` |
+
+**Qué traduce:** `Select` (proyecciones)
+
+**Commit:**
+
+---
+
+## FASE 2: Estructuras Resueltas
+
+Solo después de que TODOS los Translators estén funcionando.
+
+### 2.1 ResolvedFirestoreQuery
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Tests de construcción y propiedades | `Tests/Query/ResolvedFirestoreQueryTests.cs` |
+| IMPL | [ ] | Crear estructura | `Query/ResolvedFirestoreQuery.cs` |
+
+**Commit:**
+
+---
+
+### 2.2 ResolvedWhereClause
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Tests de construcción | `Tests/Query/ResolvedWhereClauseTests.cs` |
+| IMPL | [ ] | Crear estructura | `Query/ResolvedWhereClause.cs` |
+
+**Commit:**
+
+---
+
+### 2.3 ResolvedInclude
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Tests de construcción | `Tests/Query/ResolvedIncludeTests.cs` |
+| IMPL | [ ] | Crear estructura | `Query/ResolvedInclude.cs` |
+
+**Commit:**
+
+---
+
+## FASE 3: AstResolver
+
+### 3.1 FirestoreAstResolver
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Tests de resolución de cada tipo de Expression | `Tests/Query/FirestoreAstResolverTests.cs` |
+| IMPL | [ ] | Implementar resolver | `Query/FirestoreAstResolver.cs` |
+| INTEGRAR | [ ] | Mover lógica de evaluación del Executor y DTOs | Varios |
+| VERIFICAR | [ ] | Todos los tests de integración pasan | `Tests/Query/*` |
+
+**Qué mueve:**
+- `EvaluateIntExpression` del Executor
+- `EvaluateIdExpression` del Executor
+- `EvaluateValue` de `FirestoreWhereClause`
+- `CompileFilterPredicate` del Executor y Shaper
+
+**Commit:**
+
+---
+
+## FASE 4: Refactorizar Executor
+
+### 4.1 Cambiar firma del Executor
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Actualizar tests del Executor | `Tests/Query/FirestoreQueryExecutorTests.cs` |
+| IMPL | [ ] | Cambiar para recibir `ResolvedFirestoreQuery` | `Query/FirestoreQueryExecutor.cs` |
+| INTEGRAR | [ ] | Actualizar `FirestoreQueryingEnumerable` | `Query/FirestoreQueryingEnumerable.cs` |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Commit:**
+
+---
+
+### 4.2 Refactorizar FirestoreQueryContext
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [ ] | Tests del QueryContext | `Tests/Query/FirestoreQueryContextTests.cs` |
+| IMPL | [ ] | Exponer `IFirestoreQueryExecutor` y `AstResolver` | `Query/FirestoreQueryContext.cs` |
+| INTEGRAR | [ ] | Actualizar Factory | `Query/FirestoreQueryContextFactory.cs` |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Commit:**
+
+---
+
+## FASE 5: Limpieza
+
+### 5.1 Limpiar DTOs del AST
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [ ] | Eliminar `EvaluateValue()` | `Query/FirestoreWhereClause.cs` |
+| IMPL | [ ] | Eliminar `QueryContextParameterReplacer` | `Query/FirestoreWhereClause.cs` |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Commit:**
+
+---
+
+### 5.2 Limpiar código duplicado
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [ ] | Eliminar `CompileFilterPredicate` duplicado del Shaper | `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` |
+| IMPL | [ ] | Eliminar métodos de evaluación del Executor | `Query/FirestoreQueryExecutor.cs` |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Commit:**
+
+---
+
+## Resumen de Orden
+
+```
+FASE 1: Translators (7 tareas)
+  1.1 FirestoreOrderByTranslator      ← EMPEZAR AQUÍ
+  1.2 FirestoreLimitTranslator
+  1.3 FirestoreSkipTranslator
+  1.4 FirestoreIdTranslator
+  1.5 FirestoreIncludeTranslator
+  1.6 FirestoreAggregationTranslator
+  1.7 FirestoreProjectionTranslator
+
+FASE 2: Estructuras (3 tareas)
+  2.1 ResolvedFirestoreQuery
+  2.2 ResolvedWhereClause
+  2.3 ResolvedInclude
+
+FASE 3: AstResolver (1 tarea)
+  3.1 FirestoreAstResolver
+
+FASE 4: Refactorizar (2 tareas)
+  4.1 Cambiar firma del Executor
+  4.2 Refactorizar FirestoreQueryContext
+
+FASE 5: Limpieza (2 tareas)
+  5.1 Limpiar DTOs del AST
+  5.2 Limpiar código duplicado
+```
+
+---
+
+## Comando para empezar
+
+Cuando quieras empezar, di:
+
+> "Haz 1.1 FirestoreOrderByTranslator - TEST"
+
+Y seguiré el flujo TDD para esa tarea específica.
+
+---
+
+## Beneficios
+
+1. **Separación de responsabilidades clara:**
+   - Visitor: orquesta
+   - Translators: traducen
+   - AST: almacena
+   - AstResolver: evalúa
+   - Executor: ejecuta
+
+2. **Executor desacoplado de EF Core:**
+   - No conoce `QueryContext`
+   - No conoce `Expression`
+   - No conoce `IEntityType`/`IReadOnlyNavigation`
+
+3. **Lógica de evaluación centralizada:**
+   - Un solo lugar para resolver Expressions
+   - Sin código duplicado
+
+4. **DTOs puros:**
+   - Sin lógica embebida
+   - Fáciles de testear
+
+5. **Consistencia en Translators:**
+   - Un Translator por operación LINQ
+   - Patrón uniforme
+
+---
+
+## Notas
+
+- El AST híbrido (`Limit`/`LimitExpression`) se mantiene por el modelo de cacheo de EF Core
+- `ResolvedFirestoreQuery` es la "vista materializada" del AST para el Executor
+- El `AstResolver` actúa como puente entre el mundo de EF Core y el mundo de Firestore
