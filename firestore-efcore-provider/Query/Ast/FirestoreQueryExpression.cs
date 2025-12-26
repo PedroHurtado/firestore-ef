@@ -6,7 +6,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Tipo de agregación para queries de Firestore.

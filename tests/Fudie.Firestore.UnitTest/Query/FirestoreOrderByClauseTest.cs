@@ -1,3 +1,5 @@
+using Firestore.EntityFrameworkCore.Query.Ast;
+
 namespace Fudie.Firestore.UnitTest.Query;
 
 public class FirestoreOrderByClauseTest

@@ -1,9 +1,11 @@
+using Firestore.EntityFrameworkCore.Query.Ast;
+using Firestore.EntityFrameworkCore.Query.Visitors;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Firestore.EntityFrameworkCore.Query.Visitors
+namespace Firestore.EntityFrameworkCore.Query.Translators
 {
     internal class FirestoreWhereTranslator
     {

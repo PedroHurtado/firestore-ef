@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Represents an OR group of filters for Firestore queries.

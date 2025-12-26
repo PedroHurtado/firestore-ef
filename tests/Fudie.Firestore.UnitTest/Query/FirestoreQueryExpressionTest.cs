@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 
 namespace Fudie.Firestore.UnitTest.Query;

@@ -1,7 +1,7 @@
 using System;
 using System.Linq.Expressions;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Representa una cláusula WHERE en una query de Firestore

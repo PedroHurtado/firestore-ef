@@ -1,4 +1,6 @@
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Firestore.EntityFrameworkCore.Query.Ast;
+using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -1003,8 +1005,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
         protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
         {
-            var propertyName = ExtractPropertyNameFromKeySelector(keySelector);
-            if (propertyName == null)
+            var translator = new FirestoreOrderByTranslator();
+            var orderByClause = translator.Translate(keySelector, ascending);
+            if (orderByClause == null)
             {
                 return null;
             }
@@ -1012,10 +1015,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
 
             // Clear any existing orderings (OrderBy resets the sort order)
-            var newOrderByClauses = new List<FirestoreOrderByClause>
-            {
-                new FirestoreOrderByClause(propertyName, descending: !ascending)
-            };
+            var newOrderByClauses = new List<FirestoreOrderByClause> { orderByClause };
 
             var newQueryExpression = firestoreQueryExpression.Update(orderByClauses: newOrderByClauses);
             return source.UpdateQueryExpression(newQueryExpression);
@@ -1130,8 +1130,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
         protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
         {
-            var propertyName = ExtractPropertyNameFromKeySelector(keySelector);
-            if (propertyName == null)
+            var translator = new FirestoreOrderByTranslator();
+            var orderByClause = translator.Translate(keySelector, ascending);
+            if (orderByClause == null)
             {
                 return null;
             }
@@ -1139,7 +1140,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
 
             // ThenBy adds to existing orderings
-            var orderByClause = new FirestoreOrderByClause(propertyName, descending: !ascending);
             var newQueryExpression = firestoreQueryExpression.AddOrderBy(orderByClause);
 
             return source.UpdateQueryExpression(newQueryExpression);

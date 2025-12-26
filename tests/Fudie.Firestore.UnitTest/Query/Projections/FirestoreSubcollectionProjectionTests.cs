@@ -1,4 +1,5 @@
 using Firestore.EntityFrameworkCore.Query;
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Xunit;
 

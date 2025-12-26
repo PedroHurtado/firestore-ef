@@ -485,12 +485,26 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreOrderByTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreOrderByTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreOrderByTranslatorTests.cs` |
+| IMPL | [x] | Implementar translator | `Query/Translators/FirestoreOrderByTranslator.cs` |
+| INTEGRAR | [x] | Usar Translator en Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
 | VERIFICAR | [ ] | Ejecutar tests de OrderBy existentes | `Tests/Query/OrderByTests.cs` |
 
 **Qué traduce:** `OrderBy`, `OrderByDescending`, `ThenBy`, `ThenByDescending`
+
+**Lógica movida al Translator:**
+- `ExtractPropertyName` - Extrae nombre de propiedad de LambdaExpression
+- `BuildPropertyPath` - Construye path para propiedades anidadas (ej: "Address.City")
+- Manejo de `UnaryExpression` (Convert) para value types
+
+**Código que PERMANECE en el Visitor (temporalmente):**
+- `ExtractPropertyNameFromKeySelector` - Usado por TranslateAverage, TranslateMax, TranslateMin, TranslateSum
+- `BuildPropertyPath` - Usado por los métodos de agregación anteriores
+- **Se eliminará en 1.6 FirestoreAggregationTranslator** cuando esos métodos deleguen al nuevo Translator
+
+**Cobertura:**
+- ANTES: 0% unitaria (solo tests de integración)
+- DESPUÉS: 100% unitaria en Translator (12 tests), agregaciones siguen sin cobertura unitaria
 
 **Commit:**
 
@@ -566,6 +580,13 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 | VERIFICAR | [ ] | Ejecutar tests de agregación existentes | `Tests/Query/AggregationTests.cs` |
 
 **Qué traduce:** `Count`, `Any`, `Sum`, `Average`, `Min`, `Max`
+
+**IMPORTANTE - Limpieza pendiente de 1.1:**
+Al completar esta tarea, ELIMINAR del Visitor:
+- `ExtractPropertyNameFromKeySelector` (líneas ~400-418)
+- `BuildPropertyPath` (líneas ~425-439)
+
+Estos métodos quedaron temporalmente en el Visitor porque `TranslateAverage`, `TranslateMax`, `TranslateMin`, `TranslateSum` los usan. Una vez que estos métodos deleguen al `FirestoreAggregationTranslator`, el código duplicado se puede eliminar.
 
 **Commit:**
 
@@ -693,6 +714,24 @@ Solo después de que TODOS los Translators estén funcionando.
 | IMPL | [ ] | Eliminar `CompileFilterPredicate` duplicado del Shaper | `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` |
 | IMPL | [ ] | Eliminar métodos de evaluación del Executor | `Query/FirestoreQueryExecutor.cs` |
 | VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Commit:**
+
+---
+
+### 5.3 Centralizar IsVowel/Pluralize
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [ ] | Eliminar `IsVowel` y `Pluralize` duplicados | `Query/FirestoreQueryExecutor.cs`, `Query/Visitors/*.cs` |
+| IMPL | [ ] | Usar `FirestoreCollectionManager` como única fuente | Varios |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/*` |
+
+**Código duplicado en:**
+- `FirestoreCollectionManager.cs` (original)
+- `FirestoreQueryExecutor.cs`
+- `FirestoreQueryableMethodTranslatingExpressionVisitor.cs`
+- `FirestoreShapedQueryCompilingExpressionVisitor.cs`
 
 **Commit:**
 

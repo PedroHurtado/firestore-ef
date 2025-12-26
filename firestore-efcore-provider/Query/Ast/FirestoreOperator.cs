@@ -1,4 +1,4 @@
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Operadores de comparación soportados por Firestore

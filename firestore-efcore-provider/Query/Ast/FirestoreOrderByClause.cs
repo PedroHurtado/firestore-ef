@@ -1,6 +1,6 @@
 using System;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Representa una cláusula ORDER BY en una query de Firestore

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Ast
 {
     /// <summary>
     /// Result of translating a LINQ expression to Firestore filters.

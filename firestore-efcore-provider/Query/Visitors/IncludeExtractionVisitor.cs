@@ -1,4 +1,5 @@
 using Firestore.EntityFrameworkCore.Query;
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Collections.Generic;
 using System.Linq;

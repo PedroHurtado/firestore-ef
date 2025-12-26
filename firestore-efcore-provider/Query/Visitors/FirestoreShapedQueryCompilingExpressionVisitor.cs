@@ -2,6 +2,7 @@ using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Query;
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;

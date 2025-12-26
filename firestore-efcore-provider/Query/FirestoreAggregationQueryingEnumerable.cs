@@ -1,13 +1,14 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query.Ast;
+using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Google.Cloud.Firestore;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
