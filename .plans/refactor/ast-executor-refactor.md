@@ -488,7 +488,7 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 | TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreOrderByTranslatorTests.cs` |
 | IMPL | [x] | Implementar translator | `Query/Translators/FirestoreOrderByTranslator.cs` |
 | INTEGRAR | [x] | Usar Translator en Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Ejecutar tests de OrderBy existentes | `Tests/Query/OrderByTests.cs` |
+| VERIFICAR | [x] | Ejecutar tests de OrderBy existentes | `Tests/Query/OrderByTests.cs` |
 
 **Qué traduce:** `OrderBy`, `OrderByDescending`, `ThenBy`, `ThenByDescending`
 
@@ -506,7 +506,12 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 - ANTES: 0% unitaria (solo tests de integración)
 - DESPUÉS: 100% unitaria en Translator (12 tests), agregaciones siguen sin cobertura unitaria
 
-**Commit:**
+**Reorganización de carpetas:**
+- Creada carpeta `Query/Ast/` para DTOs (FirestoreOrderByClause, FirestoreWhereClause, etc.)
+- Creada carpeta `Query/Translators/` para Translators
+- Movido `FirestoreWhereTranslator` de `Visitors/` a `Translators/`
+
+**Commit:** 587860a
 
 ---
 
