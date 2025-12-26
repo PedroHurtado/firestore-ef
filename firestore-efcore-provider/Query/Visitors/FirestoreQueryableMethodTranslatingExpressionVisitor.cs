@@ -533,52 +533,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return source;
             }
 
-            var firestoreQuery = (FirestoreQueryExpression)source.QueryExpression;
-
-            // PRIMERO: Detectar si el selector contiene accesos a subcollections (navegaciones)
-            // Esto debe hacerse ANTES de ContainsNonCompilableExpressions porque las subcollections
-            // siempre contienen expresiones que parecen "no compilables" pero que manejamos especialmente
-            var subcollectionDetector = new SubcollectionAccessDetector(firestoreQuery.EntityType);
-            subcollectionDetector.Visit(selector.Body);
-
-            if (subcollectionDetector.HasSubcollectionAccess)
-            {
-                // Si hay subcollections, agregarlas a PendingIncludes
-                // y marcar que es una proyección con subcollections
-                foreach (var navigation in subcollectionDetector.DetectedNavigations)
-                {
-                    if (!firestoreQuery.PendingIncludes.Any(n =>
-                        n.Name == navigation.Name &&
-                        n.DeclaringEntityType == navigation.DeclaringEntityType))
-                    {
-                        firestoreQuery.PendingIncludes.Add(navigation);
-                    }
-                }
-
-                // Marcar como proyección con subcollections
-                // NO compilamos el selector aquí - lo hacemos en el shaper con la entidad cargada
-                var newQueryExpression = firestoreQuery.WithSubcollectionProjection(selector, selector.Body.Type);
-                return source.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // Verificar si el body contiene expresiones internas de EF Core que no se pueden compilar
-            // (StructuralTypeShaperExpression, ProjectionBindingExpression, etc.)
-            // Solo verificamos esto para proyecciones SIN subcollections
-            if (ContainsNonCompilableExpressions(selector.Body))
-            {
-                return source;
-            }
-
-            // Proyección simple (sin subcollections): extraer el tipo de resultado y almacenar el selector
-            var projectionType = selector.Body.Type;
-
-            // Reemplazar parámetros de runtime en el selector
-            var simpleParamReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
-            var simpleEvaluatedSelector = (LambdaExpression)simpleParamReplacer.Visit(selector);
-
-            var simpleNewQueryExpression = firestoreQuery.WithProjection(simpleEvaluatedSelector, projectionType);
-
-            return source.UpdateQueryExpression(simpleNewQueryExpression);
+            // TODO: Proyecciones serán implementadas en Fase 3 con FirestoreProjectionTranslator
+            // Por ahora retornamos source sin modificar - los tests de proyección están en Skip
+            return source;
         }
 
         /// <summary>

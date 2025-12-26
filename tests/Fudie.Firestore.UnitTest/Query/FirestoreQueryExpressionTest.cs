@@ -1,3 +1,5 @@
+using Firestore.EntityFrameworkCore.Query.Projections;
+
 namespace Fudie.Firestore.UnitTest.Query;
 
 public class FirestoreQueryExpressionTest
@@ -259,101 +261,89 @@ public class FirestoreQueryExpressionTest
     }
 
     #endregion
-}
 
-public class FirestoreWhereClauseTest
-{
+    #region Projection Tests
+
     [Fact]
-    public void Constructor_Sets_Properties()
+    public void Projection_Is_Null_By_Default()
     {
-        var valueExpr = Expression.Constant("Test");
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
 
-        var clause = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, valueExpr);
-
-        clause.PropertyName.Should().Be("Name");
-        clause.Operator.Should().Be(FirestoreOperator.EqualTo);
-        clause.ValueExpression.Should().Be(valueExpr);
+        query.Projection.Should().BeNull();
     }
 
     [Fact]
-    public void Constructor_Throws_On_Null_PropertyName()
+    public void HasProjection_Returns_False_When_Projection_Is_Null()
     {
-        var action = () => new FirestoreWhereClause(null!, FirestoreOperator.EqualTo, Expression.Constant("Test"));
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
 
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("propertyName");
+        query.HasProjection.Should().BeFalse();
     }
 
     [Fact]
-    public void Constructor_Throws_On_Null_ValueExpression()
+    public void HasProjection_Returns_True_When_Projection_Is_Set()
     {
-        var action = () => new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, null!);
+        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
+        {
+            Projection = projection
+        };
 
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("valueExpression");
-    }
-
-    [Theory]
-    [InlineData(FirestoreOperator.EqualTo, "==")]
-    [InlineData(FirestoreOperator.NotEqualTo, "!=")]
-    [InlineData(FirestoreOperator.LessThan, "<")]
-    [InlineData(FirestoreOperator.LessThanOrEqualTo, "<=")]
-    [InlineData(FirestoreOperator.GreaterThan, ">")]
-    [InlineData(FirestoreOperator.GreaterThanOrEqualTo, ">=")]
-    [InlineData(FirestoreOperator.ArrayContains, "array-contains")]
-    [InlineData(FirestoreOperator.In, "in")]
-    [InlineData(FirestoreOperator.ArrayContainsAny, "array-contains-any")]
-    [InlineData(FirestoreOperator.NotIn, "not-in")]
-    public void ToString_Shows_Correct_Operator_Symbol(FirestoreOperator op, string expectedSymbol)
-    {
-        var clause = new FirestoreWhereClause("Field", op, Expression.Constant("value"));
-
-        clause.ToString().Should().Contain(expectedSymbol);
-    }
-}
-
-public class FirestoreOrderByClauseTest
-{
-    [Fact]
-    public void Constructor_Sets_Properties_With_Defaults()
-    {
-        var clause = new FirestoreOrderByClause("Name");
-
-        clause.PropertyName.Should().Be("Name");
-        clause.Descending.Should().BeFalse();
+        query.HasProjection.Should().BeTrue();
     }
 
     [Fact]
-    public void Constructor_Sets_Descending_When_Specified()
+    public void WithProjection_Creates_New_Query_With_Projection()
     {
-        var clause = new FirestoreOrderByClause("Price", descending: true);
+        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
 
-        clause.PropertyName.Should().Be("Price");
-        clause.Descending.Should().BeTrue();
+        var updated = original.WithProjection(projection);
+
+        updated.Projection.Should().Be(projection);
+        original.Projection.Should().BeNull("original should be unchanged");
     }
 
     [Fact]
-    public void Constructor_Throws_On_Null_PropertyName()
+    public void WithProjection_Preserves_Other_Properties()
     {
-        var action = () => new FirestoreOrderByClause(null!);
+        var filter = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, Expression.Constant("Test"));
+        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
+            .AddFilter(filter)
+            .WithLimit(10);
 
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("propertyName");
+        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
+        var updated = original.WithProjection(projection);
+
+        updated.Filters.Should().HaveCount(1);
+        updated.Limit.Should().Be(10);
+        updated.Projection.Should().Be(projection);
     }
 
     [Fact]
-    public void ToString_Shows_ASC_For_Ascending()
+    public void Update_Preserves_Projection()
     {
-        var clause = new FirestoreOrderByClause("Name", descending: false);
+        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
+        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
+        {
+            Projection = projection
+        };
 
-        clause.ToString().Should().Be("Name ASC");
+        var updated = original.Update(limit: 5);
+
+        updated.Projection.Should().Be(projection);
     }
 
     [Fact]
-    public void ToString_Shows_DESC_For_Descending()
+    public void Update_Can_Set_Projection()
     {
-        var clause = new FirestoreOrderByClause("Price", descending: true);
+        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
 
-        clause.ToString().Should().Be("Price DESC");
+        var updated = original.Update(projection: projection);
+
+        updated.Projection.Should().Be(projection);
     }
+
+    #endregion
 }

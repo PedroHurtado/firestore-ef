@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Query.Projections;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
@@ -141,29 +142,15 @@ namespace Firestore.EntityFrameworkCore.Query
         public Type? AggregationResultType { get; set; }
 
         /// <summary>
-        /// Expresión lambda del selector de proyección (Select).
-        /// Almacena la lambda completa para evaluarla en tiempo de ejecución.
-        /// Ejemplo: e => e.Name, e => new { e.Id, e.Name }, e => new Dto { ... }
+        /// Definición estructurada de la proyección Select.
+        /// Contiene los campos a proyectar, subcollections con filtros, etc.
         /// </summary>
-        public LambdaExpression? ProjectionSelector { get; set; }
+        public FirestoreProjectionDefinition? Projection { get; set; }
 
         /// <summary>
-        /// Tipo del resultado de la proyección.
-        /// Puede ser un tipo primitivo (string), anónimo, o DTO.
+        /// Indica si esta query tiene una proyección Select.
         /// </summary>
-        public Type? ProjectionType { get; set; }
-
-        /// <summary>
-        /// Indica si esta query tiene una proyección Select
-        /// </summary>
-        public bool HasProjection => ProjectionSelector != null;
-
-        /// <summary>
-        /// Indica si la proyección contiene accesos a subcollections.
-        /// Cuando es true, la entidad se carga completa con sus subcollections
-        /// y la proyección se aplica en memoria después.
-        /// </summary>
-        public bool HasSubcollectionProjection { get; set; }
+        public bool HasProjection => Projection != null;
 
         /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
@@ -225,9 +212,7 @@ namespace Firestore.EntityFrameworkCore.Query
             FirestoreAggregationType? aggregationType = null,
             string? aggregationPropertyName = null,
             Type? aggregationResultType = null,
-            LambdaExpression? projectionSelector = null,
-            Type? projectionType = null,
-            bool? hasSubcollectionProjection = null)
+            FirestoreProjectionDefinition? projection = null)
         {
             return new FirestoreQueryExpression(
                 entityType ?? EntityType,
@@ -250,9 +235,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 AggregationType = aggregationType ?? AggregationType,
                 AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
                 AggregationResultType = aggregationResultType ?? AggregationResultType,
-                ProjectionSelector = projectionSelector ?? ProjectionSelector,
-                ProjectionType = projectionType ?? ProjectionType,
-                HasSubcollectionProjection = hasSubcollectionProjection ?? HasSubcollectionProjection
+                Projection = projection ?? Projection
             };
         }
 
@@ -276,18 +259,11 @@ namespace Firestore.EntityFrameworkCore.Query
         /// <summary>
         /// Configura la proyección Select de la query.
         /// </summary>
-        public FirestoreQueryExpression WithProjection(LambdaExpression selector, Type projectionType)
+        /// <param name="projection">Definición estructurada de la proyección.</param>
+        /// <returns>Nueva instancia con la proyección configurada.</returns>
+        public FirestoreQueryExpression WithProjection(FirestoreProjectionDefinition projection)
         {
-            return Update(projectionSelector: selector, projectionType: projectionType);
-        }
-
-        /// <summary>
-        /// Configura la proyección Select con subcollections.
-        /// La entidad se carga completa con sus subcollections y la proyección se aplica en memoria.
-        /// </summary>
-        public FirestoreQueryExpression WithSubcollectionProjection(LambdaExpression selector, Type projectionType)
-        {
-            return Update(projectionSelector: selector, projectionType: projectionType, hasSubcollectionProjection: true);
+            return Update(projection: projection);
         }
 
         /// <summary>

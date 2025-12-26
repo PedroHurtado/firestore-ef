@@ -96,21 +96,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return CreateAggregationQueryExpression(firestoreQueryExpression);
             }
 
-            // TODO: Proyecciones necesitan rediseño - el shaper expone DocumentSnapshot (tipo SDK)
-            // Handle projection queries with subcollections (load entity + includes, then project in memory)
-            if (firestoreQueryExpression.HasSubcollectionProjection)
-            {
-                // return CreateSubcollectionProjectionQueryExpression(firestoreQueryExpression);
-                throw new NotSupportedException("Projections with subcollections are not yet supported. Use entity queries with Include() instead.");
-            }
-
-            // Handle simple projection queries (Select without subcollections)
-            if (firestoreQueryExpression.HasProjection)
-            {
-                // return CreateProjectionQueryExpression(firestoreQueryExpression);
-                throw new NotSupportedException("Projections are not yet supported. Use entity queries instead.");
-            }
-
             var entityType = firestoreQueryExpression.EntityType.ClrType;
 
             // Determinar si debemos trackear las entidades

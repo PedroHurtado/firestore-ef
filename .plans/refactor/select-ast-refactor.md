@@ -102,15 +102,18 @@ public class FirestoreSubcollectionProjection
 ## Tareas
 
 ### Fase 1: Crear estructuras del AST
-- [x] Crear `FirestoreProjectionDefinition.cs` (3e4e181)
-- [x] Crear `FirestoreProjectedField.cs` (3e4e181)
-- [x] Crear `FirestoreSubcollectionProjection.cs` (3e4e181)
-- [x] Tests unitarios para las estructuras (3e4e181)
+- [x] Crear `FirestoreProjectionDefinition.cs` (804dff9)
+- [x] Crear `FirestoreProjectedField.cs` (804dff9)
+- [x] Crear `FirestoreSubcollectionProjection.cs` (804dff9)
+- [x] Tests unitarios para las estructuras (804dff9)
 
 ### Fase 2: Modificar AST
-- [ ] Agregar `Projection` a `FirestoreQueryExpression`
-- [ ] Deprecar `ProjectionSelector`, `ProjectionType`, `HasSubcollectionProjection`
-- [ ] Actualizar método `Update()` y `WithProjection()`
+- [x] Agregar `Projection` a `FirestoreQueryExpression` (d3948df)
+- [x] Eliminar `ProjectionSelector`, `ProjectionType`, `HasSubcollectionProjection` (d3948df)
+- [x] Actualizar método `Update()` y `WithProjection()` (d3948df)
+- [x] Eliminar código legacy: `FirestoreProjectionQueryingEnumerable` (d3948df)
+- [x] Limpiar Visitor y Shaper de código de proyección obsoleto (d3948df)
+- [x] Extraer tests a archivos separados (d3948df)
 
 ### Fase 3: Modificar Visitor
 - [ ] Crear `FirestoreProjectionTranslator` (similar a `FirestoreWhereTranslator`)
@@ -150,7 +153,8 @@ Estos tests estaban correctos. Se pusieron en Skip porque la implementación era
 | Commit | Descripción |
 |--------|-------------|
 | efee08f | Skip tests de proyección por implementación incorrecta (deuda técnica) |
-| 3e4e181 | feat: add projection AST structures for Select clause |
+| 804dff9 | feat: add projection AST structures for Select clause |
+| d3948df | refactor: add Projection property to AST and remove legacy projection code |
 
 ---
 
