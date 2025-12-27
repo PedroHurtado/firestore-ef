@@ -781,6 +781,41 @@ protected override ShapedQueryExpression? TranslateDefaultIfEmpty(...)
 
 ---
 
+### 1.4c Query Slice: Where
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [x] | Crear tests de Where | `Tests/Query/Ast/FirestoreQueryExpression_WhereTests.cs` |
+| IMPL | [x] | Feature file Where | `Query/Ast/FirestoreQueryExpression_Where.cs` |
+| INTEGRAR | [x] | Visitor delega a slice (casi one-liner) | `Query/Visitors/...Visitor.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 772 unit tests |
+
+**Detalles de implementación:**
+
+- `TranslateWhereRequest(Source, PredicateBody)` - recibe el body ya preprocesado por RuntimeParameterReplacer
+- Incluye `PreprocessArrayContainsPatterns` para detectar patrones de array
+- Incluye `ExtractPropertyNameFromEFPropertyChain` (duplicado pendiente de limpieza en 5.4)
+- Maneja Id optimization (IdOnlyQuery)
+- Maneja AND/OR expressions
+- Convierte IdOnlyQuery a normal query cuando se añaden más filtros
+
+**Visitor resultante (casi one-liner):**
+
+```csharp
+protected override ShapedQueryExpression? TranslateWhere(...)
+{
+    var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
+    var evaluatedBody = parameterReplacer.Visit(predicate.Body);
+    return FirestoreQueryExpression.TranslateWhere(new(source, evaluatedBody));
+}
+```
+
+**Nota:** El Visitor mantiene `RuntimeParameterReplacer` porque depende de `QueryCompilationContext`. También mantiene `PreprocessArrayContainsPatterns` porque se usa en `Visit()`. La limpieza de duplicados se hará en Fase 5.4.
+
+**Commit:** f4e3669
+
+---
+
 ### 1.5 FirestoreIncludeTranslator
 
 | Paso | Estado | Acción | Archivo |
