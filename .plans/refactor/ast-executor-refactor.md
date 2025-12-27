@@ -565,6 +565,72 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 
 ---
 
+### 1.1c Patrón MicroDomain: Partial Classes para Features del AST
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [x] | Hacer `FirestoreQueryExpression` partial class | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Crear feature file OrderBy con Record + Commands + TranslateOrderBy | `Query/Ast/FirestoreQueryExpression_OrderBy.cs` |
+| INTEGRAR | [x] | Actualizar Visitor con one-liners | `Query/Visitors/...Visitor.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 642 unit + 172 integration |
+
+**Patrón MicroDomain aplicado:**
+
+El AST ahora usa partial classes donde cada feature tiene su propio archivo:
+
+```
+Query/Ast/
+├── FirestoreQueryExpression.cs           ← DTO: todas las propiedades + constructor
+├── FirestoreQueryExpression_OrderBy.cs   ← Record + Commands + TranslateOrderBy static
+├── FirestoreQueryExpression_Limit.cs     ← (pendiente) Record + Commands + TranslateLimit static
+├── FirestoreQueryExpression_Filter.cs    ← (pendiente) Record + Commands + TranslateFilter static
+└── ...
+```
+
+**Estructura del feature file (OrderBy como ejemplo):**
+
+```csharp
+// Record para agrupar parámetros
+public record TranslateOrderByRequest(
+    ShapedQueryExpression Source,
+    LambdaExpression KeySelector,
+    bool Ascending,
+    bool IsFirst);
+
+public partial class FirestoreQueryExpression
+{
+    #region OrderBy Commands
+    public FirestoreQueryExpression SetOrderBy(FirestoreOrderByClause orderBy) { ... }
+    public FirestoreQueryExpression AddOrderBy(FirestoreOrderByClause orderBy) { ... }
+    #endregion
+
+    #region OrderBy Translation
+    public static ShapedQueryExpression? TranslateOrderBy(TranslateOrderByRequest request) { ... }
+    #endregion
+}
+```
+
+**Visitor con one-liners:**
+
+```csharp
+protected override ShapedQueryExpression? TranslateOrderBy(...)
+    => FirestoreQueryExpression.TranslateOrderBy(new(source, keySelector, ascending, IsFirst: true));
+
+protected override ShapedQueryExpression? TranslateThenBy(...)
+    => FirestoreQueryExpression.TranslateOrderBy(new(source, keySelector, ascending, IsFirst: false));
+```
+
+**Beneficios:**
+- Propiedades en DTO base: ves todo el AST de un vistazo
+- Cada feature en su propio archivo: fácil de encontrar y mantener
+- Record agrupa parámetros: evita métodos con muchos parámetros
+- Visitor reducido a one-liners: solo orquesta, no contiene lógica
+- Translator separado (FirestoreOrderByTranslator): reutilizable para queries, includes, proyecciones
+
+**Commit:** 92ccf2f
+
+---
+
 ### 1.2 FirestoreLimitTranslator
 
 | Paso | Estado | Acción | Archivo |

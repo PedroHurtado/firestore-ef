@@ -979,26 +979,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-            => TranslateOrderByCore(source, keySelector, ascending, isFirst: true);
-
-        private static ShapedQueryExpression? TranslateOrderByCore(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending, bool isFirst)
-        {
-            var translator = new FirestoreOrderByTranslator();
-            var orderByClause = translator.Translate(keySelector, ascending);
-            if (orderByClause == null)
-            {
-                return null;
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
-            // OrderBy (isFirst=true) resets all orderings, ThenBy (isFirst=false) appends
-            var newQueryExpression = isFirst
-                ? firestoreQueryExpression.SetOrderBy(orderByClause)
-                : firestoreQueryExpression.AddOrderBy(orderByClause);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateOrderBy(new(source, keySelector, ascending, IsFirst: true));
 
         protected override ShapedQueryExpression? TranslateReverse(ShapedQueryExpression source)
             => throw new NotImplementedException();
@@ -1108,7 +1089,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-            => TranslateOrderByCore(source, keySelector, ascending, isFirst: false);
+            => FirestoreQueryExpression.TranslateOrderBy(new(source, keySelector, ascending, IsFirst: false));
 
         protected override ShapedQueryExpression? TranslateUnion(ShapedQueryExpression source1, ShapedQueryExpression source2)
             => throw new NotImplementedException();

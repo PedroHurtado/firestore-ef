@@ -29,8 +29,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     ///
     /// Principios DDD: El AST solo se modifica mediante comandos específicos.
     /// Cada comando representa una operación de negocio clara.
+    ///
+    /// Patrón MicroDomain: Cada feature (OrderBy, Limit, Filter, etc.) tiene
+    /// su propio partial file con: Record de parámetros + Commands + TranslateX estático.
     /// </summary>
-    public class FirestoreQueryExpression : Expression
+    public partial class FirestoreQueryExpression : Expression
     {
         #region Properties
 
@@ -228,28 +231,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
         #endregion
 
-        #region OrderBy Commands
-
-        /// <summary>
-        /// Reemplaza todos los ordenamientos con uno nuevo (para OrderBy/OrderByDescending)
-        /// </summary>
-        public FirestoreQueryExpression SetOrderBy(FirestoreOrderByClause orderBy)
-        {
-            _orderByClauses.Clear();
-            _orderByClauses.Add(orderBy);
-            return this;
-        }
-
-        /// <summary>
-        /// Agrega un ordenamiento a los existentes (para ThenBy/ThenByDescending)
-        /// </summary>
-        public FirestoreQueryExpression AddOrderBy(FirestoreOrderByClause orderBy)
-        {
-            _orderByClauses.Add(orderBy);
-            return this;
-        }
-
-        #endregion
+        // OrderBy Commands: see FirestoreQueryExpression_OrderBy.cs
 
         #region Limit/Skip Commands
 
