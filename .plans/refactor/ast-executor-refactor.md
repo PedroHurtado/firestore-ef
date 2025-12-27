@@ -635,14 +635,28 @@ protected override ShapedQueryExpression? TranslateThenBy(...)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreLimitTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreLimitTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Ejecutar tests de Take/TakeLast existentes | `Tests/Query/TakeTests.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreLimitTranslatorTests.cs` |
+| TEST | [x] | Crear tests del feature file | `Tests/Query/Ast/FirestoreQueryExpression_LimitTests.cs` |
+| IMPL | [x] | Implementar translator | `Query/Translators/FirestoreLimitTranslator.cs` |
+| IMPL | [x] | Crear feature file con Record + Commands + TranslateLimit | `Query/Ast/FirestoreQueryExpression_Limit.cs` |
+| INTEGRAR | [x] | Actualizar Visitor con one-liners | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| INTEGRAR | [x] | Mover commands del DTO base al feature file | `Query/Ast/FirestoreQueryExpression.cs` |
+| VERIFICAR | [x] | Ejecutar todos los tests | 682 unit + 172 integration |
 
 **Qué traduce:** `Take`, `TakeLast`
 
-**Commit:**
+**Patrón MicroDomain aplicado:**
+- Record `TranslateLimitRequest(Source, Count, IsLimitToLast)` agrupa parámetros
+- Commands `WithLimit`, `WithLimitExpression`, `WithLimitToLast`, `WithLimitToLastExpression` movidos al feature file
+- `TranslateLimit` estático usa `FirestoreLimitTranslator` para extraer el valor
+- Visitor reducido a one-liners
+
+**Nota sobre ExtractIntConstant:**
+- Se mantiene en el Visitor para `TranslateSkip` (será movido en 1.3)
+- `FirestoreLimitTranslator` tiene su propia implementación
+- En 1.3 `FirestoreSkipTranslator` heredará de `FirestoreLimitTranslator` para reutilizar la lógica
+
+**Commit:** 7f267bb
 
 ---
 

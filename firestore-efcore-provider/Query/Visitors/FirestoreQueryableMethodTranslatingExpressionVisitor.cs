@@ -1048,42 +1048,14 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         }
 
         protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
-        {
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
-            // Try to extract constant value first
-            var limitValue = ExtractIntConstant(count);
-            if (limitValue != null)
-            {
-                var newQueryExpression = firestoreQueryExpression.WithLimit(limitValue.Value);
-                return source.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // For parameterized expressions, store the expression for runtime evaluation
-            var newQueryExpressionWithExpr = firestoreQueryExpression.WithLimitExpression(count);
-            return source.UpdateQueryExpression(newQueryExpressionWithExpr);
-        }
+            => FirestoreQueryExpression.TranslateLimit(new(source, count, IsLimitToLast: false));
 
         /// <summary>
         /// Translates TakeLast to Firestore's LimitToLast.
         /// Note: LimitToLast requires an OrderBy clause to work correctly.
         /// </summary>
         private ShapedQueryExpression TranslateTakeLast(ShapedQueryExpression source, Expression count)
-        {
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
-            // Try to extract constant value first
-            var limitValue = ExtractIntConstant(count);
-            if (limitValue != null)
-            {
-                var newQueryExpression = firestoreQueryExpression.WithLimitToLast(limitValue.Value);
-                return source.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // For parameterized expressions, store the expression for runtime evaluation
-            var newQueryExpressionWithExpr = firestoreQueryExpression.WithLimitToLastExpression(count);
-            return source.UpdateQueryExpression(newQueryExpressionWithExpr);
-        }
+            => FirestoreQueryExpression.TranslateLimit(new(source, count, IsLimitToLast: true));
 
         protected override ShapedQueryExpression? TranslateTakeWhile(ShapedQueryExpression source, LambdaExpression predicate)
             => throw new NotImplementedException();

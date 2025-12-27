@@ -232,44 +232,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         #endregion
 
         // OrderBy Commands: see FirestoreQueryExpression_OrderBy.cs
+        // Limit Commands: see FirestoreQueryExpression_Limit.cs
 
-        #region Limit/Skip Commands
-
-        /// <summary>
-        /// Establece el límite de documentos a retornar
-        /// </summary>
-        public FirestoreQueryExpression WithLimit(int limit)
-        {
-            Limit = limit;
-            return this;
-        }
-
-        /// <summary>
-        /// Establece la expresión del límite (para parámetros de EF Core).
-        /// </summary>
-        public FirestoreQueryExpression WithLimitExpression(Expression limitExpression)
-        {
-            LimitExpression = limitExpression;
-            return this;
-        }
-
-        /// <summary>
-        /// Establece el límite de documentos desde el final (TakeLast).
-        /// </summary>
-        public FirestoreQueryExpression WithLimitToLast(int limitToLast)
-        {
-            LimitToLast = limitToLast;
-            return this;
-        }
-
-        /// <summary>
-        /// Establece la expresión del límite desde el final (TakeLast parametrizado).
-        /// </summary>
-        public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
-        {
-            LimitToLastExpression = limitToLastExpression;
-            return this;
-        }
+        #region Skip Commands
 
         /// <summary>
         /// Establece el número de documentos a saltar.
