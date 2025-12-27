@@ -442,19 +442,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     };
                 }
 
-                // Case 4: EF.Property<List<T>>(e, "Field").AsQueryable().Contains(value) → ArrayContains
-                // EF Core transforms e.ArrayField.Contains(value) into this form
-                if (methodCall.Arguments.Count == 1)
-                {
-                    var propertyName = ExtractPropertyNameFromEFPropertyChain(methodCall.Object);
-                    if (propertyName != null)
-                    {
-                        return new List<FirestoreWhereClause>
-                        {
-                            new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0])
-                        };
-                    }
-                }
+                // Note: Case 4 (EF.Property<List<T>>().AsQueryable().Contains()) is handled by
+                // the Visitor's PreprocessArrayContainsPatterns which converts it to
+                // FirestoreArrayContainsExpression before it reaches this translator.
             }
 
             return null;
@@ -487,31 +477,6 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     ltExpression);
 
                 return new List<FirestoreWhereClause> { gteClause, ltClause };
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Extracts property name from EF.Property chain like:
-        /// EF.Property(e, "Field").AsQueryable() or just EF.Property(e, "Field")
-        /// </summary>
-        private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression)
-        {
-            if (expression is MethodCallExpression methodCall)
-            {
-                // Check if it's AsQueryable() wrapping EF.Property
-                if (methodCall.Method.Name == "AsQueryable" && methodCall.Arguments.Count == 1)
-                {
-                    return ExtractPropertyNameFromEFPropertyChain(methodCall.Arguments[0]);
-                }
-
-                // Check if it's EF.Property<T>(entity, "PropertyName")
-                if (methodCall.Method.Name == "Property" &&
-                    methodCall.Method.DeclaringType?.Name == "EF")
-                {
-                    return GetPropertyNameFromEFProperty(methodCall);
-                }
             }
 
             return null;

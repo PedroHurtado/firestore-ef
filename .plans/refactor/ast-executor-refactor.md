@@ -998,46 +998,90 @@ Solo después de que TODOS los Translators estén funcionando.
 
 ---
 
-### 5.4 Unificar métodos duplicados de extracción de propiedades
+### 5.4 ArrayContainsPatternTransformer (Patrón de Transformer Testeable)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| IMPL | [ ] | Mover `ExtractPropertyNameFromEFPropertyChain` a clase helper | `Query/Helpers/PropertyExtractionHelper.cs` |
+| TEST | [x] | Crear tests unitarios del Transformer | `Tests/Query/Preprocessing/ArrayContainsPatternTransformerTests.cs` |
+| IMPL | [x] | Crear clase estática Transformer | `Query/Preprocessing/ArrayContainsPatternTransformer.cs` |
+| INTEGRAR | [x] | Usar Transformer en Visitor.Visit() | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| IMPL | [x] | Eliminar código duplicado del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| IMPL | [x] | Eliminar código duplicado del Translator | `Query/Translators/FirestoreWhereTranslator.cs` |
+| IMPL | [x] | Eliminar código muerto del Slice Where | `Query/Ast/FirestoreQueryExpression_Where.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 777 unit + 172 integration |
+
+**Problema detectado:**
+
+Código duplicado para transformar patrones de array Contains en 3 ubicaciones:
+1. `Visitor.PreprocessArrayContainsPatterns()` - ~140 líneas
+2. `FirestoreQueryExpression_Where.PreprocessArrayContainsPatterns()` - ~230 líneas (código muerto)
+3. `FirestoreWhereTranslator` Case 4 + `ExtractPropertyNameFromEFPropertyChain` - ~37 líneas
+
+**Solución aplicada - Patrón Transformer Testeable:**
+
+```csharp
+// Query/Preprocessing/ArrayContainsPatternTransformer.cs
+public static class ArrayContainsPatternTransformer
+{
+    /// <summary>
+    /// Transforms array Contains patterns into Firestore marker expressions.
+    /// Returns the original expression if no patterns are found.
+    /// </summary>
+    public static Expression Transform(Expression expression)
+    {
+        // Recursively transforms:
+        // - EF.Property<List<T>>().AsQueryable().Contains(value) → FirestoreArrayContainsExpression
+        // - array.Any(t => list.Contains(t)) → FirestoreArrayContainsAnyExpression
+    }
+}
+```
+
+**Uso en el Visitor (one-liner):**
+
+```csharp
+public override Expression? Visit(Expression? expression)
+{
+    if (expression == null) return null;
+    var preprocessed = ArrayContainsPatternTransformer.Transform(expression);
+    return base.Visit(preprocessed);
+}
+```
+
+**Código eliminado:**
+- Del Visitor: `PreprocessArrayContainsPatterns`, `VisitMethodCall` (duplicado), `ExtractPropertyNameFromEFPropertyChain`, `ExtractListFromContainsPredicate`, `IsParameterReference` (~200 líneas)
+- Del Slice Where: `PreprocessArrayContainsPatterns` y helpers (~230 líneas código muerto)
+- Del Translator: Case 4 y `ExtractPropertyNameFromEFPropertyChain` (~37 líneas)
+
+**Patrón reutilizable:**
+
+Este patrón se puede aplicar cuando:
+1. Hay lógica de transformación de expresiones embebida en el Visitor
+2. La lógica no tiene dependencias de estado del Visitor
+3. Se necesita testear la transformación de forma aislada
+
+Estructura:
+```
+Query/Preprocessing/
+├── ArrayContainsPatternTransformer.cs   ← Transformer testeable
+└── [OtroTransformer].cs                 ← Futuros transformers
+
+Tests/Query/Preprocessing/
+├── ArrayContainsPatternTransformerTests.cs
+└── [OtroTransformerTests].cs
+```
+
+**Commit:** 2d77c0e
+
+---
+
+### 5.4b Unificar BuildPropertyPath (pendiente)
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
 | IMPL | [ ] | Mover `BuildPropertyPath` a clase helper | `Query/Helpers/PropertyExtractionHelper.cs` |
 | IMPL | [ ] | Eliminar duplicado del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
 | IMPL | [ ] | Eliminar duplicado del Translator | `Query/Translators/FirestoreWhereTranslator.cs` |
 | VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
-
-**Análisis de duplicación (detectado en sesión e820da7):**
-
-| Método | Ubicación 1 | Ubicación 2 | Propósito |
-|--------|-------------|-------------|-----------|
-| `ExtractPropertyNameFromEFPropertyChain` | Visitor línea ~312 | Translator línea ~499 | Extrae nombre de propiedad de `EF.Property<T>().AsQueryable()` |
-| `BuildPropertyPath` | Visitor línea ~425 | Translator línea ~351 | Construye path de propiedades anidadas (ej: `"Direccion.Ciudad"`) |
-
-**Código duplicado - ExtractPropertyNameFromEFPropertyChain:**
-
-```csharp
-// Visitor (PreprocessArrayContainsPatterns)
-private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression)
-{
-    if (expression is MethodCallExpression methodCall)
-    {
-        if (methodCall.Method.Name == "AsQueryable" && methodCall.Arguments.Count == 1)
-            return ExtractPropertyNameFromEFPropertyChain(methodCall.Arguments[0]);
-
-        if (methodCall.Method.Name == "Property" && methodCall.Method.DeclaringType?.Name == "EF")
-        {
-            if (methodCall.Arguments.Count >= 2 && methodCall.Arguments[1] is ConstantExpression constant)
-                return constant.Value as string;
-        }
-    }
-    return null;
-}
-
-// Translator (TranslateMethodCallExpression) - IDÉNTICO
-private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression) { /* mismo código */ }
-```
 
 **Código duplicado - BuildPropertyPath:**
 
@@ -1066,11 +1110,6 @@ private string BuildPropertyPath(MemberExpression memberExpr) { /* mismo código
 // Query/Helpers/PropertyExtractionHelper.cs
 public static class PropertyExtractionHelper
 {
-    /// <summary>
-    /// Extrae nombre de propiedad de cadenas EF.Property().AsQueryable()
-    /// </summary>
-    public static string? ExtractPropertyNameFromEFPropertyChain(Expression? expression) { ... }
-
     /// <summary>
     /// Construye path completo de propiedades anidadas (ComplexTypes)
     /// Ej: e.Direccion.Ciudad → "Direccion.Ciudad"
