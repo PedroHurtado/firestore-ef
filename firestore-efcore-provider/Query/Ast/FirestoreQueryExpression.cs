@@ -107,11 +107,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreCursor? StartAfterCursor { get; protected set; }
 
-        /// <summary>
-        /// Si la query es solo por ID, contiene la expresión del ID.
-        /// En este caso, se usará GetDocumentAsync en lugar de ExecuteQueryAsync.
-        /// </summary>
-        public Expression? IdValueExpression { get; protected set; }
+        // IdValueExpression, ReturnDefault, ReturnType: see FirestoreQueryExpression_FirstOrDefault.cs
 
         /// <summary>
         /// Lista de navegaciones a cargar (Include/ThenInclude)
@@ -161,10 +157,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public bool HasProjection => Projection != null;
 
-        /// <summary>
-        /// Indica si esta query es solo por ID (sin otros filtros)
-        /// </summary>
-        public bool IsIdOnlyQuery => IdValueExpression != null;
+        // IsIdOnlyQuery: see FirestoreQueryExpression_FirstOrDefault.cs
 
         /// <summary>
         /// Indica si esta query es una agregación
@@ -248,30 +241,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
         #endregion
 
-        #region Id Query Commands
-
-        /// <summary>
-        /// Establece la expresión del ID para queries por documento único.
-        /// </summary>
-        public FirestoreQueryExpression WithIdValueExpression(Expression idExpression)
-        {
-            IdValueExpression = idExpression;
-            return this;
-        }
-
-        /// <summary>
-        /// Limpia la expresión del ID y establece filtros iniciales.
-        /// Usado para convertir una IdOnlyQuery a una query normal con filtros.
-        /// </summary>
-        public FirestoreQueryExpression ClearIdValueExpressionWithFilters(IEnumerable<FirestoreWhereClause> initialFilters)
-        {
-            IdValueExpression = null;
-            _filters.Clear();
-            _filters.AddRange(initialFilters);
-            return this;
-        }
-
-        #endregion
+        // FirstOrDefault Commands: see FirestoreQueryExpression_FirstOrDefault.cs
 
         #region Include Commands
 

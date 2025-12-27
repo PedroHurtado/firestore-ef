@@ -447,17 +447,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             LambdaExpression? predicate,
             Type returnType,
             bool returnDefault)
-        {
-            if (predicate != null)
-            {
-                source = TranslateWhere(source, predicate) ?? source;
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithLimit(1);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateFirstOrDefault(new(source, predicate, returnType, returnDefault));
 
         protected override ShapedQueryExpression TranslateSelect(
             ShapedQueryExpression source,
@@ -777,17 +767,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateAny(ShapedQueryExpression source, LambdaExpression? predicate)
-        {
-            if (predicate != null)
-            {
-                source = TranslateWhere(source, predicate) ?? source;
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithAny();
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateAny(new(source, predicate));
 
         protected override ShapedQueryExpression? TranslateAverage(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
         {
@@ -818,20 +798,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateCount(ShapedQueryExpression source, LambdaExpression? predicate)
-        {
-            if (predicate != null)
-            {
-                source = TranslateWhere(source, predicate) ?? source;
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithCount();
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateCount(new(source, predicate));
 
         protected override ShapedQueryExpression? TranslateDefaultIfEmpty(ShapedQueryExpression source, Expression? defaultValue)
-            => throw new NotImplementedException();
+            => FirestoreQueryExpression.TranslateDefaultIfEmpty(new(source, defaultValue));
 
         protected override ShapedQueryExpression? TranslateDistinct(ShapedQueryExpression source)
             => throw new NotImplementedException();
@@ -967,19 +937,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
-        {
-            if (predicate != null)
-            {
-                source = TranslateWhere(source, predicate) ?? source;
-            }
-
-            // Use Limit(2) so EF Core can detect if there's more than one result
-            // If there are 2 results, EF Core will throw InvalidOperationException
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithLimit(2);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateSingleOrDefault(new(source, predicate, returnType, returnDefault));
 
         protected override ShapedQueryExpression? TranslateSkip(ShapedQueryExpression source, Expression count)
             => FirestoreQueryExpression.TranslateSkip(new(source, count));
