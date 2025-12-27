@@ -702,6 +702,85 @@ protected override ShapedQueryExpression? TranslateThenBy(...)
 
 ---
 
+### 1.4b Query Slices: FirstOrDefault, SingleOrDefault, Any, Count, DefaultIfEmpty
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| TEST | [x] | Crear tests de FirstOrDefault | `Tests/Query/Ast/FirestoreQueryExpression_FirstOrDefaultTests.cs` |
+| TEST | [x] | Crear tests de SingleOrDefault | `Tests/Query/Ast/FirestoreQueryExpression_SingleOrDefaultTests.cs` |
+| TEST | [x] | Crear tests de Any | `Tests/Query/Ast/FirestoreQueryExpression_AnyTests.cs` |
+| TEST | [x] | Crear tests de Count | `Tests/Query/Ast/FirestoreQueryExpression_CountTests.cs` |
+| TEST | [x] | Crear tests de DefaultIfEmpty | `Tests/Query/Ast/FirestoreQueryExpression_DefaultIfEmptyTests.cs` |
+| TEST | [x] | Crear integration tests de DefaultIfEmpty (Skip) | `Tests/Query/DefaultIfEmptyTests.cs` |
+| IMPL | [x] | Feature file FirstOrDefault (Id optimization, ReturnDefault, Limit 1) | `Query/Ast/FirestoreQueryExpression_FirstOrDefault.cs` |
+| IMPL | [x] | Feature file SingleOrDefault (Limit 2 for duplicate detection) | `Query/Ast/FirestoreQueryExpression_SingleOrDefault.cs` |
+| IMPL | [x] | Feature file Any (FirestoreWhereTranslator for predicates) | `Query/Ast/FirestoreQueryExpression_Any.cs` |
+| IMPL | [x] | Feature file Count (FirestoreWhereTranslator for predicates) | `Query/Ast/FirestoreQueryExpression_Count.cs` |
+| IMPL | [x] | Feature file DefaultIfEmpty (stores default value expression) | `Query/Ast/FirestoreQueryExpression_DefaultIfEmpty.cs` |
+| INTEGRAR | [x] | Visitor methods convertidos a one-liners | `Query/Visitors/...Visitor.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 761 unit tests |
+
+**Patrón MicroDomain aplicado:**
+
+Cada slice tiene su propio feature file con:
+- Record para parámetros (ej: `TranslateFirstOrDefaultRequest`)
+- Propiedades específicas del feature
+- Commands específicos (`WithX` methods)
+- Método estático `TranslateX` que encapsula la lógica
+
+**Estructura de cada feature file:**
+
+```csharp
+// Record para agrupar parámetros del Visitor
+public record TranslateXRequest(...);
+
+public partial class FirestoreQueryExpression
+{
+    #region X Properties
+    // Propiedades específicas del feature
+    #endregion
+
+    #region X Commands
+    // Métodos WithX que modifican el estado
+    #endregion
+
+    #region X Translation
+    public static ShapedQueryExpression? TranslateX(TranslateXRequest request) { ... }
+    #endregion
+}
+```
+
+**Visitor con one-liners:**
+
+```csharp
+protected override ShapedQueryExpression? TranslateFirstOrDefault(...)
+    => FirestoreQueryExpression.TranslateFirstOrDefault(new(source, predicate, returnType, returnDefault));
+
+protected override ShapedQueryExpression? TranslateSingleOrDefault(...)
+    => FirestoreQueryExpression.TranslateSingleOrDefault(new(source, predicate, returnType, returnDefault));
+
+protected override ShapedQueryExpression? TranslateAny(...)
+    => FirestoreQueryExpression.TranslateAny(new(source, predicate));
+
+protected override ShapedQueryExpression? TranslateCount(...)
+    => FirestoreQueryExpression.TranslateCount(new(source, predicate));
+
+protected override ShapedQueryExpression? TranslateDefaultIfEmpty(...)
+    => FirestoreQueryExpression.TranslateDefaultIfEmpty(new(source, defaultValue));
+```
+
+**Detalles de implementación:**
+
+- **FirstOrDefault**: Id optimization (GetDocumentAsync), ReturnDefault property, Limit 1
+- **SingleOrDefault**: Limit 2 para detectar duplicados (no puede usar Id optimization)
+- **Any**: Usa FirestoreWhereTranslator para traducir predicados
+- **Count**: Usa FirestoreWhereTranslator para traducir predicados
+- **DefaultIfEmpty**: Almacena DefaultValueExpression para uso del Executor
+
+**Commit:** e820da7
+
+---
+
 ### 1.5 FirestoreIncludeTranslator
 
 | Paso | Estado | Acción | Archivo |
