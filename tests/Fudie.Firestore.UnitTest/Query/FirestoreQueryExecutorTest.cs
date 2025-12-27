@@ -248,9 +248,7 @@ public class FirestoreQueryExecutorTest
     public void Query_With_IdValueExpression_Is_IdOnlyQuery()
     {
         var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
-        {
-            IdValueExpression = Expression.Constant("doc-123")
-        };
+            .WithIdValueExpression(Expression.Constant("doc-123"));
 
         query.IsIdOnlyQuery.Should().BeTrue();
     }

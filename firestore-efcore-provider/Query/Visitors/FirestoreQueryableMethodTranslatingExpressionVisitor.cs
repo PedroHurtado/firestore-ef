@@ -497,13 +497,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
                 foreach (var navigation in includeVisitor.DetectedNavigations)
                 {
-                    // Evitar duplicados
-                    if (!firestoreQueryExpression.PendingIncludes.Any(n =>
-                        n.Name == navigation.Name &&
-                        n.DeclaringEntityType == navigation.DeclaringEntityType))
-                    {
-                        firestoreQueryExpression.PendingIncludes.Add(navigation);
-                    }
+                    // AddInclude ya maneja duplicados internamente
+                    firestoreQueryExpression.AddInclude(navigation);
                 }
 
                 // Agregar IncludeInfo con filtros extraídos
@@ -513,7 +508,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     if (!firestoreQueryExpression.PendingIncludesWithFilters.Any(i =>
                         i.EffectiveNavigationName == includeInfo.EffectiveNavigationName))
                     {
-                        firestoreQueryExpression.PendingIncludesWithFilters.Add(includeInfo);
+                        firestoreQueryExpression.AddIncludeWithFilters(includeInfo);
                     }
                 }
 
@@ -764,18 +759,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 }
 
                 // Create IdOnlyQuery (optimization for single document fetch)
-                var newQueryExpression = new FirestoreQueryExpression(
-                    firestoreQueryExpression.EntityType,
-                    firestoreQueryExpression.CollectionName)
-                {
-                    IdValueExpression = whereClause.ValueExpression,
-                    Filters = new List<FirestoreWhereClause>(firestoreQueryExpression.Filters),
-                    OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
-                    OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
-                    Limit = firestoreQueryExpression.Limit,
-                    StartAfterCursor = firestoreQueryExpression.StartAfterCursor,
-                    PendingIncludes = firestoreQueryExpression.PendingIncludes
-                };
+                var newQueryExpression = firestoreQueryExpression.WithIdValueExpression(whereClause.ValueExpression);
 
                 return source.UpdateQueryExpression(newQueryExpression);
             }
@@ -789,17 +773,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     "Id", FirestoreOperator.EqualTo, firestoreQueryExpression.IdValueExpression!, null);
 
                 // Create new query without IdValueExpression (will use FieldPath.DocumentId)
-                var convertedQuery = new FirestoreQueryExpression(
-                    firestoreQueryExpression.EntityType,
-                    firestoreQueryExpression.CollectionName)
-                {
-                    Filters = new List<FirestoreWhereClause> { idClause },
-                    OrFilterGroups = new List<FirestoreOrFilterGroup>(firestoreQueryExpression.OrFilterGroups),
-                    OrderByClauses = new List<FirestoreOrderByClause>(firestoreQueryExpression.OrderByClauses),
-                    Limit = firestoreQueryExpression.Limit,
-                    StartAfterCursor = firestoreQueryExpression.StartAfterCursor,
-                    PendingIncludes = firestoreQueryExpression.PendingIncludes
-                };
+                // Clear IdValueExpression by setting filters with the id clause
+                var convertedQuery = firestoreQueryExpression.ClearIdValueExpressionWithFilters(new[] { idClause });
 
                 // Add the new clauses
                 var convertedWithFilters = convertedQuery.AddFilters(clauses);
@@ -1004,6 +979,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateOrderBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
+            => TranslateOrderByCore(source, keySelector, ascending, isFirst: true);
+
+        private static ShapedQueryExpression? TranslateOrderByCore(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending, bool isFirst)
         {
             var translator = new FirestoreOrderByTranslator();
             var orderByClause = translator.Translate(keySelector, ascending);
@@ -1014,10 +992,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
             var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
 
-            // Clear any existing orderings (OrderBy resets the sort order)
-            var newOrderByClauses = new List<FirestoreOrderByClause> { orderByClause };
+            // OrderBy (isFirst=true) resets all orderings, ThenBy (isFirst=false) appends
+            var newQueryExpression = isFirst
+                ? firestoreQueryExpression.SetOrderBy(orderByClause)
+                : firestoreQueryExpression.AddOrderBy(orderByClause);
 
-            var newQueryExpression = firestoreQueryExpression.Update(orderByClauses: newOrderByClauses);
             return source.UpdateQueryExpression(newQueryExpression);
         }
 
@@ -1129,21 +1108,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateThenBy(ShapedQueryExpression source, LambdaExpression keySelector, bool ascending)
-        {
-            var translator = new FirestoreOrderByTranslator();
-            var orderByClause = translator.Translate(keySelector, ascending);
-            if (orderByClause == null)
-            {
-                return null;
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
-            // ThenBy adds to existing orderings
-            var newQueryExpression = firestoreQueryExpression.AddOrderBy(orderByClause);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => TranslateOrderByCore(source, keySelector, ascending, isFirst: false);
 
         protected override ShapedQueryExpression? TranslateUnion(ShapedQueryExpression source1, ShapedQueryExpression source2)
             => throw new NotImplementedException();

@@ -43,8 +43,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             var complexTypeIncludes = _firestoreContext.ComplexTypeIncludes;
             if (complexTypeIncludes.Count > 0)
             {
-                firestoreQueryExpression = firestoreQueryExpression.Update(
-                    complexTypeIncludes: new List<LambdaExpression>(complexTypeIncludes));
+                firestoreQueryExpression = firestoreQueryExpression.WithComplexTypeIncludes(
+                    new List<LambdaExpression>(complexTypeIncludes));
             }
 
             // Copy Filtered Includes from FirestoreQueryCompilationContext to FirestoreQueryExpression
@@ -81,11 +81,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                             };
                             foreach (var orderBy in filterInfo.OrderByExpressions)
                                 newIncludeInfo.OrderByExpressions.Add(orderBy);
-                            firestoreQueryExpression.PendingIncludesWithFilters.Add(newIncludeInfo);
+                            firestoreQueryExpression.AddIncludeWithFilters(newIncludeInfo);
                         }
                         else
                         {
-                            firestoreQueryExpression.PendingIncludesWithFilters.Add(filterInfo);
+                            firestoreQueryExpression.AddIncludeWithFilters(filterInfo);
                         }
                     }
                 }

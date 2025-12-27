@@ -515,6 +515,56 @@ Crear Translators nuevos. Por cada uno seguir el flujo TDD.
 
 ---
 
+### 1.1b Refactor AST: Eliminación método Update + Comandos DDD
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [x] | **Eliminar** método `Update` completamente | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Constructor solo con parámetros obligatorios | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Propiedades con `protected set` | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Listas como `IReadOnlyList<T>` con backing field privado | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Comandos modifican directamente y retornan `this` (Fluent API) | `Query/Ast/FirestoreQueryExpression.cs` |
+| INTEGRAR | [x] | Actualizar Visitor para usar comandos | `Query/Visitors/*.cs` |
+| INTEGRAR | [x] | Actualizar Executor para aceptar `IReadOnlyList<T>` | `Query/FirestoreQueryExecutor.cs` |
+| REFACTOR | [x] | Unificar `TranslateOrderBy`/`TranslateThenBy` en `TranslateOrderByCore` | `Query/Visitors/...Visitor.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 642 unit + 172 integration |
+
+**Qué cambió:**
+- El método `Update` con 20+ parámetros fue **ELIMINADO** (no solo privado)
+- Constructor solo acepta `(IEntityType entityType, string collectionName)`
+- Properties con `protected set` para permitir herencia
+- Listas usan patrón inmutable: `private readonly List<T> _field` + `public IReadOnlyList<T> Field => _field`
+- Comandos modifican la instancia directamente y retornan `this` (Fluent API)
+- `TranslateOrderBy` y `TranslateThenBy` unificados en un helper `TranslateOrderByCore(isFirst: bool)`
+
+**Comandos disponibles en FirestoreQueryExpression:**
+- `AddFilter(filter)` - Agrega un filtro WHERE
+- `AddFilters(filters)` - Agrega múltiples filtros WHERE
+- `AddOrFilterGroup(group)` - Agrega un grupo OR
+- `SetOrderBy(orderBy)` - Reemplaza todos los ordenamientos (OrderBy)
+- `AddOrderBy(orderBy)` - Agrega ordenamiento (ThenBy)
+- `WithLimit(limit)` / `WithLimitExpression(expr)` - Limit
+- `WithLimitToLast(limit)` / `WithLimitToLastExpression(expr)` - LimitToLast
+- `WithSkip(skip)` / `WithSkipExpression(expr)` - Skip
+- `WithStartAfter(cursor)` - Paginación con cursor
+- `WithIdValueExpression(expr)` - Query por ID único
+- `ClearIdValueExpressionWithFilters(filters)` - Convierte IdOnlyQuery a normal
+- `AddInclude(navigation)` - Agrega navegación Include
+- `AddIncludeWithFilters(includeInfo)` - Agrega Include con filtros
+- `WithComplexTypeIncludes(includes)` - Includes en ComplexTypes
+- `WithProjection(projection)` - Proyección Select
+- `WithCount()`, `WithAny()`, `WithSum()`, `WithAverage()`, `WithMin()`, `WithMax()` - Agregaciones
+
+**Beneficio:**
+- El AST ya no puede ser modificado de formas inesperadas
+- Cada modificación es explícita y nombrada según su intención de negocio
+- Código duplicado en Visitor eliminado (OrderBy/ThenBy)
+- Patrón DDD aplicado correctamente al agregado
+
+**Commit:** 4c421d9
+
+---
+
 ### 1.2 FirestoreLimitTranslator
 
 | Paso | Estado | Acción | Archivo |

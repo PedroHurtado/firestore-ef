@@ -26,126 +26,132 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// Representación interna de una query de Firestore.
     /// Esta clase encapsula toda la información necesaria para construir
     /// una Google.Cloud.Firestore.Query y ejecutarla.
+    ///
+    /// Principios DDD: El AST solo se modifica mediante comandos específicos.
+    /// Cada comando representa una operación de negocio clara.
     /// </summary>
     public class FirestoreQueryExpression : Expression
     {
+        #region Properties
+
         /// <summary>
         /// Tipo de entidad que se está consultando
         /// </summary>
-        public IEntityType EntityType { get; set; }
+        public IEntityType EntityType { get; protected set; }
 
         /// <summary>
         /// Nombre de la colección en Firestore (ej: "productos", "clientes")
         /// </summary>
-        public string CollectionName { get; set; }
+        public string CollectionName { get; protected set; }
 
         /// <summary>
         /// Lista de filtros WHERE aplicados a la query (AND implícito)
         /// </summary>
-        public List<FirestoreWhereClause> Filters { get; set; }
+        private readonly List<FirestoreWhereClause> _filters = new();
+        public IReadOnlyList<FirestoreWhereClause> Filters => _filters;
 
         /// <summary>
         /// Lista de grupos OR aplicados a la query.
         /// Each OR group is combined with AND with other filters.
         /// </summary>
-        public List<FirestoreOrFilterGroup> OrFilterGroups { get; set; }
+        private readonly List<FirestoreOrFilterGroup> _orFilterGroups = new();
+        public IReadOnlyList<FirestoreOrFilterGroup> OrFilterGroups => _orFilterGroups;
 
         /// <summary>
         /// Lista de ordenamientos aplicados a la query
         /// </summary>
-        public List<FirestoreOrderByClause> OrderByClauses { get; set; }
+        private readonly List<FirestoreOrderByClause> _orderByClauses = new();
+        public IReadOnlyList<FirestoreOrderByClause> OrderByClauses => _orderByClauses;
 
         /// <summary>
         /// Límite de documentos a retornar (equivalente a LINQ Take).
-        /// Puede ser un valor constante (int?) o una expresión parametrizada.
         /// </summary>
-        public int? Limit { get; set; }
+        public int? Limit { get; protected set; }
 
         /// <summary>
         /// Expresión para el límite (para parámetros de EF Core).
         /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? LimitExpression { get; set; }
+        public Expression? LimitExpression { get; protected set; }
 
         /// <summary>
         /// Límite de documentos a retornar desde el final (equivalente a LINQ TakeLast).
         /// Firestore usa LimitToLast() que requiere un OrderBy previo.
         /// </summary>
-        public int? LimitToLast { get; set; }
+        public int? LimitToLast { get; protected set; }
 
         /// <summary>
         /// Expresión para LimitToLast (para parámetros de EF Core).
         /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? LimitToLastExpression { get; set; }
+        public Expression? LimitToLastExpression { get; protected set; }
 
         /// <summary>
         /// Número de documentos a saltar (equivalente a LINQ Skip).
         /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
-        /// en memoria después de obtener los resultados, lo cual es ineficiente
-        /// para grandes conjuntos de datos. Para paginación eficiente, usar
-        /// cursores con StartAfterDocument.
+        /// en memoria después de obtener los resultados.
         /// </summary>
-        public int? Skip { get; set; }
+        public int? Skip { get; protected set; }
 
         /// <summary>
         /// Expresión para el skip (para parámetros de EF Core).
         /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? SkipExpression { get; set; }
+        public Expression? SkipExpression { get; protected set; }
 
         /// <summary>
         /// Cursor desde el cual empezar (para paginación/Skip).
-        /// Contiene el ID del documento y los valores de los campos ordenados.
         /// </summary>
-        public FirestoreCursor? StartAfterCursor { get; set; }
+        public FirestoreCursor? StartAfterCursor { get; protected set; }
 
         /// <summary>
         /// Si la query es solo por ID, contiene la expresión del ID.
         /// En este caso, se usará GetDocumentAsync en lugar de ExecuteQueryAsync.
         /// </summary>
-        public Expression? IdValueExpression { get; set; }
+        public Expression? IdValueExpression { get; protected set; }
 
         /// <summary>
         /// Lista de navegaciones a cargar (Include/ThenInclude)
         /// </summary>
-        public List<IReadOnlyNavigation> PendingIncludes { get; set; }
+        private readonly List<IReadOnlyNavigation> _pendingIncludes = new();
+        public IReadOnlyList<IReadOnlyNavigation> PendingIncludes => _pendingIncludes;
 
         /// <summary>
         /// Lista de Includes con información de filtros para Filtered Includes.
-        /// Esta lista contiene la misma información que PendingIncludes pero con filtros opcionales.
         /// </summary>
-        public List<IncludeInfo> PendingIncludesWithFilters { get; set; }
+        private readonly List<IncludeInfo> _pendingIncludesWithFilters = new();
+        public IReadOnlyList<IncludeInfo> PendingIncludesWithFilters => _pendingIncludesWithFilters;
 
         /// <summary>
         /// Lista de Includes en propiedades de ComplexTypes.
-        /// Ej: .Include(e => e.DireccionPrincipal.SucursalCercana)
-        /// Estas se extraen antes de que EF Core las procese (ya que EF Core no las soporta)
-        /// y se cargan durante la deserialización.
         /// </summary>
-        public List<LambdaExpression> ComplexTypeIncludes { get; set; }
+        private readonly List<LambdaExpression> _complexTypeIncludes = new();
+        public IReadOnlyList<LambdaExpression> ComplexTypeIncludes => _complexTypeIncludes;
 
         /// <summary>
         /// Tipo de agregación a ejecutar (Count, Sum, Average, Min, Max).
         /// None indica una query normal que retorna entidades.
         /// </summary>
-        public FirestoreAggregationType AggregationType { get; set; }
+        public FirestoreAggregationType AggregationType { get; protected set; }
 
         /// <summary>
         /// Nombre de la propiedad para agregaciones Sum, Average, Min, Max.
         /// </summary>
-        public string? AggregationPropertyName { get; set; }
+        public string? AggregationPropertyName { get; protected set; }
 
         /// <summary>
         /// Tipo de resultado para agregaciones (int, long, decimal, double, etc).
         /// </summary>
-        public Type? AggregationResultType { get; set; }
+        public Type? AggregationResultType { get; protected set; }
 
         /// <summary>
         /// Definición estructurada de la proyección Select.
-        /// Contiene los campos a proyectar, subcollections con filtros, etc.
         /// </summary>
-        public FirestoreProjectionDefinition? Projection { get; set; }
+        public FirestoreProjectionDefinition? Projection { get; protected set; }
+
+        #endregion
+
+        #region Computed Properties
 
         /// <summary>
         /// Indica si esta query tiene una proyección Select.
@@ -162,22 +168,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public bool IsAggregation => AggregationType != FirestoreAggregationType.None;
 
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        public FirestoreQueryExpression(
-            IEntityType entityType,
-            string collectionName)
-        {
-            EntityType = entityType ?? throw new ArgumentNullException(nameof(entityType));
-            CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
-            Filters = new List<FirestoreWhereClause>();
-            OrFilterGroups = new List<FirestoreOrFilterGroup>();
-            OrderByClauses = new List<FirestoreOrderByClause>();
-            PendingIncludes = new List<IReadOnlyNavigation>();
-            PendingIncludesWithFilters = new List<IncludeInfo>();
-            ComplexTypeIncludes = new List<LambdaExpression>();
-        }
+        #endregion
+
+        #region Expression Overrides
 
         /// <summary>
         /// Tipo de retorno de la expresión (IAsyncEnumerable del tipo de entidad)
@@ -189,150 +182,30 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public override ExpressionType NodeType => ExpressionType.Extension;
 
-        /// <summary>
-        /// Crea una copia de esta expresión con los cambios especificados
-        /// </summary>
-        public FirestoreQueryExpression Update(
-            IEntityType? entityType = null,
-            string? collectionName = null,
-            List<FirestoreWhereClause>? filters = null,
-            List<FirestoreOrFilterGroup>? orFilterGroups = null,
-            List<FirestoreOrderByClause>? orderByClauses = null,
-            int? limit = null,
-            Expression? limitExpression = null,
-            int? limitToLast = null,
-            Expression? limitToLastExpression = null,
-            int? skip = null,
-            Expression? skipExpression = null,
-            FirestoreCursor? startAfterCursor = null,
-            Expression? idValueExpression = null,
-            List<IReadOnlyNavigation>? pendingIncludes = null,
-            List<IncludeInfo>? pendingIncludesWithFilters = null,
-            List<LambdaExpression>? complexTypeIncludes = null,
-            FirestoreAggregationType? aggregationType = null,
-            string? aggregationPropertyName = null,
-            Type? aggregationResultType = null,
-            FirestoreProjectionDefinition? projection = null)
-        {
-            return new FirestoreQueryExpression(
-                entityType ?? EntityType,
-                collectionName ?? CollectionName)
-            {
-                Filters = filters ?? new List<FirestoreWhereClause>(Filters),
-                OrFilterGroups = orFilterGroups ?? new List<FirestoreOrFilterGroup>(OrFilterGroups),
-                OrderByClauses = orderByClauses ?? new List<FirestoreOrderByClause>(OrderByClauses),
-                Limit = limit ?? Limit,
-                LimitExpression = limitExpression ?? LimitExpression,
-                LimitToLast = limitToLast ?? LimitToLast,
-                LimitToLastExpression = limitToLastExpression ?? LimitToLastExpression,
-                Skip = skip ?? Skip,
-                SkipExpression = skipExpression ?? SkipExpression,
-                StartAfterCursor = startAfterCursor ?? StartAfterCursor,
-                IdValueExpression = idValueExpression ?? IdValueExpression,
-                PendingIncludes = pendingIncludes ?? new List<IReadOnlyNavigation>(PendingIncludes),
-                PendingIncludesWithFilters = pendingIncludesWithFilters ?? new List<IncludeInfo>(PendingIncludesWithFilters),
-                ComplexTypeIncludes = complexTypeIncludes ?? new List<LambdaExpression>(ComplexTypeIncludes),
-                AggregationType = aggregationType ?? AggregationType,
-                AggregationPropertyName = aggregationPropertyName ?? AggregationPropertyName,
-                AggregationResultType = aggregationResultType ?? AggregationResultType,
-                Projection = projection ?? Projection
-            };
-        }
+        #endregion
+
+        #region Constructor
 
         /// <summary>
-        /// Establece el límite de documentos desde el final (TakeLast).
-        /// Requiere OrderBy para funcionar correctamente.
+        /// Constructor con solo los parámetros obligatorios
         /// </summary>
-        public FirestoreQueryExpression WithLimitToLast(int limitToLast)
+        public FirestoreQueryExpression(IEntityType entityType, string collectionName)
         {
-            return Update(limitToLast: limitToLast);
+            EntityType = entityType ?? throw new ArgumentNullException(nameof(entityType));
+            CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
         }
 
-        /// <summary>
-        /// Establece la expresión del límite desde el final (TakeLast parametrizado).
-        /// </summary>
-        public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
-        {
-            return Update(limitToLastExpression: limitToLastExpression);
-        }
+        #endregion
 
-        /// <summary>
-        /// Configura la proyección Select de la query.
-        /// </summary>
-        /// <param name="projection">Definición estructurada de la proyección.</param>
-        /// <returns>Nueva instancia con la proyección configurada.</returns>
-        public FirestoreQueryExpression WithProjection(FirestoreProjectionDefinition projection)
-        {
-            return Update(projection: projection);
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Count
-        /// </summary>
-        public FirestoreQueryExpression WithCount()
-        {
-            return Update(aggregationType: FirestoreAggregationType.Count, aggregationResultType: typeof(int));
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Any
-        /// </summary>
-        public FirestoreQueryExpression WithAny()
-        {
-            return Update(aggregationType: FirestoreAggregationType.Any, aggregationResultType: typeof(bool));
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Sum
-        /// </summary>
-        public FirestoreQueryExpression WithSum(string propertyName, Type resultType)
-        {
-            return Update(
-                aggregationType: FirestoreAggregationType.Sum,
-                aggregationPropertyName: propertyName,
-                aggregationResultType: resultType);
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Average
-        /// </summary>
-        public FirestoreQueryExpression WithAverage(string propertyName, Type resultType)
-        {
-            return Update(
-                aggregationType: FirestoreAggregationType.Average,
-                aggregationPropertyName: propertyName,
-                aggregationResultType: resultType);
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Min
-        /// </summary>
-        public FirestoreQueryExpression WithMin(string propertyName, Type resultType)
-        {
-            return Update(
-                aggregationType: FirestoreAggregationType.Min,
-                aggregationPropertyName: propertyName,
-                aggregationResultType: resultType);
-        }
-
-        /// <summary>
-        /// Configura la query para una agregación Max
-        /// </summary>
-        public FirestoreQueryExpression WithMax(string propertyName, Type resultType)
-        {
-            return Update(
-                aggregationType: FirestoreAggregationType.Max,
-                aggregationPropertyName: propertyName,
-                aggregationResultType: resultType);
-        }
+        #region Filter Commands
 
         /// <summary>
         /// Agrega un filtro WHERE a la query
         /// </summary>
         public FirestoreQueryExpression AddFilter(FirestoreWhereClause filter)
         {
-            var newFilters = new List<FirestoreWhereClause>(Filters) { filter };
-            return Update(filters: newFilters);
+            _filters.Add(filter);
+            return this;
         }
 
         /// <summary>
@@ -340,9 +213,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression AddFilters(IEnumerable<FirestoreWhereClause> filters)
         {
-            var newFilters = new List<FirestoreWhereClause>(Filters);
-            newFilters.AddRange(filters);
-            return Update(filters: newFilters);
+            _filters.AddRange(filters);
+            return this;
         }
 
         /// <summary>
@@ -350,53 +222,89 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression AddOrFilterGroup(FirestoreOrFilterGroup orGroup)
         {
-            var newOrGroups = new List<FirestoreOrFilterGroup>(OrFilterGroups) { orGroup };
-            return Update(orFilterGroups: newOrGroups);
+            _orFilterGroups.Add(orGroup);
+            return this;
+        }
+
+        #endregion
+
+        #region OrderBy Commands
+
+        /// <summary>
+        /// Reemplaza todos los ordenamientos con uno nuevo (para OrderBy/OrderByDescending)
+        /// </summary>
+        public FirestoreQueryExpression SetOrderBy(FirestoreOrderByClause orderBy)
+        {
+            _orderByClauses.Clear();
+            _orderByClauses.Add(orderBy);
+            return this;
         }
 
         /// <summary>
-        /// Agrega un ordenamiento a la query
+        /// Agrega un ordenamiento a los existentes (para ThenBy/ThenByDescending)
         /// </summary>
         public FirestoreQueryExpression AddOrderBy(FirestoreOrderByClause orderBy)
         {
-            var newOrderBys = new List<FirestoreOrderByClause>(OrderByClauses) { orderBy };
-            return Update(orderByClauses: newOrderBys);
+            _orderByClauses.Add(orderBy);
+            return this;
         }
+
+        #endregion
+
+        #region Limit/Skip Commands
 
         /// <summary>
         /// Establece el límite de documentos a retornar
         /// </summary>
         public FirestoreQueryExpression WithLimit(int limit)
         {
-            return Update(limit: limit);
+            Limit = limit;
+            return this;
         }
 
         /// <summary>
         /// Establece la expresión del límite (para parámetros de EF Core).
-        /// Se evalúa en tiempo de ejecución.
         /// </summary>
         public FirestoreQueryExpression WithLimitExpression(Expression limitExpression)
         {
-            return Update(limitExpression: limitExpression);
+            LimitExpression = limitExpression;
+            return this;
+        }
+
+        /// <summary>
+        /// Establece el límite de documentos desde el final (TakeLast).
+        /// </summary>
+        public FirestoreQueryExpression WithLimitToLast(int limitToLast)
+        {
+            LimitToLast = limitToLast;
+            return this;
+        }
+
+        /// <summary>
+        /// Establece la expresión del límite desde el final (TakeLast parametrizado).
+        /// </summary>
+        public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
+        {
+            LimitToLastExpression = limitToLastExpression;
+            return this;
         }
 
         /// <summary>
         /// Establece el número de documentos a saltar.
-        /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
-        /// en memoria, lo cual es ineficiente para grandes conjuntos de datos.
         /// </summary>
         public FirestoreQueryExpression WithSkip(int skip)
         {
-            return Update(skip: skip);
+            Skip = skip;
+            return this;
         }
 
         /// <summary>
         /// Establece la expresión del skip (para parámetros de EF Core).
-        /// Se evalúa en tiempo de ejecución.
         /// </summary>
         public FirestoreQueryExpression WithSkipExpression(Expression skipExpression)
         {
-            return Update(skipExpression: skipExpression);
+            SkipExpression = skipExpression;
+            return this;
         }
 
         /// <summary>
@@ -404,24 +312,158 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithStartAfter(FirestoreCursor cursor)
         {
-            return Update(startAfterCursor: cursor);
+            StartAfterCursor = cursor;
+            return this;
         }
+
+        #endregion
+
+        #region Id Query Commands
+
+        /// <summary>
+        /// Establece la expresión del ID para queries por documento único.
+        /// </summary>
+        public FirestoreQueryExpression WithIdValueExpression(Expression idExpression)
+        {
+            IdValueExpression = idExpression;
+            return this;
+        }
+
+        /// <summary>
+        /// Limpia la expresión del ID y establece filtros iniciales.
+        /// Usado para convertir una IdOnlyQuery a una query normal con filtros.
+        /// </summary>
+        public FirestoreQueryExpression ClearIdValueExpressionWithFilters(IEnumerable<FirestoreWhereClause> initialFilters)
+        {
+            IdValueExpression = null;
+            _filters.Clear();
+            _filters.AddRange(initialFilters);
+            return this;
+        }
+
+        #endregion
+
+        #region Include Commands
 
         /// <summary>
         /// Agrega una navegación a cargar con Include (evita duplicados)
         /// </summary>
         public FirestoreQueryExpression AddInclude(IReadOnlyNavigation navigation)
         {
-            // Evitar duplicados - verificar si ya existe la misma navegación
-            if (PendingIncludes.Any(n => n.Name == navigation.Name &&
-                                         n.DeclaringEntityType == navigation.DeclaringEntityType))
+            // Evitar duplicados
+            if (_pendingIncludes.Any(n => n.Name == navigation.Name &&
+                                          n.DeclaringEntityType == navigation.DeclaringEntityType))
             {
-                return this; // Ya existe, no agregar duplicado
+                return this;
             }
 
-            var newIncludes = new List<IReadOnlyNavigation>(PendingIncludes) { navigation };
-            return Update(pendingIncludes: newIncludes);
+            _pendingIncludes.Add(navigation);
+            return this;
         }
+
+        /// <summary>
+        /// Agrega un Include con información de filtros
+        /// </summary>
+        public FirestoreQueryExpression AddIncludeWithFilters(IncludeInfo includeInfo)
+        {
+            _pendingIncludesWithFilters.Add(includeInfo);
+            return this;
+        }
+
+        /// <summary>
+        /// Establece los Includes de ComplexTypes.
+        /// </summary>
+        public FirestoreQueryExpression WithComplexTypeIncludes(IEnumerable<LambdaExpression> includes)
+        {
+            _complexTypeIncludes.Clear();
+            _complexTypeIncludes.AddRange(includes);
+            return this;
+        }
+
+        #endregion
+
+        #region Aggregation Commands
+
+        /// <summary>
+        /// Configura la query para una agregación Count
+        /// </summary>
+        public FirestoreQueryExpression WithCount()
+        {
+            AggregationType = FirestoreAggregationType.Count;
+            AggregationResultType = typeof(int);
+            return this;
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Any
+        /// </summary>
+        public FirestoreQueryExpression WithAny()
+        {
+            AggregationType = FirestoreAggregationType.Any;
+            AggregationResultType = typeof(bool);
+            return this;
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Sum
+        /// </summary>
+        public FirestoreQueryExpression WithSum(string propertyName, Type resultType)
+        {
+            AggregationType = FirestoreAggregationType.Sum;
+            AggregationPropertyName = propertyName;
+            AggregationResultType = resultType;
+            return this;
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Average
+        /// </summary>
+        public FirestoreQueryExpression WithAverage(string propertyName, Type resultType)
+        {
+            AggregationType = FirestoreAggregationType.Average;
+            AggregationPropertyName = propertyName;
+            AggregationResultType = resultType;
+            return this;
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Min
+        /// </summary>
+        public FirestoreQueryExpression WithMin(string propertyName, Type resultType)
+        {
+            AggregationType = FirestoreAggregationType.Min;
+            AggregationPropertyName = propertyName;
+            AggregationResultType = resultType;
+            return this;
+        }
+
+        /// <summary>
+        /// Configura la query para una agregación Max
+        /// </summary>
+        public FirestoreQueryExpression WithMax(string propertyName, Type resultType)
+        {
+            AggregationType = FirestoreAggregationType.Max;
+            AggregationPropertyName = propertyName;
+            AggregationResultType = resultType;
+            return this;
+        }
+
+        #endregion
+
+        #region Projection Commands
+
+        /// <summary>
+        /// Configura la proyección Select de la query.
+        /// </summary>
+        public FirestoreQueryExpression WithProjection(FirestoreProjectionDefinition projection)
+        {
+            Projection = projection;
+            return this;
+        }
+
+        #endregion
+
+        #region ToString
 
         /// <summary>
         /// Representación en string para debugging
@@ -455,12 +497,12 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
             return string.Join(" | ", parts);
         }
+
+        #endregion
     }
 
     /// <summary>
     /// Special expression that represents the upper bound for a StartsWith query.
-    /// When evaluated, it takes the prefix string and appends '\uffff' to create
-    /// the upper bound for a range query that simulates StartsWith.
     /// </summary>
     public class StartsWithUpperBoundExpression : Expression
     {

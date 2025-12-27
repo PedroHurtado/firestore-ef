@@ -85,9 +85,7 @@ public class FirestoreQueryExpressionTest
     public void IsIdOnlyQuery_Returns_True_When_IdValueExpression_Is_Set()
     {
         var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
-        {
-            IdValueExpression = Expression.Constant("doc-123")
-        };
+            .WithIdValueExpression(Expression.Constant("doc-123"));
 
         query.IsIdOnlyQuery.Should().BeTrue();
     }
@@ -97,16 +95,15 @@ public class FirestoreQueryExpressionTest
     #region AddFilter Tests
 
     [Fact]
-    public void AddFilter_Creates_New_Query_With_Filter()
+    public void AddFilter_Adds_Filter_To_Query()
     {
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
         var filter = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, Expression.Constant("Test"));
 
-        var updated = original.AddFilter(filter);
+        query.AddFilter(filter);
 
-        updated.Filters.Should().HaveCount(1);
-        updated.Filters[0].Should().Be(filter);
-        original.Filters.Should().BeEmpty("original should be unchanged");
+        query.Filters.Should().HaveCount(1);
+        query.Filters[0].Should().Be(filter);
     }
 
     [Fact]
@@ -129,16 +126,15 @@ public class FirestoreQueryExpressionTest
     #region AddOrderBy Tests
 
     [Fact]
-    public void AddOrderBy_Creates_New_Query_With_OrderBy()
+    public void AddOrderBy_Adds_OrderBy_To_Query()
     {
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
         var orderBy = new FirestoreOrderByClause("Name");
 
-        var updated = original.AddOrderBy(orderBy);
+        query.AddOrderBy(orderBy);
 
-        updated.OrderByClauses.Should().HaveCount(1);
-        updated.OrderByClauses[0].Should().Be(orderBy);
-        original.OrderByClauses.Should().BeEmpty("original should be unchanged");
+        query.OrderByClauses.Should().HaveCount(1);
+        query.OrderByClauses[0].Should().Be(orderBy);
     }
 
     [Fact]
@@ -159,14 +155,13 @@ public class FirestoreQueryExpressionTest
     #region WithLimit Tests
 
     [Fact]
-    public void WithLimit_Creates_New_Query_With_Limit()
+    public void WithLimit_Sets_Limit()
     {
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
 
-        var updated = original.WithLimit(10);
+        query.WithLimit(10);
 
-        updated.Limit.Should().Be(10);
-        original.Limit.Should().BeNull("original should be unchanged");
+        query.Limit.Should().Be(10);
     }
 
     [Fact]
@@ -181,34 +176,31 @@ public class FirestoreQueryExpressionTest
 
     #endregion
 
-    #region Update Tests
+    #region Fluent API Tests
 
     [Fact]
-    public void Update_Creates_Copy_With_New_Values()
+    public void Commands_Return_This_For_Fluent_API()
     {
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
 
-        var updated = original.Update(collectionName: "new_collection", limit: 20);
+        var result = query.WithLimit(20);
 
-        updated.CollectionName.Should().Be("new_collection");
-        updated.Limit.Should().Be(20);
-        original.CollectionName.Should().Be("products");
-        original.Limit.Should().BeNull();
+        result.Should().BeSameAs(query);
     }
 
     [Fact]
-    public void Update_Preserves_Values_When_Null_Passed()
+    public void Chained_Commands_Work_On_Same_Instance()
     {
         var filter = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, Expression.Constant("Test"));
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
+        var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
             .AddFilter(filter)
-            .WithLimit(5);
+            .WithLimit(5)
+            .WithSkip(10);
 
-        var updated = original.Update();
-
-        updated.CollectionName.Should().Be("products");
-        updated.Limit.Should().Be(5);
-        updated.Filters.Should().HaveCount(1);
+        query.CollectionName.Should().Be("products");
+        query.Limit.Should().Be(5);
+        query.Skip.Should().Be(10);
+        query.Filters.Should().HaveCount(1);
     }
 
     #endregion
@@ -286,23 +278,20 @@ public class FirestoreQueryExpressionTest
     {
         var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
         var query = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
-        {
-            Projection = projection
-        };
+            .WithProjection(projection);
 
         query.HasProjection.Should().BeTrue();
     }
 
     [Fact]
-    public void WithProjection_Creates_New_Query_With_Projection()
+    public void WithProjection_Sets_Projection()
     {
         var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
         var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
 
-        var updated = original.WithProjection(projection);
+        original.WithProjection(projection);
 
-        updated.Projection.Should().Be(projection);
-        original.Projection.Should().BeNull("original should be unchanged");
+        original.Projection.Should().Be(projection);
     }
 
     [Fact]
@@ -322,28 +311,15 @@ public class FirestoreQueryExpressionTest
     }
 
     [Fact]
-    public void Update_Preserves_Projection()
+    public void Commands_Preserve_Projection()
     {
         var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
         var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products")
-        {
-            Projection = projection
-        };
+            .WithProjection(projection);
 
-        var updated = original.Update(limit: 5);
+        original.WithLimit(5);
 
-        updated.Projection.Should().Be(projection);
-    }
-
-    [Fact]
-    public void Update_Can_Set_Projection()
-    {
-        var original = new FirestoreQueryExpression(_entityTypeMock.Object, "products");
-        var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
-
-        var updated = original.Update(projection: projection);
-
-        updated.Projection.Should().Be(projection);
+        original.Projection.Should().Be(projection);
     }
 
     #endregion
