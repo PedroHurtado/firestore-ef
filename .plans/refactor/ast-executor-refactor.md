@@ -664,14 +664,26 @@ protected override ShapedQueryExpression? TranslateThenBy(...)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreSkipTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreSkipTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Ejecutar tests de Skip existentes | `Tests/Query/SkipTests.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translator/FirestoreSkipTranslatorTests.cs` |
+| TEST | [x] | Crear tests del feature file | `Tests/Query/Ast/FirestoreQueryExpression_SkipTests.cs` |
+| IMPL | [x] | Implementar translator | `Query/Translators/FirestoreSkipTranslator.cs` |
+| IMPL | [x] | Crear feature file con Record + Commands + TranslateSkip | `Query/Ast/FirestoreQueryExpression_Skip.cs` |
+| INTEGRAR | [x] | Actualizar Visitor con one-liner | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| INTEGRAR | [x] | Mover commands del DTO base al feature file | `Query/Ast/FirestoreQueryExpression.cs` |
+| INTEGRAR | [x] | Eliminar ExtractIntConstant del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| VERIFICAR | [x] | Ejecutar todos los tests | 706 unit + 172 integration |
 
 **Qué traduce:** `Skip`
 
-**Commit:**
+**Patrón MicroDomain aplicado:**
+- Record `TranslateSkipRequest(Source, Count)` agrupa parámetros
+- Commands `WithSkip`, `WithSkipExpression` movidos al feature file
+- `TranslateSkip` estático usa `FirestoreSkipTranslator` para extraer el valor
+- `FirestoreSkipTranslator` hereda de `FirestoreLimitTranslator` (reutiliza `ExtractIntConstant`)
+- Visitor reducido a one-liner
+- `ExtractIntConstant` eliminado del Visitor (ya no se usa)
+
+**Commit:** f4bce71
 
 ---
 
