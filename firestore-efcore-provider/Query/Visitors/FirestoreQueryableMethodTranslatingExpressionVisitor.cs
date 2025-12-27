@@ -660,103 +660,11 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             ShapedQueryExpression source,
             LambdaExpression predicate)
         {
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
+            // Replace runtime parameters before delegating to the Slice
             var parameterReplacer = new RuntimeParameterReplacer(QueryCompilationContext);
             var evaluatedBody = parameterReplacer.Visit(predicate.Body);
 
-            // Preprocess for array patterns (ArrayContains, ArrayContainsAny)
-            // This must happen after parameter replacement but before translation
-            var preprocessedBody = PreprocessArrayContainsPatterns(evaluatedBody);
-
-            var translator = new FirestoreWhereTranslator();
-            var filterResult = translator.Translate(preprocessedBody);
-
-            if (filterResult == null)
-            {
-                return null;
-            }
-
-            // Handle OR groups
-            if (filterResult.IsOrGroup)
-            {
-                if (firestoreQueryExpression.IsIdOnlyQuery)
-                {
-                    throw new InvalidOperationException(
-                        "Cannot add OR filters to an ID-only query.");
-                }
-
-                var newQueryExpression = firestoreQueryExpression.AddOrFilterGroup(filterResult.OrGroup!);
-                return source.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // Handle AND clauses (single or multiple) with possible nested OR groups
-            var clauses = filterResult.AndClauses;
-            var nestedOrGroups = filterResult.NestedOrGroups;
-
-            if (clauses.Count == 0 && nestedOrGroups.Count == 0)
-            {
-                return null;
-            }
-
-            // Check for ID-only queries (optimization: use GetDocumentAsync instead of query)
-            // Only valid when there's a SINGLE Id == clause with NO other filters
-            if (clauses.Count == 1 && clauses[0].PropertyName == "Id")
-            {
-                var whereClause = clauses[0];
-                if (whereClause.Operator != FirestoreOperator.EqualTo)
-                {
-                    throw new InvalidOperationException(
-                        $"Firestore ID queries only support the '==' operator.");
-                }
-
-                // If there are already other filters, treat Id as a normal filter
-                // (executor will use FieldPath.DocumentId)
-                if (firestoreQueryExpression.Filters.Count > 0 || firestoreQueryExpression.OrFilterGroups.Count > 0)
-                {
-                    var normalQueryExpression = firestoreQueryExpression.AddFilter(whereClause);
-                    return source.UpdateQueryExpression(normalQueryExpression);
-                }
-
-                if (firestoreQueryExpression.IsIdOnlyQuery)
-                {
-                    throw new InvalidOperationException(
-                        "Cannot apply multiple ID filters.");
-                }
-
-                // Create IdOnlyQuery (optimization for single document fetch)
-                var newQueryExpression = firestoreQueryExpression.WithIdValueExpression(whereClause.ValueExpression);
-
-                return source.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // If we already have an IdOnlyQuery and need to add more filters,
-            // convert it to a normal query with FieldPath.DocumentId
-            if (firestoreQueryExpression.IsIdOnlyQuery)
-            {
-                // Create Id clause from the existing IdValueExpression
-                var idClause = new FirestoreWhereClause(
-                    "Id", FirestoreOperator.EqualTo, firestoreQueryExpression.IdValueExpression!, null);
-
-                // Create new query without IdValueExpression (will use FieldPath.DocumentId)
-                // Clear IdValueExpression by setting filters with the id clause
-                var convertedQuery = firestoreQueryExpression.ClearIdValueExpressionWithFilters(new[] { idClause });
-
-                // Add the new clauses
-                var convertedWithFilters = convertedQuery.AddFilters(clauses);
-                return source.UpdateQueryExpression(convertedWithFilters);
-            }
-
-            // Add all AND clauses
-            var resultQuery = firestoreQueryExpression.AddFilters(clauses);
-
-            // Add nested OR groups (for patterns like A && (B || C))
-            foreach (var orGroup in nestedOrGroups)
-            {
-                resultQuery = resultQuery.AddOrFilterGroup(orGroup);
-            }
-
-            return source.UpdateQueryExpression(resultQuery);
+            return FirestoreQueryExpression.TranslateWhere(new(source, evaluatedBody));
         }
 
         #endregion
