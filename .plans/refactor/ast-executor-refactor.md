@@ -656,7 +656,7 @@ protected override ShapedQueryExpression? TranslateThenBy(...)
 - `FirestoreLimitTranslator` tiene su propia implementación
 - En 1.3 `FirestoreSkipTranslator` heredará de `FirestoreLimitTranslator` para reutilizar la lógica
 
-**Commit:** 7f267bb
+**Commit:** 7b921fc
 
 ---
 
