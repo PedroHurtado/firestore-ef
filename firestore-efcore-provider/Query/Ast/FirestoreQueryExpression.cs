@@ -233,26 +233,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
         // OrderBy Commands: see FirestoreQueryExpression_OrderBy.cs
         // Limit Commands: see FirestoreQueryExpression_Limit.cs
+        // Skip Commands: see FirestoreQueryExpression_Skip.cs
 
-        #region Skip Commands
-
-        /// <summary>
-        /// Establece el número de documentos a saltar.
-        /// </summary>
-        public FirestoreQueryExpression WithSkip(int skip)
-        {
-            Skip = skip;
-            return this;
-        }
-
-        /// <summary>
-        /// Establece la expresión del skip (para parámetros de EF Core).
-        /// </summary>
-        public FirestoreQueryExpression WithSkipExpression(Expression skipExpression)
-        {
-            SkipExpression = skipExpression;
-            return this;
-        }
+        #region Cursor Commands
 
         /// <summary>
         /// Establece el cursor desde el cual empezar (para paginación)
