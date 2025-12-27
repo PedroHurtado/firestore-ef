@@ -963,6 +963,126 @@ Solo después de que TODOS los Translators estén funcionando.
 
 ---
 
+### 5.4 Unificar métodos duplicados de extracción de propiedades
+
+| Paso | Estado | Acción | Archivo |
+|------|--------|--------|---------|
+| IMPL | [ ] | Mover `ExtractPropertyNameFromEFPropertyChain` a clase helper | `Query/Helpers/PropertyExtractionHelper.cs` |
+| IMPL | [ ] | Mover `BuildPropertyPath` a clase helper | `Query/Helpers/PropertyExtractionHelper.cs` |
+| IMPL | [ ] | Eliminar duplicado del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| IMPL | [ ] | Eliminar duplicado del Translator | `Query/Translators/FirestoreWhereTranslator.cs` |
+| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+
+**Análisis de duplicación (detectado en sesión e820da7):**
+
+| Método | Ubicación 1 | Ubicación 2 | Propósito |
+|--------|-------------|-------------|-----------|
+| `ExtractPropertyNameFromEFPropertyChain` | Visitor línea ~312 | Translator línea ~499 | Extrae nombre de propiedad de `EF.Property<T>().AsQueryable()` |
+| `BuildPropertyPath` | Visitor línea ~425 | Translator línea ~351 | Construye path de propiedades anidadas (ej: `"Direccion.Ciudad"`) |
+
+**Código duplicado - ExtractPropertyNameFromEFPropertyChain:**
+
+```csharp
+// Visitor (PreprocessArrayContainsPatterns)
+private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression)
+{
+    if (expression is MethodCallExpression methodCall)
+    {
+        if (methodCall.Method.Name == "AsQueryable" && methodCall.Arguments.Count == 1)
+            return ExtractPropertyNameFromEFPropertyChain(methodCall.Arguments[0]);
+
+        if (methodCall.Method.Name == "Property" && methodCall.Method.DeclaringType?.Name == "EF")
+        {
+            if (methodCall.Arguments.Count >= 2 && methodCall.Arguments[1] is ConstantExpression constant)
+                return constant.Value as string;
+        }
+    }
+    return null;
+}
+
+// Translator (TranslateMethodCallExpression) - IDÉNTICO
+private string? ExtractPropertyNameFromEFPropertyChain(Expression? expression) { /* mismo código */ }
+```
+
+**Código duplicado - BuildPropertyPath:**
+
+```csharp
+// Visitor (ExtractPropertyNameFromKeySelector)
+private string BuildPropertyPath(MemberExpression memberExpr)
+{
+    var parts = new List<string>();
+    Expression? current = memberExpr;
+    while (current is MemberExpression member)
+    {
+        parts.Add(member.Member.Name);
+        current = member.Expression;
+    }
+    parts.Reverse();
+    return string.Join(".", parts);
+}
+
+// Translator (TranslateBinaryExpression) - IDÉNTICO
+private string BuildPropertyPath(MemberExpression memberExpr) { /* mismo código */ }
+```
+
+**Solución propuesta:**
+
+```csharp
+// Query/Helpers/PropertyExtractionHelper.cs
+public static class PropertyExtractionHelper
+{
+    /// <summary>
+    /// Extrae nombre de propiedad de cadenas EF.Property().AsQueryable()
+    /// </summary>
+    public static string? ExtractPropertyNameFromEFPropertyChain(Expression? expression) { ... }
+
+    /// <summary>
+    /// Construye path completo de propiedades anidadas (ComplexTypes)
+    /// Ej: e.Direccion.Ciudad → "Direccion.Ciudad"
+    /// </summary>
+    public static string BuildPropertyPath(MemberExpression memberExpr) { ... }
+}
+```
+
+**Commit:**
+
+---
+
+### 5.5 Análisis de QueryContextParameterReplacer vs RuntimeParameterReplacer
+
+**NO son duplicados** - tienen propósitos opuestos en el pipeline:
+
+| Clase | Ubicación | Momento | Propósito |
+|-------|-----------|---------|-----------|
+| `RuntimeParameterReplacer` | `Visitors/RuntimeParameterReplacer.cs` | Compilación | Transforma `__p_X` → `QueryContext.ParameterValues["__p_X"]` (construye expresión) |
+| `QueryContextParameterReplacer` | `Ast/FirestoreWhereClause.cs` línea 100 | Ejecución | Evalúa `QueryContext.ParameterValues["__p_X"]` → valor real |
+
+**Flujo:**
+
+```
+COMPILACIÓN (se cachea):
+  x.Name == nombre
+      ↓ RuntimeParameterReplacer
+  x.Name == QueryContext.ParameterValues["__p_0"]
+
+EJECUCIÓN (cada request):
+  QueryContext.ParameterValues["__p_0"]
+      ↓ QueryContextParameterReplacer (en EvaluateValue)
+  "Juan"
+```
+
+**Problema arquitectónico:**
+- `EvaluateValue()` y `QueryContextParameterReplacer` están en un DTO (`FirestoreWhereClause`)
+- Esto viola SRP: un DTO no debería tener lógica de evaluación
+
+**Solución (ya documentada en 3.1 y 5.1):**
+- Mover `EvaluateValue()` al `FirestoreAstResolver` (Fase 3.1)
+- Eliminar `QueryContextParameterReplacer` de `FirestoreWhereClause` (Fase 5.1)
+
+**Nota:** `RuntimeParameterReplacer` permanece en el Visitor porque opera en tiempo de compilación del query.
+
+---
+
 ## Resumen de Orden
 
 ```
@@ -987,9 +1107,11 @@ FASE 4: Refactorizar (2 tareas)
   4.1 Cambiar firma del Executor
   4.2 Refactorizar FirestoreQueryContext
 
-FASE 5: Limpieza (2 tareas)
-  5.1 Limpiar DTOs del AST
-  5.2 Limpiar código duplicado
+FASE 5: Limpieza (4 tareas)
+  5.1 Limpiar DTOs del AST (EvaluateValue, QueryContextParameterReplacer)
+  5.2 Limpiar código duplicado (CompileFilterPredicate, métodos evaluación)
+  5.3 Centralizar IsVowel/Pluralize
+  5.4 Unificar ExtractPropertyNameFromEFPropertyChain y BuildPropertyPath
 ```
 
 ---
