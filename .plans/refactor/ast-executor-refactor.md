@@ -820,12 +820,51 @@ protected override ShapedQueryExpression? TranslateWhere(...)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreIncludeTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreIncludeTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Ejecutar tests de Include existentes | `Tests/Query/IncludeTests.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreIncludeTranslatorTests.cs` |
+| IMPL | [x] | Implementar translator | `Query/Translators/FirestoreIncludeTranslator.cs` |
+| INTEGRAR | [x] | Visitor delega a translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| INTEGRAR | [x] | Crear feature file Include | `Query/Ast/FirestoreQueryExpression_Include.cs` |
+| REFACTOR | [x] | Eliminar IReadOnlyNavigation de IncludeInfo | `Query/Ast/IncludeInfo.cs` |
+| REFACTOR | [x] | Unificar PendingIncludes (eliminar lista separada) | `Query/Ast/FirestoreQueryExpression.cs` |
+| FIX | [x] | Manejar OrGroup en ProcessWhere | `Query/Translators/FirestoreIncludeTranslator.cs` |
+| VERIFICAR | [x] | Tests unitarios del translator | 12 tests pasan |
+| VERIFICAR | [ ] | Tests de integración de Include | Pendiente |
 
-**Qué traduce:** `Include`, `ThenInclude`, Filtered Includes
+**Qué traduce:** `Include`, `ThenInclude`, Filtered Includes (Where, OrderBy, Take, Skip)
+
+**Cambios realizados:**
+
+1. **IncludeInfo sin tipos EF Core:**
+   - Eliminado `IReadOnlyNavigation` del constructor
+   - Usa solo `string NavigationName` + `bool IsCollection`
+   - Compatible con cacheo de queries
+
+2. **Lista unificada de Includes:**
+   - Eliminada `PendingIncludesWithFilters` separada
+   - Todo en `PendingIncludes` como `List<IncludeInfo>`
+
+3. **Translator recibe IncludeExpression:**
+   - `Translate(IncludeExpression)` → `List<IncludeInfo>`
+   - Maneja ThenInclude (cadenas anidadas)
+   - Extrae operaciones: Where, OrderBy, Take, Skip
+
+4. **ProcessWhere maneja todos los casos de FilterResult:**
+   - `filterResult.OrGroup` (OR puro top-level)
+   - `filterResult.AndClauses` (AND clauses)
+   - `filterResult.NestedOrGroups` (OR dentro de AND)
+
+**Problema detectado - Lógica dispersa:**
+
+La lógica de "cómo aplicar FirestoreFilterResult" está duplicada:
+- `FirestoreQueryExpression_Where.TranslateWhere` (líneas 46-57) - lo hace bien
+- `FirestoreIncludeTranslator.ProcessWhere` (líneas 195-213) - faltaba OrGroup
+
+Ambos deberían simplemente almacenar `FirestoreFilterResult` directamente en el AST.
+Ver documento `09-responsabilidades-translator-slice-executor.md` para el plan de corrección.
+
+**Pendiente:**
+- Tests de integración para verificar que filtered includes funcionan en runtime
+- Refactor mayor: usar `FirestoreFilterResult` directamente en `IncludeInfo` y `FirestoreQueryExpression`
 
 **Commit:**
 

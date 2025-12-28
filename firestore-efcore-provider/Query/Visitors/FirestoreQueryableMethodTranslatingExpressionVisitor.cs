@@ -1,13 +1,10 @@
-using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Preprocessing;
-using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -176,207 +173,22 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             ShapedQueryExpression source,
             LambdaExpression selector)
         {
-            // Procesar includes - estos NO son proyecciones reales
-            if (selector.Body is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
-            {
-                var includeVisitor = new IncludeExtractionVisitor();
-                includeVisitor.Visit(includeExpression);
+            // Include expressions - delegate to MicroDomain (one-liner)
+            if (selector.Body is IncludeExpression includeExpression)
+                return FirestoreQueryExpression.TranslateInclude(new(source, includeExpression));
 
-                var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-
-                foreach (var navigation in includeVisitor.DetectedNavigations)
-                {
-                    // AddInclude ya maneja duplicados internamente
-                    firestoreQueryExpression.AddInclude(navigation);
-                }
-
-                // Agregar IncludeInfo con filtros extraídos
-                foreach (var includeInfo in includeVisitor.DetectedIncludes)
-                {
-                    // Evitar duplicados usando EffectiveNavigationName
-                    if (!firestoreQueryExpression.PendingIncludesWithFilters.Any(i =>
-                        i.EffectiveNavigationName == includeInfo.EffectiveNavigationName))
-                    {
-                        firestoreQueryExpression.AddIncludeWithFilters(includeInfo);
-                    }
-                }
-
-                // Include no es una proyección real, retornar source sin modificar proyección
-                return source;
-            }
-
-            // Proyección de identidad (x => x)
+            // Identity projection (x => x)
             if (selector.Body == selector.Parameters[0])
-            {
                 return source;
-            }
 
-            // Proyección con conversión de tipo
+            // Type conversion projection
             if (selector.Body is UnaryExpression unary &&
                 unary.NodeType == ExpressionType.Convert &&
                 unary.Operand == selector.Parameters[0])
-            {
                 return source;
-            }
 
-            // TODO: Proyecciones serán implementadas en Fase 3 con FirestoreProjectionTranslator
-            // Por ahora retornamos source sin modificar - los tests de proyección están en Skip
+            // TODO: Real projections will be implemented in Phase 3 with FirestoreProjectionTranslator
             return source;
-        }
-
-        /// <summary>
-        /// Visitor that detects access to subcollection navigations in an expression.
-        /// EF Core transforms c.Pedidos in different ways:
-        /// 1. Simple access: MaterializeCollectionNavigationExpression
-        /// 2. With LINQ operations: EntityQueryRootExpression with correlated Where
-        /// </summary>
-        private class SubcollectionAccessDetector : ExpressionVisitor
-        {
-            private readonly IEntityType _rootEntityType;
-            private readonly List<IReadOnlyNavigation> _detectedNavigations = new();
-            private readonly IModel _model;
-
-            public SubcollectionAccessDetector(IEntityType rootEntityType)
-            {
-                _rootEntityType = rootEntityType;
-                _model = rootEntityType.Model;
-            }
-
-            public bool HasSubcollectionAccess => _detectedNavigations.Count > 0;
-            public IReadOnlyList<IReadOnlyNavigation> DetectedNavigations => _detectedNavigations;
-
-            protected override Expression VisitExtension(Expression node)
-            {
-                var typeName = node.GetType().Name;
-
-                // Pattern 1: EF Core transforms c.Pedidos into MaterializeCollectionNavigationExpression
-                if (typeName == "MaterializeCollectionNavigationExpression")
-                {
-                    var navigationProperty = node.GetType().GetProperty("Navigation");
-                    if (navigationProperty != null)
-                    {
-                        var navigation = navigationProperty.GetValue(node) as IReadOnlyNavigation;
-                        if (navigation != null && navigation.IsCollection)
-                        {
-                            AddNavigationIfNotExists(navigation);
-                        }
-                    }
-                }
-
-                // Pattern 2: EF Core transforms c.Pedidos.Where/Select/etc into EntityQueryRootExpression
-                // with a correlated subquery. Detect by checking if it's a query on a related entity type.
-                if (typeName == "EntityQueryRootExpression")
-                {
-                    var entityTypeProperty = node.GetType().GetProperty("EntityType");
-                    if (entityTypeProperty != null)
-                    {
-                        var queryEntityType = entityTypeProperty.GetValue(node) as IEntityType;
-                        if (queryEntityType != null)
-                        {
-                            // Check if this entity type is a navigation target from the root entity
-                            foreach (var navigation in _rootEntityType.GetNavigations())
-                            {
-                                if (navigation.IsCollection &&
-                                    navigation.TargetEntityType == queryEntityType)
-                                {
-                                    AddNavigationIfNotExists(navigation);
-                                }
-                            }
-
-                            // Also check if this is a nested navigation (level 2+)
-                            // by checking all already detected navigations' target types
-                            foreach (var detectedNav in _detectedNavigations.ToList())
-                            {
-                                foreach (var nestedNav in detectedNav.TargetEntityType.GetNavigations())
-                                {
-                                    if (nestedNav.IsCollection &&
-                                        nestedNav.TargetEntityType == queryEntityType)
-                                    {
-                                        AddNavigationIfNotExists(nestedNav);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return base.VisitExtension(node);
-            }
-
-            protected override Expression VisitMethodCall(MethodCallExpression node)
-            {
-                // LINQ methods on subcollections - visit arguments recursively
-                return base.VisitMethodCall(node);
-            }
-
-            protected override Expression VisitMember(MemberExpression node)
-            {
-                // Direct member access (before EF Core transformation)
-                if (node.Expression is ParameterExpression)
-                {
-                    var navigation = _rootEntityType.FindNavigation(node.Member.Name);
-                    if (navigation != null && navigation.IsCollection)
-                    {
-                        AddNavigationIfNotExists(navigation);
-                    }
-                }
-
-                return base.VisitMember(node);
-            }
-
-            private void AddNavigationIfNotExists(IReadOnlyNavigation navigation)
-            {
-                if (!_detectedNavigations.Any(n =>
-                    n.Name == navigation.Name &&
-                    n.DeclaringEntityType == navigation.DeclaringEntityType))
-                {
-                    _detectedNavigations.Add(navigation);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Checks if an expression contains EF Core internal expressions that cannot be compiled directly.
-        /// </summary>
-        private bool ContainsNonCompilableExpressions(Expression expression)
-        {
-            // Check for EF Core internal types that indicate this is not a user projection
-            if (expression is Microsoft.EntityFrameworkCore.Query.StructuralTypeShaperExpression)
-                return true;
-
-            if (expression is Microsoft.EntityFrameworkCore.Query.ProjectionBindingExpression)
-                return true;
-
-            // Recursively check children
-            switch (expression)
-            {
-                case UnaryExpression unary:
-                    return ContainsNonCompilableExpressions(unary.Operand);
-
-                case BinaryExpression binary:
-                    return ContainsNonCompilableExpressions(binary.Left) ||
-                           ContainsNonCompilableExpressions(binary.Right);
-
-                case NewExpression newExpr:
-                    return newExpr.Arguments.Any(ContainsNonCompilableExpressions);
-
-                case MemberInitExpression memberInit:
-                    return ContainsNonCompilableExpressions(memberInit.NewExpression) ||
-                           memberInit.Bindings.OfType<MemberAssignment>()
-                               .Any(b => ContainsNonCompilableExpressions(b.Expression));
-
-                case MethodCallExpression methodCall:
-                    return (methodCall.Object != null && ContainsNonCompilableExpressions(methodCall.Object)) ||
-                           methodCall.Arguments.Any(ContainsNonCompilableExpressions);
-
-                case ConditionalExpression conditional:
-                    return ContainsNonCompilableExpressions(conditional.Test) ||
-                           ContainsNonCompilableExpressions(conditional.IfTrue) ||
-                           ContainsNonCompilableExpressions(conditional.IfFalse);
-
-                default:
-                    return false;
-            }
         }
 
         protected override ShapedQueryExpression? TranslateWhere(
@@ -485,7 +297,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Si encontramos una navegación, agregarla a PendingIncludes
             if (navigation != null)
             {
-                var newQueryExpression = outerQueryExpression.AddInclude(navigation);
+                var newQueryExpression = outerQueryExpression.AddInclude(navigation.Name, navigation.IsCollection);
                 return outer.UpdateQueryExpression(newQueryExpression);
             }
 
@@ -498,7 +310,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             {
                 if (nav.TargetEntityType == innerEntityType)
                 {
-                    var newQueryExpression = outerQueryExpression.AddInclude(nav);
+                    var newQueryExpression = outerQueryExpression.AddInclude(nav.Name, nav.IsCollection);
                     return outer.UpdateQueryExpression(newQueryExpression);
                 }
             }

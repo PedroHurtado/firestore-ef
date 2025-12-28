@@ -47,49 +47,15 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     new List<LambdaExpression>(complexTypeIncludes));
             }
 
-            // Copy Filtered Includes from FirestoreQueryCompilationContext to FirestoreQueryExpression
-            var filteredIncludes = _firestoreContext.FilteredIncludes;
-            if (filteredIncludes.Count > 0)
-            {
-                foreach (var kvp in filteredIncludes)
-                {
-                    var navigationName = kvp.Key;
-                    var filterInfo = kvp.Value;
-
-                    // Find corresponding include in PendingIncludesWithFilters
-                    var existingInclude = firestoreQueryExpression.PendingIncludesWithFilters
-                        .FirstOrDefault(i => i.EffectiveNavigationName == navigationName);
-
-                    if (existingInclude != null)
-                    {
-                        existingInclude.FilterExpression = filterInfo.FilterExpression;
-                        foreach (var orderBy in filterInfo.OrderByExpressions)
-                            existingInclude.OrderByExpressions.Add(orderBy);
-                        existingInclude.Take = filterInfo.Take;
-                        existingInclude.Skip = filterInfo.Skip;
-                    }
-                    else
-                    {
-                        var nav = firestoreQueryExpression.PendingIncludes.FirstOrDefault(n => n.Name == navigationName);
-                        if (nav != null)
-                        {
-                            var newIncludeInfo = new IncludeInfo(nav)
-                            {
-                                FilterExpression = filterInfo.FilterExpression,
-                                Take = filterInfo.Take,
-                                Skip = filterInfo.Skip
-                            };
-                            foreach (var orderBy in filterInfo.OrderByExpressions)
-                                newIncludeInfo.OrderByExpressions.Add(orderBy);
-                            firestoreQueryExpression.AddIncludeWithFilters(newIncludeInfo);
-                        }
-                        else
-                        {
-                            firestoreQueryExpression.AddIncludeWithFilters(filterInfo);
-                        }
-                    }
-                }
-            }
+            // NOTE: Filtered Includes are now translated directly in
+            // FirestoreQueryableMethodTranslatingExpressionVisitor.TranslateSelect
+            // using FirestoreIncludeTranslator. The translation produces IncludeInfo with:
+            // - FirestoreWhereClause (filters)
+            // - FirestoreOrderByClause (ordering)
+            // - Take/Skip values or expressions
+            //
+            // This data is already in firestoreQueryExpression.PendingIncludesWithFilters
+            // and will be used by the Executor.
 
             // Handle aggregation queries differently
             if (firestoreQueryExpression.IsAggregation)

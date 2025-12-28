@@ -1,68 +1,80 @@
 using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Translators;
-using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Query;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
-namespace Firestore.EntityFrameworkCore.Query.Visitors
+namespace Firestore.EntityFrameworkCore.Query.Translators
 {
     /// <summary>
-    /// Visitor especializado para extraer TODOS los includes del árbol de expresiones,
-    /// incluyendo filtros para Filtered Includes.
-    /// Uses ExpressionVisitor pattern to properly traverse the entire tree.
+    /// Translates IncludeExpression to IncludeInfo.
+    ///
+    /// Receives IncludeExpression from EF Core and returns IncludeInfo with:
+    /// - NavigationName (string)
+    /// - IsCollection (bool)
+    /// - Filters (FirestoreWhereClause)
+    /// - OrderBy (FirestoreOrderByClause)
+    /// - Take/Skip (int? or Expression?)
+    ///
+    /// Reuses existing translators:
+    /// - FirestoreWhereTranslator for Where filters
+    /// - FirestoreOrderByTranslator for OrderBy/ThenBy
+    /// - FirestoreLimitTranslator for Take/Skip
     /// </summary>
-    internal class IncludeExtractionVisitor : ExpressionVisitor
+    internal class FirestoreIncludeTranslator
     {
         private readonly FirestoreWhereTranslator _whereTranslator = new();
         private readonly FirestoreOrderByTranslator _orderByTranslator = new();
         private readonly FirestoreLimitTranslator _limitTranslator = new();
 
-        public List<IReadOnlyNavigation> DetectedNavigations { get; } = new();
-
         /// <summary>
-        /// Includes con información de filtros extraída.
+        /// Translates an IncludeExpression to a list of IncludeInfo.
+        /// Returns multiple items when there are ThenInclude chains.
         /// </summary>
-        public List<IncludeInfo> DetectedIncludes { get; } = new();
-
-        protected override Expression VisitExtension(Expression node)
+        public List<IncludeInfo> Translate(IncludeExpression includeExpression)
         {
-            if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
-            {
-                if (includeExpression.Navigation is IReadOnlyNavigation navigation)
-                {
-                    DetectedNavigations.Add(navigation);
-
-                    // Crear IncludeInfo con nuevo constructor
-                    var includeInfo = new IncludeInfo(navigation.Name, navigation.IsCollection);
-
-                    // Extraer operaciones del NavigationExpression
-                    ExtractOperationsFromNavigationExpression(includeExpression.NavigationExpression, includeInfo);
-
-                    DetectedIncludes.Add(includeInfo);
-                }
-
-                // Visitar EntityExpression y NavigationExpression para ThenInclude anidados
-                Visit(includeExpression.EntityExpression);
-                Visit(includeExpression.NavigationExpression);
-
-                return node;
-            }
-
-            return base.VisitExtension(node);
+            var results = new List<IncludeInfo>();
+            TranslateRecursive(includeExpression, results);
+            return results;
         }
 
         /// <summary>
-        /// Extrae operaciones (Where, OrderBy, Take, Skip) del NavigationExpression.
-        /// Usa los translators existentes para mantener consistencia.
+        /// Recursively translates IncludeExpression and nested ThenInclude chains.
         /// </summary>
-        private void ExtractOperationsFromNavigationExpression(Expression navigationExpression, IncludeInfo includeInfo)
+        private void TranslateRecursive(IncludeExpression includeExpression, List<IncludeInfo> results)
         {
-            // Extraer method calls del NavigationExpression
+            // Extract navigation info
+            var navigationName = includeExpression.Navigation.Name;
+            var isCollection = includeExpression.Navigation.IsCollection;
+
+            // Create IncludeInfo
+            var includeInfo = new IncludeInfo(navigationName, isCollection);
+
+            // Extract and translate filter operations from NavigationExpression
+            TranslateOperations(includeExpression.NavigationExpression, includeInfo);
+
+            results.Add(includeInfo);
+
+            // Process nested includes (ThenInclude chains)
+            if (includeExpression.EntityExpression is IncludeExpression nestedInclude)
+            {
+                TranslateRecursive(nestedInclude, results);
+            }
+        }
+
+        /// <summary>
+        /// Translates filter operations from NavigationExpression into IncludeInfo.
+        /// </summary>
+        private void TranslateOperations(Expression? navigationExpression, IncludeInfo includeInfo)
+        {
+            if (navigationExpression == null)
+                return;
+
+            // Extract method chain from NavigationExpression
             var methodCalls = ExtractMethodCalls(navigationExpression);
             if (methodCalls.Count == 0)
                 return;
 
-            // Procesar cada method call
+            // Process each method call
             foreach (var methodCall in methodCalls)
             {
                 ProcessMethodCall(methodCall, includeInfo);
@@ -123,7 +135,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         }
 
         /// <summary>
-        /// Processes a single method call using the appropriate translator.
+        /// Processes a single method call and adds operations to IncludeInfo.
         /// </summary>
         private void ProcessMethodCall(MethodCallExpression methodCall, IncludeInfo includeInfo)
         {
@@ -161,6 +173,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
         }
 
+        /// <summary>
+        /// Processes Where using FirestoreWhereTranslator.
+        /// </summary>
         private void ProcessWhere(MethodCallExpression methodCall, IncludeInfo includeInfo)
         {
             if (methodCall.Arguments.Count < 2)
@@ -174,16 +189,20 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (IsCorrelationFilter(predicateLambda))
                 return;
 
+            // Use FirestoreWhereTranslator
             var filterResult = _whereTranslator.Translate(predicateLambda.Body);
             if (filterResult != null)
             {
+                // Handle top-level OR group (pure OR expression)
                 if (filterResult.IsOrGroup && filterResult.OrGroup != null)
                 {
                     includeInfo.AddOrFilterGroup(filterResult.OrGroup);
                 }
 
+                // Handle AND clauses
                 includeInfo.AddFilters(filterResult.AndClauses);
 
+                // Handle nested OR groups (OR within AND)
                 foreach (var orGroup in filterResult.NestedOrGroups)
                 {
                     includeInfo.AddOrFilterGroup(orGroup);
@@ -191,6 +210,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
         }
 
+        /// <summary>
+        /// Processes OrderBy/ThenBy using FirestoreOrderByTranslator.
+        /// </summary>
         private void ProcessOrderBy(MethodCallExpression methodCall, IncludeInfo includeInfo, bool isFirst, bool descending)
         {
             if (methodCall.Arguments.Count < 2)
@@ -210,6 +232,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
         }
 
+        /// <summary>
+        /// Processes Take using FirestoreLimitTranslator.
+        /// </summary>
         private void ProcessTake(MethodCallExpression methodCall, IncludeInfo includeInfo)
         {
             if (methodCall.Arguments.Count < 2)
@@ -227,6 +252,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
         }
 
+        /// <summary>
+        /// Processes Skip using FirestoreLimitTranslator.
+        /// </summary>
         private void ProcessSkip(MethodCallExpression methodCall, IncludeInfo includeInfo)
         {
             if (methodCall.Arguments.Count < 2)
@@ -244,6 +272,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             }
         }
 
+        /// <summary>
+        /// Extracts a LambdaExpression from an argument (handles Quote wrapper).
+        /// </summary>
         private static LambdaExpression? ExtractLambda(Expression expression)
         {
             if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Quote)
@@ -253,6 +284,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return expression as LambdaExpression;
         }
 
+        /// <summary>
+        /// Checks if a predicate is a correlation filter generated by EF Core.
+        /// </summary>
         private static bool IsCorrelationFilter(LambdaExpression predicate)
         {
             var exprString = predicate.Body.ToString();

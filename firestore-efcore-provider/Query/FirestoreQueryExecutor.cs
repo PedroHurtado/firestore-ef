@@ -248,7 +248,6 @@ namespace Firestore.EntityFrameworkCore.Query
                             entity,
                             doc,
                             queryExpression.PendingIncludes,
-                            queryExpression.PendingIncludesWithFilters,
                             model,
                             isTracking,
                             dbContext,
@@ -340,7 +339,6 @@ namespace Firestore.EntityFrameworkCore.Query
                         entity,
                         doc,
                         queryExpression.PendingIncludes,
-                        queryExpression.PendingIncludesWithFilters,
                         model,
                         isTracking,
                         dbContext,
@@ -439,8 +437,7 @@ namespace Firestore.EntityFrameworkCore.Query
         private async Task LoadIncludesAsync<T>(
             T entity,
             DocumentSnapshot documentSnapshot,
-            IReadOnlyList<IReadOnlyNavigation> allIncludes,
-            IReadOnlyList<IncludeInfo> allIncludesWithFilters,
+            IReadOnlyList<IncludeInfo> allIncludes,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -450,38 +447,38 @@ namespace Firestore.EntityFrameworkCore.Query
             var entityType = model.FindEntityType(typeof(T));
             if (entityType == null) return;
 
-            var rootNavigations = allIncludes
-                .Where(n => n.DeclaringEntityType == entityType)
-                .ToList();
-
-            foreach (var navigation in rootNavigations)
+            // Resolver navegaciones desde el modelo usando NavigationName
+            foreach (var includeInfo in allIncludes)
             {
+                var navigation = entityType.FindNavigation(includeInfo.NavigationName);
+                if (navigation == null)
+                    continue;
+
                 if (navigation.IsCollection)
                 {
                     await LoadSubCollectionAsync(
-                        entity, documentSnapshot, navigation,
-                        allIncludes, allIncludesWithFilters,
-                        model, isTracking, dbContext, queryContext, cancellationToken);
+                        entity, documentSnapshot, navigation, includeInfo,
+                        allIncludes, model, isTracking, dbContext, queryContext, cancellationToken);
                 }
                 else
                 {
                     await LoadReferenceAsync(
-                        entity, documentSnapshot, navigation,
-                        allIncludes, allIncludesWithFilters,
-                        model, isTracking, dbContext, queryContext, cancellationToken);
+                        entity, documentSnapshot, navigation, includeInfo,
+                        allIncludes, model, isTracking, dbContext, queryContext, cancellationToken);
                 }
             }
         }
 
         /// <summary>
         /// Carga una SubCollection para una entidad.
+        /// Aplica filtros, ordenamiento y paginación a nivel de Firestore (server-side).
         /// </summary>
         private async Task LoadSubCollectionAsync(
             object parentEntity,
             DocumentSnapshot parentDoc,
             IReadOnlyNavigation navigation,
-            IReadOnlyList<IReadOnlyNavigation> allIncludes,
-            IReadOnlyList<IncludeInfo> allIncludesWithFilters,
+            IncludeInfo includeInfo,
+            IReadOnlyList<IncludeInfo> allIncludes,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -492,30 +489,46 @@ namespace Firestore.EntityFrameworkCore.Query
                 return;
 
             var subCollectionName = GetSubCollectionName(navigation);
-            var snapshot = await GetSubCollectionAsync(parentDoc.Reference.Path, subCollectionName, cancellationToken);
+            var targetEntityType = navigation.TargetEntityType;
+
+            // Construir query con filtros aplicados a nivel de Firestore
+            var snapshot = await ExecuteSubCollectionQueryAsync(
+                parentDoc.Reference.Path,
+                subCollectionName,
+                includeInfo,
+                targetEntityType,
+                queryContext,
+                cancellationToken);
 
             // Crear colección vacía del tipo correcto
             var collection = _deserializer.CreateEmptyCollection(navigation);
 
-            var targetEntityType = navigation.TargetEntityType;
             var stateManager = dbContext.GetService<IStateManager>();
             var key = targetEntityType.FindPrimaryKey();
 
-            // Buscar IncludeInfo para esta navegación (para Filtered Includes)
-            var includeInfo = allIncludesWithFilters.FirstOrDefault(i =>
-                i.EffectiveNavigationName == navigation.Name);
-
-            // Compilar el filtro si existe
-            Func<object, bool>? filterPredicate = null;
-            if (includeInfo?.FilterExpression != null)
+            // Calcular Skip para aplicar en memoria (Firestore no soporta offset nativo)
+            int skipValue = 0;
+            if (includeInfo.Skip.HasValue)
             {
-                filterPredicate = CompileFilterPredicate(includeInfo.FilterExpression, targetEntityType.ClrType, queryContext);
+                skipValue = includeInfo.Skip.Value;
+            }
+            else if (includeInfo.SkipExpression != null)
+            {
+                skipValue = EvaluateIntExpression(includeInfo.SkipExpression, queryContext);
             }
 
+            int currentIndex = 0;
             foreach (var doc in snapshot.Documents)
             {
                 if (!doc.Exists)
                     continue;
+
+                // Aplicar Skip en memoria
+                if (currentIndex < skipValue)
+                {
+                    currentIndex++;
+                    continue;
+                }
 
                 // Identity Resolution
                 object? childEntity = null;
@@ -531,15 +544,16 @@ namespace Firestore.EntityFrameworkCore.Query
                     if (childEntity == null)
                         continue;
 
-                    // Cargar Includes recursivamente
+                    // Cargar Includes recursivamente (ThenInclude)
+                    // Filtrar IncludeInfo cuyos NavigationName existan en el targetEntityType
                     var childIncludes = allIncludes
-                        .Where(inc => inc.DeclaringEntityType == targetEntityType)
+                        .Where(inc => targetEntityType.FindNavigation(inc.NavigationName) != null)
                         .ToList();
 
                     if (childIncludes.Count > 0)
                     {
                         await LoadIncludesNonGenericAsync(
-                            childEntity, doc, childIncludes, allIncludesWithFilters,
+                            childEntity, doc, targetEntityType, childIncludes,
                             model, isTracking, dbContext, queryContext, cancellationToken);
                     }
 
@@ -550,14 +564,9 @@ namespace Firestore.EntityFrameworkCore.Query
                     }
                 }
 
-                // Aplicar filtro si existe (Filtered Include)
-                if (filterPredicate != null && !filterPredicate(childEntity))
-                {
-                    continue; // No incluir esta entidad si no pasa el filtro
-                }
-
                 ApplyFixup(parentEntity, childEntity, navigation);
                 _deserializer.AddToCollection(collection, childEntity);
+                currentIndex++;
             }
 
             navigation.PropertyInfo?.SetValue(parentEntity, collection);
@@ -570,8 +579,8 @@ namespace Firestore.EntityFrameworkCore.Query
             object entity,
             DocumentSnapshot documentSnapshot,
             IReadOnlyNavigation navigation,
-            IReadOnlyList<IReadOnlyNavigation> allIncludes,
-            IReadOnlyList<IncludeInfo> allIncludesWithFilters,
+            IncludeInfo includeInfo,
+            IReadOnlyList<IncludeInfo> allIncludes,
             IModel model,
             bool isTracking,
             DbContext dbContext,
@@ -646,15 +655,16 @@ namespace Firestore.EntityFrameworkCore.Query
 
             if (referencedEntity != null)
             {
-                // Cargar Includes recursivamente
+                // Cargar Includes recursivamente (ThenInclude)
+                // Filtrar IncludeInfo cuyos NavigationName existan en el targetEntityType
                 var childIncludes = allIncludes
-                    .Where(inc => inc.DeclaringEntityType == targetEntityType)
+                    .Where(inc => targetEntityType.FindNavigation(inc.NavigationName) != null)
                     .ToList();
 
                 if (childIncludes.Count > 0)
                 {
                     await LoadIncludesNonGenericAsync(
-                        referencedEntity, referencedDoc, childIncludes, allIncludesWithFilters,
+                        referencedEntity, referencedDoc, targetEntityType, childIncludes,
                         model, isTracking, dbContext, queryContext, cancellationToken);
                 }
 
@@ -791,36 +801,32 @@ namespace Firestore.EntityFrameworkCore.Query
         private async Task LoadIncludesNonGenericAsync(
             object entity,
             DocumentSnapshot documentSnapshot,
-            IReadOnlyList<IReadOnlyNavigation> allIncludes,
-            IReadOnlyList<IncludeInfo> allIncludesWithFilters,
+            IReadOnlyEntityType entityType,
+            IReadOnlyList<IncludeInfo> allIncludes,
             IModel model,
             bool isTracking,
             DbContext dbContext,
             QueryContext queryContext,
             CancellationToken cancellationToken)
         {
-            var entityType = model.FindEntityType(entity.GetType());
-            if (entityType == null) return;
-
-            var rootNavigations = allIncludes
-                .Where(n => n.DeclaringEntityType == entityType)
-                .ToList();
-
-            foreach (var navigation in rootNavigations)
+            // Resolver navegaciones desde el modelo usando NavigationName
+            foreach (var includeInfo in allIncludes)
             {
+                var navigation = entityType.FindNavigation(includeInfo.NavigationName);
+                if (navigation == null)
+                    continue;
+
                 if (navigation.IsCollection)
                 {
                     await LoadSubCollectionAsync(
-                        entity, documentSnapshot, navigation,
-                        allIncludes, allIncludesWithFilters,
-                        model, isTracking, dbContext, queryContext, cancellationToken);
+                        entity, documentSnapshot, navigation, includeInfo,
+                        allIncludes, model, isTracking, dbContext, queryContext, cancellationToken);
                 }
                 else
                 {
                     await LoadReferenceAsync(
-                        entity, documentSnapshot, navigation,
-                        allIncludes, allIncludesWithFilters,
-                        model, isTracking, dbContext, queryContext, cancellationToken);
+                        entity, documentSnapshot, navigation, includeInfo,
+                        allIncludes, model, isTracking, dbContext, queryContext, cancellationToken);
                 }
             }
         }
@@ -1862,50 +1868,311 @@ namespace Firestore.EntityFrameworkCore.Query
             return index >= 0 ? fullPath.Substring(index + documentsMarker.Length) : fullPath;
         }
 
-        #endregion
+        /// <summary>
+        /// Ejecuta una query en una subcollection aplicando filtros, ordenamiento y paginación.
+        /// Los filtros se aplican a nivel de Firestore (server-side) para mayor eficiencia.
+        /// </summary>
+        private async Task<QuerySnapshot> ExecuteSubCollectionQueryAsync(
+            string parentDocPath,
+            string subCollectionName,
+            IncludeInfo includeInfo,
+            IReadOnlyEntityType targetEntityType,
+            QueryContext queryContext,
+            CancellationToken cancellationToken)
+        {
+            var relativePath = ExtractRelativePath(parentDocPath);
+            var parentDoc = _client.Database.Document(relativePath);
+            var subCollection = parentDoc.Collection(subCollectionName);
 
-        #region Filter Compilation
+            // Si no hay operaciones, retornar todos los documentos
+            if (!includeInfo.HasOperations)
+            {
+                return await _client.GetSubCollectionAsync(parentDoc, subCollectionName, cancellationToken);
+            }
+
+            // Construir query con filtros
+            Google.Cloud.Firestore.Query query = subCollection;
+
+            // Aplicar filtros WHERE (AND implícito)
+            foreach (var filter in includeInfo.Filters)
+            {
+                query = ApplyWhereClauseForInclude(query, filter, queryContext, targetEntityType);
+            }
+
+            // Aplicar grupos OR
+            foreach (var orGroup in includeInfo.OrFilterGroups)
+            {
+                query = ApplyOrFilterGroupForInclude(query, orGroup, queryContext, targetEntityType);
+            }
+
+            // Aplicar ordenamiento ORDER BY
+            foreach (var orderBy in includeInfo.OrderByClauses)
+            {
+                query = ApplyOrderByClause(query, orderBy);
+            }
+
+            // Calcular Skip para ajustar el límite
+            int skipValue = 0;
+            if (includeInfo.Skip.HasValue)
+            {
+                skipValue = includeInfo.Skip.Value;
+            }
+            else if (includeInfo.SkipExpression != null)
+            {
+                skipValue = EvaluateIntExpression(includeInfo.SkipExpression, queryContext);
+            }
+
+            // Aplicar límite LIMIT (Take) - ajustado por Skip
+            if (includeInfo.Take.HasValue)
+            {
+                var effectiveLimit = includeInfo.Take.Value + skipValue;
+                query = query.Limit(effectiveLimit);
+            }
+            else if (includeInfo.TakeExpression != null)
+            {
+                var limitValue = EvaluateIntExpression(includeInfo.TakeExpression, queryContext);
+                var effectiveLimit = limitValue + skipValue;
+                query = query.Limit(effectiveLimit);
+            }
+
+            // Ejecutar query
+            return await _client.ExecuteQueryAsync(query, cancellationToken);
+        }
 
         /// <summary>
-        /// Compila un filtro de Include en un predicado ejecutable.
+        /// Aplica una cláusula WHERE para Includes.
+        /// Similar a ApplyWhereClause pero usando IReadOnlyEntityType.
         /// </summary>
-        private static Func<object, bool>? CompileFilterPredicate(
-            LambdaExpression filterExpression,
+        private Google.Cloud.Firestore.Query ApplyWhereClauseForInclude(
+            Google.Cloud.Firestore.Query query,
+            FirestoreWhereClause clause,
+            QueryContext queryContext,
+            IReadOnlyEntityType entityType)
+        {
+            var value = clause.EvaluateValue(queryContext);
+
+            // Si hay un tipo de enum, convertir el valor numérico a string del enum
+            if (clause.EnumType != null && value != null)
+            {
+                value = ConvertToEnumString(value, clause.EnumType);
+            }
+
+            // Convertir valor al tipo esperado por Firestore
+            var convertedValue = ConvertValueForFirestore(value);
+            var fieldPath = GetFieldPath(clause.PropertyName);
+
+            _logger.LogTrace("Applying Include filter: {PropertyName} {Operator} {Value}",
+                clause.PropertyName, clause.Operator, convertedValue);
+
+            return clause.Operator switch
+            {
+                FirestoreOperator.EqualTo => query.WhereEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.NotEqualTo => query.WhereNotEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.LessThan => query.WhereLessThan(fieldPath, convertedValue),
+                FirestoreOperator.LessThanOrEqualTo => query.WhereLessThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThan => query.WhereGreaterThan(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThanOrEqualTo => query.WhereGreaterThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.ArrayContains => query.WhereArrayContains(fieldPath, convertedValue),
+                FirestoreOperator.In => ApplyWhereIn(query, fieldPath, convertedValue),
+                FirestoreOperator.ArrayContainsAny => ApplyWhereArrayContainsAny(query, fieldPath, convertedValue),
+                FirestoreOperator.NotIn => ApplyWhereNotIn(query, fieldPath, convertedValue),
+                _ => throw new NotSupportedException($"Firestore operator {clause.Operator} is not supported in Include filters")
+            };
+        }
+
+        /// <summary>
+        /// Aplica un grupo de filtros OR para Includes.
+        /// </summary>
+        private Google.Cloud.Firestore.Query ApplyOrFilterGroupForInclude(
+            Google.Cloud.Firestore.Query query,
+            FirestoreOrFilterGroup orGroup,
+            QueryContext queryContext,
+            IReadOnlyEntityType entityType)
+        {
+            if (orGroup.Clauses.Count == 0)
+                return query;
+
+            if (orGroup.Clauses.Count == 1)
+            {
+                return ApplyWhereClauseForInclude(query, orGroup.Clauses[0], queryContext, entityType);
+            }
+
+            // Build individual filters for OR
+            var filters = new List<Filter>();
+            foreach (var clause in orGroup.Clauses)
+            {
+                var filter = BuildFilterForInclude(clause, queryContext, entityType);
+                if (filter != null)
+                    filters.Add(filter);
+            }
+
+            if (filters.Count == 0)
+                return query;
+
+            if (filters.Count == 1)
+                return query.Where(filters[0]);
+
+            // Combine with OR
+            var orFilter = Filter.Or(filters.ToArray());
+            _logger.LogTrace("Applied Include OR filter with {Count} clauses", filters.Count);
+
+            return query.Where(orFilter);
+        }
+
+        /// <summary>
+        /// Builds a Firestore Filter for Includes.
+        /// </summary>
+        private Filter? BuildFilterForInclude(
+            FirestoreWhereClause clause,
+            QueryContext queryContext,
+            IReadOnlyEntityType entityType)
+        {
+            var value = clause.EvaluateValue(queryContext);
+
+            if (clause.EnumType != null && value != null)
+            {
+                value = ConvertToEnumString(value, clause.EnumType);
+            }
+
+            var convertedValue = ConvertValueForFirestore(value);
+            var fieldPath = GetFieldPath(clause.PropertyName);
+
+            return clause.Operator switch
+            {
+                FirestoreOperator.EqualTo => Filter.EqualTo(fieldPath, convertedValue),
+                FirestoreOperator.NotEqualTo => Filter.NotEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.LessThan => Filter.LessThan(fieldPath, convertedValue),
+                FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThan => Filter.GreaterThan(fieldPath, convertedValue),
+                FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(fieldPath, convertedValue),
+                FirestoreOperator.ArrayContains => Filter.ArrayContains(fieldPath, convertedValue),
+                FirestoreOperator.In => BuildInFilter(fieldPath, convertedValue),
+                FirestoreOperator.ArrayContainsAny => BuildArrayContainsAnyFilter(fieldPath, convertedValue),
+                FirestoreOperator.NotIn => BuildNotInFilter(fieldPath, convertedValue),
+                _ => null
+            };
+        }
+
+        #endregion
+
+        #region Filter Compilation (Legacy)
+
+        /// <summary>
+        /// Compiles IncludeInfo filters (FirestoreWhereClause) to an in-memory predicate.
+        ///
+        /// NOTE: This method is kept for backward compatibility but is no longer used
+        /// since filters are now applied at the Firestore level (server-side).
+        ///
+        /// TODO [FASE 2/3]: This method is a temporary bridge. The correct architecture is:
+        /// 1. AstResolver resolves Expression values in FirestoreWhereClause
+        /// 2. Filters are applied in the Firestore query to the subcollection
+        /// 3. Only matching documents are fetched (server-side filtering)
+        ///
+        /// Currently, we fetch ALL documents and filter in memory (inefficient).
+        /// This method will be removed when Phase 2/3 is implemented.
+        /// </summary>
+        private Func<object, bool>? CompileIncludeFilters(
+            IncludeInfo includeInfo,
+            Type entityType,
+            QueryContext queryContext)
+        {
+            if (includeInfo.Filters.Count == 0 && includeInfo.OrFilterGroups.Count == 0)
+                return null;
+
+            // Build predicates for each filter clause
+            var predicates = new List<Func<object, bool>>();
+
+            foreach (var clause in includeInfo.Filters)
+            {
+                var predicate = CompileWhereClauseToPredicate(clause, entityType, queryContext);
+                if (predicate != null)
+                    predicates.Add(predicate);
+            }
+
+            // For OR groups, any clause matching is sufficient
+            foreach (var orGroup in includeInfo.OrFilterGroups)
+            {
+                var orPredicates = orGroup.Clauses
+                    .Select(c => CompileWhereClauseToPredicate(c, entityType, queryContext))
+                    .Where(p => p != null)
+                    .ToList();
+
+                if (orPredicates.Count > 0)
+                {
+                    predicates.Add(obj => orPredicates.Any(p => p!(obj)));
+                }
+            }
+
+            if (predicates.Count == 0)
+                return null;
+
+            // All predicates must match (AND logic)
+            return obj => predicates.All(p => p(obj));
+        }
+
+        /// <summary>
+        /// Compiles a single FirestoreWhereClause to an in-memory predicate.
+        /// </summary>
+        private Func<object, bool>? CompileWhereClauseToPredicate(
+            FirestoreWhereClause clause,
             Type entityType,
             QueryContext queryContext)
         {
             try
             {
-                // EF Core reescribe las variables capturadas como ParameterExpression con nombres como __variableName_N
-                // Estos valores están en QueryContext.ParameterValues
-                var parameterResolver = new EfCoreParameterResolvingVisitor(queryContext.ParameterValues);
-                var resolvedBody = parameterResolver.Visit(filterExpression.Body);
+                var property = entityType.GetProperty(clause.PropertyName);
+                if (property == null)
+                    return null;
 
-                // También evaluar closures tradicionales (MemberExpression sobre ConstantExpression)
-                var evaluator = new ClosureEvaluatingVisitor();
-                var evaluatedBody = evaluator.Visit(resolvedBody);
+                // Resolve the value from the Expression
+                object? value = clause.EvaluateValue(queryContext);
 
-                var newLambda = Expression.Lambda(evaluatedBody, filterExpression.Parameters);
-
-                // Compilar la expresión con las constantes evaluadas
-                var compiledDelegate = newLambda.Compile();
-
-                // Crear un wrapper que llama al delegado compilado
-                return (obj) =>
+                return obj =>
                 {
-                    try
-                    {
-                        return (bool)compiledDelegate.DynamicInvoke(obj)!;
-                    }
-                    catch
-                    {
-                        return false;
-                    }
+                    var propertyValue = property.GetValue(obj);
+                    return CompareValues(propertyValue, value, clause.Operator);
                 };
             }
-            catch (Exception ex)
+            catch
             {
-                throw new Exception($"CompileFilterPredicate failed: {ex.Message}, Filter: {filterExpression}", ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Compares two values using the specified Firestore operator.
+        /// </summary>
+        private static bool CompareValues(object? left, object? right, FirestoreOperator op)
+        {
+            if (left == null && right == null)
+                return op == FirestoreOperator.EqualTo;
+            if (left == null || right == null)
+                return op == FirestoreOperator.NotEqualTo;
+
+            try
+            {
+                var comparable = left as IComparable;
+                if (comparable == null)
+                    return op == FirestoreOperator.EqualTo ? Equals(left, right) : !Equals(left, right);
+
+                // Convert right to same type as left for comparison
+                var rightConverted = Convert.ChangeType(right, left.GetType());
+                var comparison = comparable.CompareTo(rightConverted);
+
+                return op switch
+                {
+                    FirestoreOperator.EqualTo => comparison == 0,
+                    FirestoreOperator.NotEqualTo => comparison != 0,
+                    FirestoreOperator.LessThan => comparison < 0,
+                    FirestoreOperator.LessThanOrEqualTo => comparison <= 0,
+                    FirestoreOperator.GreaterThan => comparison > 0,
+                    FirestoreOperator.GreaterThanOrEqualTo => comparison >= 0,
+                    _ => false
+                };
+            }
+            catch
+            {
+                return false;
             }
         }
 

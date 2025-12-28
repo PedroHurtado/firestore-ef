@@ -110,16 +110,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         // IdValueExpression, ReturnDefault, ReturnType: see FirestoreQueryExpression_FirstOrDefault.cs
 
         /// <summary>
-        /// Lista de navegaciones a cargar (Include/ThenInclude)
+        /// Lista de Includes a cargar (Include/ThenInclude).
+        /// Uses IncludeInfo with only primitive types (no EF Core types) for cache compatibility.
         /// </summary>
-        private readonly List<IReadOnlyNavigation> _pendingIncludes = new();
-        public IReadOnlyList<IReadOnlyNavigation> PendingIncludes => _pendingIncludes;
-
-        /// <summary>
-        /// Lista de Includes con información de filtros para Filtered Includes.
-        /// </summary>
-        private readonly List<IncludeInfo> _pendingIncludesWithFilters = new();
-        public IReadOnlyList<IncludeInfo> PendingIncludesWithFilters => _pendingIncludesWithFilters;
+        private readonly List<IncludeInfo> _pendingIncludes = new();
+        public IReadOnlyList<IncludeInfo> PendingIncludes => _pendingIncludes;
 
         /// <summary>
         /// Lista de Includes en propiedades de ComplexTypes.
@@ -246,28 +241,27 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         #region Include Commands
 
         /// <summary>
-        /// Agrega una navegación a cargar con Include (evita duplicados)
+        /// Adds an Include to the query (avoids duplicates by NavigationName).
         /// </summary>
-        public FirestoreQueryExpression AddInclude(IReadOnlyNavigation navigation)
+        public FirestoreQueryExpression AddInclude(IncludeInfo includeInfo)
         {
-            // Evitar duplicados
-            if (_pendingIncludes.Any(n => n.Name == navigation.Name &&
-                                          n.DeclaringEntityType == navigation.DeclaringEntityType))
+            // Avoid duplicates by name
+            if (_pendingIncludes.Any(i => i.NavigationName == includeInfo.NavigationName))
             {
                 return this;
             }
 
-            _pendingIncludes.Add(navigation);
+            _pendingIncludes.Add(includeInfo);
             return this;
         }
 
         /// <summary>
-        /// Agrega un Include con información de filtros
+        /// Adds an Include with the given navigation name and collection flag.
+        /// Convenience overload that creates IncludeInfo internally.
         /// </summary>
-        public FirestoreQueryExpression AddIncludeWithFilters(IncludeInfo includeInfo)
+        public FirestoreQueryExpression AddInclude(string navigationName, bool isCollection)
         {
-            _pendingIncludesWithFilters.Add(includeInfo);
-            return this;
+            return AddInclude(new IncludeInfo(navigationName, isCollection));
         }
 
         /// <summary>

@@ -12,31 +12,24 @@ namespace Firestore.EntityFrameworkCore.Query
     /// targeting properties inside ComplexTypes before EF Core's NavigationExpandingExpressionVisitor
     /// rejects them.
     /// Also handles TakeLast which is not natively supported by EF Core.
-    /// Also extracts filter expressions from Filtered Includes before they are processed.
+    ///
+    /// NOTE: Filtered Include extraction was removed. The FirestoreIncludeTranslator
+    /// now handles translation directly in TranslateInclude, using FirestoreWhereTranslator,
+    /// FirestoreOrderByTranslator, and FirestoreLimitTranslator for consistency.
     /// </summary>
     public class FirestoreQueryTranslationPreprocessor : QueryTranslationPreprocessor
     {
-        private readonly QueryCompilationContext _queryCompilationContext;
-
         public FirestoreQueryTranslationPreprocessor(
             QueryTranslationPreprocessorDependencies dependencies,
             QueryCompilationContext queryCompilationContext)
             : base(dependencies, queryCompilationContext)
         {
-            _queryCompilationContext = queryCompilationContext;
         }
 
         public override Expression Process(Expression query)
         {
-            // First, extract Filtered Includes before EF Core processes them
-            // This captures the filter expressions which would be lost later
-            var filteredIncludeVisitor = new FilteredIncludeExtractorVisitor(_queryCompilationContext);
-            filteredIncludeVisitor.Visit(query); // Just visit to extract, don't modify
-
-
-
             // Extract and remove ComplexType Includes before EF Core processes them
-            var complexTypeIncludeVisitor = new ComplexTypeIncludeExtractorVisitor(_queryCompilationContext);
+            var complexTypeIncludeVisitor = new ComplexTypeIncludeExtractorVisitor(QueryCompilationContext);
             query = complexTypeIncludeVisitor.Visit(query);
 
             // Transform TakeLast before EF Core's NavigationExpandingExpressionVisitor rejects it

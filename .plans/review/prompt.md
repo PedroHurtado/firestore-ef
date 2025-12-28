@@ -1,15 +1,30 @@
-## Contexto @.plans/review/plan-tdd-select.md
+## Contexto 
+    @./plans/.plans/refactor/ast-executor-refactor.md
+
+    Ejemplo de microdomain
+
+    FirestoreQueryExpression_OrderBy.cs
+
+    Ejemplo de Translator
+
+    FirestoreOrderByTranslator.cs
+
+    Contenido a refactorizar
+
+    FirestoreQueryableMethodTranslatingExpressionVisitor.CS
+
 
 
 Enpieza con la siguiente fase
 
 ### Fase 1: Campos Simples
 
-| Ciclo | Comportamiento |
-|-------|----------------|
-| 1 | Select campo único |
-| 2 | Select múltiples campos (tipo anónimo) |
-| 3 | Select a DTO |
+### 1.5 FirestoreIncludeTranslator y IncludeMicrodomain
+
+
+**Qué traduce:** `Include`, `ThenInclude`, Filtered Includes
+
+**Commit:**
 
 ---
 
@@ -17,23 +32,23 @@ Enpieza con la siguiente fase
 
 **Para cada fase, sigue estos pasos:**
 
-### 1. Escribir test de integración y test unitarios necesarios
-- Crea los test integración según el ciclo definido en el plan
+### 1. Escribir test de unitarios
+- Crea los test unitarios el ciclo definido en el plan
 - Ejecútalo para confirmar estado **RED**
 - Te esperas a revisar Test por parte mia
 
 ### 2. Implementación
 
 **Si GREEN (ya pasaba):**
-- Commit del test
-- Continúa al paso 3
+- Commit de la fase
 
 **Si RED:**
 - Implementa el código necesario
 - Si es necesario, crea tests unitarios
 - Itera hasta conseguir GREEN
+- Espera revision mia
 - Commit de la implementación
-- Continúa al paso 3
+
 
 ### 3. Verificación completa
 ```bash
@@ -43,7 +58,7 @@ dotnet test
 - Ejecuta tests de regresión para asegurar que nada se ha roto
 
 ### 4. Documentación
-- Actualiza el documento `plan-tdd-where.md` con:
+- Actualiza el documento `ast-executor-refactor` con:
   - Marca la tarea como completada
   - Anota el ID del commit asociado
 - Commitea el documento actualizado
