@@ -71,29 +71,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
 
         /// <summary>
         /// Extracts method calls from NavigationExpression.
-        /// Handles MaterializeCollectionNavigationExpression and direct method chains.
         /// </summary>
         private List<MethodCallExpression> ExtractMethodCalls(Expression expression)
         {
             var methodCalls = new List<MethodCallExpression>();
-
-            // Handle MaterializeCollectionNavigationExpression
-            var typeName = expression.GetType().Name;
-            if (typeName == "MaterializeCollectionNavigationExpression")
-            {
-                var subqueryProp = expression.GetType().GetProperty("Subquery");
-                if (subqueryProp != null)
-                {
-                    var subquery = subqueryProp.GetValue(expression) as Expression;
-                    if (subquery != null)
-                    {
-                        CollectMethodCalls(subquery, methodCalls);
-                    }
-                }
-                return methodCalls;
-            }
-
-            // Direct method chain
             CollectMethodCalls(expression, methodCalls);
             return methodCalls;
         }

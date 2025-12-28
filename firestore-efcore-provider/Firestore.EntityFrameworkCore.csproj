@@ -31,9 +31,10 @@
     <Compile Remove="docs\**" />
   </ItemGroup>
 
-  <!-- Allow test project to access internal types -->
+  <!-- Allow test projects to access internal types -->
   <ItemGroup>
     <InternalsVisibleTo Include="Fudie.Firestore.UnitTest" />
+    <InternalsVisibleTo Include="Fudie.Firestore.IntegrationTest" />
   </ItemGroup>
 
 </Project>
