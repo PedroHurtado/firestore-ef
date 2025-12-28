@@ -1,11 +1,11 @@
-using Firestore.EntityFrameworkCore.Query.Visitors;
+using Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Moq;
 using System.Linq.Expressions;
 
-namespace Fudie.Firestore.UnitTest.Query.Visitors;
+namespace Fudie.Firestore.UnitTest.Query.Translators;
 
 /// <summary>
 /// Tests for IncludeExtractionVisitor.

@@ -1,10 +1,9 @@
 using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
-namespace Firestore.EntityFrameworkCore.Query.Visitors
+namespace Firestore.EntityFrameworkCore.Query.Translators
 {
     /// <summary>
     /// Visitor especializado para extraer TODOS los includes del árbol de expresiones,

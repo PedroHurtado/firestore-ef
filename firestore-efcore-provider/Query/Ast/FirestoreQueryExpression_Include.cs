@@ -16,8 +16,6 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// </summary>
     public partial class FirestoreQueryExpression
     {
-        private static readonly FirestoreIncludeTranslator IncludeTranslator = new();
-
         /// <summary>
         /// Translates an Include expression and adds it to the AST.
         /// Called from FirestoreQueryableMethodTranslatingExpressionVisitor.TranslateSelect.
@@ -27,8 +25,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             var (source, includeExpression) = request;
             var ast = (FirestoreQueryExpression)source.QueryExpression;
 
-            // Translator does ALL the work
-            var includes = IncludeTranslator.Translate(includeExpression);
+            // Create visitor and translator
+            var visitor = new IncludeExtractionVisitor();
+            var translator = new FirestoreIncludeTranslator(visitor);
+
+            var includes = translator.Translate(includeExpression);
             foreach (var include in includes)
             {
                 ast.AddInclude(include);
