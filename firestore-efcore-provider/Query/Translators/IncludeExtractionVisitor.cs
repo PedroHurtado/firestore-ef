@@ -78,76 +78,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             collector.Visit(expression);
             return collector.MethodCalls;
         }
-
-        /// <summary>
-        /// Collects method calls walking down the expression tree.
-        /// </summary>
-        /*private void CollectMethodCalls(Expression expression, List<MethodCallExpression> methodCalls)
-        {
-            var current = expression;
-            while (current is MethodCallExpression methodCall)
-            {
-                methodCalls.Add(methodCall);
-                if (methodCall.Arguments.Count > 0)
-                {
-                    current = methodCall.Arguments[0];
-                }
-                else if (methodCall.Object != null)
-                {
-                    current = methodCall.Object;
-                }
-                else
-                {
-                    break;
-                }
-            }
-        }*/
-
-        private void CollectMethodCalls(Expression expression, List<MethodCallExpression> methodCalls)
-        {
-            var current = expression;
-
-            while (current != null)
-            {
-                // Si es MaterializeCollectionNavigationExpression, extraer Subquery via reflection
-                var exprType = current.GetType();
-                if (exprType.Name == "MaterializeCollectionNavigationExpression")
-                {
-                    var subqueryProperty = exprType.GetProperty("Subquery");
-                    if (subqueryProperty != null)
-                    {
-                        var subquery = subqueryProperty.GetValue(current) as Expression;
-                        if (subquery != null)
-                        {
-                            current = subquery;
-                            continue;
-                        }
-                    }
-                    break;
-                }
-
-                if (current is MethodCallExpression methodCall)
-                {
-                    methodCalls.Add(methodCall);
-                    if (methodCall.Arguments.Count > 0)
-                    {
-                        current = methodCall.Arguments[0];
-                    }
-                    else if (methodCall.Object != null)
-                    {
-                        current = methodCall.Object;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-                else
-                {
-                    break;
-                }
-            }
-        }
+        
 
         /// <summary>
         /// Processes a single method call using the appropriate translator.
