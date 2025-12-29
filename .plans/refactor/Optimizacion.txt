@@ -1,0 +1,9 @@
+Sí, el carácter \uf8ff (Unicode muy alto). Se usa para queries de prefijo:
+csharp// Buscar todos los documentos cuyo __name__ empiece con cierto path
+collection
+    .WhereGreaterThanOrEqualTo(FieldPath.DocumentId, "prefijo")
+    .WhereLessThan(FieldPath.DocumentId, "prefijo\uf8ff")
+Para el caso de Lineas, podrías hacer una Collection Group Query con filtro por __name__ que contenga los IDs de los Pedidos padre. Pero es complejo porque tendrías que construir los rangos para cada padre.
+La Collection Group Query simple sigue siendo más práctica para este caso. Pero guárdalo en mente para cuando toque optimizar.
+
+Evitar las N:1 en subcollections
