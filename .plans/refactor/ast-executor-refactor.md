@@ -881,21 +881,57 @@ protected override ShapedQueryExpression? TranslateWhere(...)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreAggregationTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreAggregationTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Ejecutar tests de agregación existentes | `Tests/Query/AggregationTests.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreAggregationTranslatorTests.cs` |
+| TEST | [x] | Crear tests de PropertyPathExtractor | `Tests/Query/Translators/PropertyPathExtractorTests.cs` |
+| TEST | [x] | Crear tests de slices (Sum, Average, Min, Max) | `Tests/Query/Ast/FirestoreQueryExpression_*Tests.cs` |
+| IMPL | [x] | Crear PropertyPathExtractor helper | `Query/Translators/PropertyPathExtractor.cs` |
+| IMPL | [x] | Crear FirestoreAggregationTranslator abstracto | `Query/Translators/FirestoreAggregationTranslator.cs` |
+| IMPL | [x] | Crear FirestoreSumTranslator | `Query/Translators/FirestoreSumTranslator.cs` |
+| IMPL | [x] | Crear FirestoreAverageTranslator | `Query/Translators/FirestoreAverageTranslator.cs` |
+| IMPL | [x] | Crear FirestoreMinTranslator | `Query/Translators/FirestoreMinTranslator.cs` |
+| IMPL | [x] | Crear FirestoreMaxTranslator | `Query/Translators/FirestoreMaxTranslator.cs` |
+| IMPL | [x] | Crear slices (Sum, Average, Min, Max) | `Query/Ast/FirestoreQueryExpression_*.cs` |
+| INTEGRAR | [x] | Refactorizar FirestoreOrderByTranslator para usar PropertyPathExtractor | `Query/Translators/FirestoreOrderByTranslator.cs` |
+| INTEGRAR | [x] | Visitor con one-liners para Sum, Average, Min, Max | `Query/Visitors/...Visitor.cs` |
+| INTEGRAR | [x] | Eliminar ExtractPropertyNameFromKeySelector del Visitor | `Query/Visitors/...Visitor.cs` |
+| INTEGRAR | [x] | Eliminar BuildPropertyPath del Visitor | `Query/Visitors/...Visitor.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 861 unit + 170 integration |
 
-**Qué traduce:** `Count`, `Any`, `Sum`, `Average`, `Min`, `Max`
+**Qué traduce:** `Sum`, `Average`, `Min`, `Max` (Count y Any ya estaban como slices en 1.4b)
 
-**IMPORTANTE - Limpieza pendiente de 1.1:**
-Al completar esta tarea, ELIMINAR del Visitor:
-- `ExtractPropertyNameFromKeySelector` (líneas ~400-418)
-- `BuildPropertyPath` (líneas ~425-439)
+**Arquitectura implementada:**
 
-Estos métodos quedaron temporalmente en el Visitor porque `TranslateAverage`, `TranslateMax`, `TranslateMin`, `TranslateSum` los usan. Una vez que estos métodos deleguen al `FirestoreAggregationTranslator`, el código duplicado se puede eliminar.
+```
+PropertyPathExtractor (helper estático)
+        ↑
+FirestoreAggregationTranslator (abstracto)
+        ↑
+   ┌────┴────┬────────┬────────┐
+   ↓         ↓        ↓        ↓
+ Sum     Average     Min      Max
+```
 
-**Commit:**
+**Archivos creados:**
+- `Query/Translators/PropertyPathExtractor.cs` - Helper para extraer paths de propiedades
+- `Query/Translators/FirestoreAggregationTranslator.cs` - Clase base abstracta
+- `Query/Translators/FirestoreSumTranslator.cs`
+- `Query/Translators/FirestoreAverageTranslator.cs`
+- `Query/Translators/FirestoreMinTranslator.cs`
+- `Query/Translators/FirestoreMaxTranslator.cs`
+- `Query/Ast/FirestoreQueryExpression_Sum.cs`
+- `Query/Ast/FirestoreQueryExpression_Average.cs`
+- `Query/Ast/FirestoreQueryExpression_Min.cs`
+- `Query/Ast/FirestoreQueryExpression_Max.cs`
+
+**Limpieza realizada (pendiente de 1.1):**
+- ✅ Eliminado `ExtractPropertyNameFromKeySelector` del Visitor
+- ✅ Eliminado `BuildPropertyPath` del Visitor
+- ✅ Eliminado `using System.Collections.Generic` innecesario del Visitor
+
+**Commits:**
+- `93b698a` docs: mark phase 1.5 FirestoreIncludeTranslator as completed
+- `6f2f408` refactor: add FirestoreSumTranslator with Slice and PropertyPathExtractor helper
+- `29c94f6` refactor: add FirestoreAggregationTranslator hierarchy with Slices for Sum, Average, Min, Max
 
 ---
 
@@ -1120,51 +1156,34 @@ Tests/Query/Preprocessing/
 
 ---
 
-### 5.4b Unificar BuildPropertyPath (pendiente)
+### 5.4b Unificar BuildPropertyPath (COMPLETADO en 1.6)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| IMPL | [ ] | Mover `BuildPropertyPath` a clase helper | `Query/Helpers/PropertyExtractionHelper.cs` |
-| IMPL | [ ] | Eliminar duplicado del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| IMPL | [ ] | Eliminar duplicado del Translator | `Query/Translators/FirestoreWhereTranslator.cs` |
-| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+| IMPL | [x] | Crear `PropertyPathExtractor` como helper | `Query/Translators/PropertyPathExtractor.cs` |
+| IMPL | [x] | Eliminar duplicado del Visitor | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| IMPL | [x] | Refactorizar FirestoreOrderByTranslator para usar el helper | `Query/Translators/FirestoreOrderByTranslator.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 861 unit + 170 integration |
 
-**Código duplicado - BuildPropertyPath:**
+**Solución implementada en 1.6:**
 
-```csharp
-// Visitor (ExtractPropertyNameFromKeySelector)
-private string BuildPropertyPath(MemberExpression memberExpr)
-{
-    var parts = new List<string>();
-    Expression? current = memberExpr;
-    while (current is MemberExpression member)
-    {
-        parts.Add(member.Member.Name);
-        current = member.Expression;
-    }
-    parts.Reverse();
-    return string.Join(".", parts);
-}
-
-// Translator (TranslateBinaryExpression) - IDÉNTICO
-private string BuildPropertyPath(MemberExpression memberExpr) { /* mismo código */ }
-```
-
-**Solución propuesta:**
+Se creó `PropertyPathExtractor` en `Query/Translators/` (no en `Helpers/` para mantener cohesión con los translators):
 
 ```csharp
-// Query/Helpers/PropertyExtractionHelper.cs
-public static class PropertyExtractionHelper
+// Query/Translators/PropertyPathExtractor.cs
+internal static class PropertyPathExtractor
 {
-    /// <summary>
-    /// Construye path completo de propiedades anidadas (ComplexTypes)
-    /// Ej: e.Direccion.Ciudad → "Direccion.Ciudad"
-    /// </summary>
-    public static string BuildPropertyPath(MemberExpression memberExpr) { ... }
+    public static string? ExtractFromLambda(LambdaExpression? lambda) { ... }
+    public static string? ExtractFromMemberExpression(MemberExpression? memberExpr) { ... }
+    private static string BuildPropertyPath(MemberExpression memberExpr) { ... }
 }
 ```
 
-**Commit:**
+**Usado por:**
+- `FirestoreOrderByTranslator`
+- `FirestoreAggregationTranslator` (y sus hijos: Sum, Average, Min, Max)
+
+**Commit:** 6f2f408
 
 ---
 
