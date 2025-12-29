@@ -1054,11 +1054,25 @@ Solo después de que TODOS los Translators estén funcionando.
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| IMPL | [ ] | Eliminar `CompileFilterPredicate` duplicado del Shaper | `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` |
+| IMPL | [x] | Eliminar `CompileFilterPredicate` duplicado del Shaper | `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` |
+| IMPL | [x] | Eliminar todo el código muerto del Shaper (1700+ líneas) | `Query/Visitors/FirestoreShapedQueryCompilingExpressionVisitor.cs` |
 | IMPL | [ ] | Eliminar métodos de evaluación del Executor | `Query/FirestoreQueryExecutor.cs` |
-| VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
+| VERIFICAR | [x] | Todos los tests pasan (Shaper) | 862 unit + 170 integration |
 
-**Commit:**
+**Código eliminado del Shaper (1700+ líneas):**
+- `CompileFilterPredicate` + `EfCoreParameterResolvingVisitor` + `ClosureEvaluatingVisitor` (duplicado en Executor)
+- `CreateProjectionQueryExpression`, `CreateSubcollectionProjectionQueryExpression` (comentado)
+- `CreateSubcollectionProjectionShaperExpression`, `CleanProjectionSelector` (código muerto)
+- `ProjectionSelectorCleaner` clase completa (~700 líneas) - nunca usada
+- `ParameterReplacerVisitor` clase (usada solo por código muerto)
+- `DeserializeWithIncludesAndProject`, `CreateProjectionShaperExpression`, `DeserializeAndProject` (código muerto)
+- `CreateShaperExpression`, `DeserializeEntity` (lanza NotImplementedException, movido al Executor)
+- `SetShadowForeignKeys`, `TryGetTrackedEntity` (2 versiones), `ConvertKeyValue` (duplicados en Executor)
+- Región `Include Loading` completa (~400 líneas comentadas)
+
+**El Shaper ahora solo tiene 113 líneas** con responsabilidad única: compilar `ShapedQueryExpression` en `FirestoreQueryingEnumerable`.
+
+**Commit:** 7e0b1d2 `refactor: remove dead code from FirestoreShapedQueryCompilingExpressionVisitor`
 
 ---
 
