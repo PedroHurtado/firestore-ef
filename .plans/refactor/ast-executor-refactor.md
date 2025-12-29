@@ -1066,17 +1066,17 @@ Solo después de que TODOS los Translators estén funcionando.
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| IMPL | [ ] | Eliminar `IsVowel` y `Pluralize` duplicados | `Query/FirestoreQueryExecutor.cs`, `Query/Visitors/*.cs` |
-| IMPL | [ ] | Usar `FirestoreCollectionManager` como única fuente | Varios |
-| VERIFICAR | [ ] | Todos los tests pasan | `Tests/*` |
+| IMPL | [x] | Eliminar `IsVowel` y `Pluralize` duplicados | `Query/FirestoreQueryExecutor.cs`, `Query/Visitors/*.cs` |
+| IMPL | [x] | Usar `FirestoreCollectionManager` como única fuente | Varios |
+| VERIFICAR | [x] | Todos los tests pasan | `Tests/*` |
 
 **Código duplicado en:**
-- `FirestoreCollectionManager.cs` (original)
-- `FirestoreQueryExecutor.cs`
-- `FirestoreQueryableMethodTranslatingExpressionVisitor.cs`
-- `FirestoreShapedQueryCompilingExpressionVisitor.cs`
+- `FirestoreCollectionManager.cs` (original) ✓ Única fuente de verdad
+- `FirestoreQueryExecutor.cs` ✓ Eliminado, usa DI
+- `FirestoreQueryableMethodTranslatingExpressionVisitor.cs` ✓ Eliminado, usa DI
+- `FirestoreShapedQueryCompilingExpressionVisitor.cs` ✓ Eliminado, usa DI
 
-**Commit:**
+**Commit:** 944a6b4 `refactor: centralizar IsVowel/Pluralize en FirestoreCollectionManager via DI`
 
 ---
 
