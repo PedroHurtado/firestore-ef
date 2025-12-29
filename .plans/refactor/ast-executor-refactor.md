@@ -828,9 +828,21 @@ protected override ShapedQueryExpression? TranslateWhere(...)
 | REFACTOR | [x] | Unificar PendingIncludes (eliminar lista separada) | `Query/Ast/FirestoreQueryExpression.cs` |
 | FIX | [x] | Manejar OrGroup en ProcessWhere | `Query/Translators/FirestoreIncludeTranslator.cs` |
 | VERIFICAR | [x] | Tests unitarios del translator | 12 tests pasan |
-| VERIFICAR | [ ] | Tests de integración de Include | Pendiente |
+| VERIFICAR | [x] | Tests de integración de Include | 170 integration tests pasan |
 
 **Qué traduce:** `Include`, `ThenInclude`, Filtered Includes (Where, OrderBy, Take, Skip)
+
+**Commits de la fase (9 commits desde f4e3669):**
+- `32f1dde` docs: update refactor document with commit f4e3669 for Where slice
+- `638d836` refactor: extract ArrayContainsPatternTransformer from Visitor (5.4)
+- `ebfa0e3` refactor: add FirestoreIncludeTranslator with Skip for ThenInclude tests
+- `32bce52` refactor: remove reflection hack from IncludeExtractionVisitor
+- `46d3ba0` test: add unit tests for Reference navigation includes
+- `c672000` refactor: simplify Include slice with proper test organization
+- `59aa6cc` fix: extract Subquery from MaterializeCollectionNavigationExpression via reflection
+- `fafa5c5` refactor: change reflexion a vistitor pattern
+- `1f29ee6` refactor: remove CollectMethodCalls
+- `fc965d8` Add feature optimization
 
 **Cambios realizados:**
 
@@ -853,20 +865,15 @@ protected override ShapedQueryExpression? TranslateWhere(...)
    - `filterResult.AndClauses` (AND clauses)
    - `filterResult.NestedOrGroups` (OR dentro de AND)
 
-**Problema detectado - Lógica dispersa:**
+5. **IncludeExtractionVisitor sin reflexión:**
+   - Patrón Visitor para extraer operaciones de Include
+   - Eliminado hack de reflexión para MaterializeCollectionNavigationExpression
 
-La lógica de "cómo aplicar FirestoreFilterResult" está duplicada:
-- `FirestoreQueryExpression_Where.TranslateWhere` (líneas 46-57) - lo hace bien
-- `FirestoreIncludeTranslator.ProcessWhere` (líneas 195-213) - faltaba OrGroup
+6. **ArrayContainsPatternTransformer (adelanto de 5.4):**
+   - Extraído como clase independiente testeable
+   - Eliminado código duplicado del Visitor y Translator
 
-Ambos deberían simplemente almacenar `FirestoreFilterResult` directamente en el AST.
-Ver documento `09-responsabilidades-translator-slice-executor.md` para el plan de corrección.
-
-**Pendiente:**
-- Tests de integración para verificar que filtered includes funcionan en runtime
-- Refactor mayor: usar `FirestoreFilterResult` directamente en `IncludeInfo` y `FirestoreQueryExpression`
-
-**Commit:**
+**Commit final:** fc965d8
 
 ---
 
