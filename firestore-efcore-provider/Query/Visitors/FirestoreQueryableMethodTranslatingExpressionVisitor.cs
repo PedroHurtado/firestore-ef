@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using System;
-using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -114,52 +113,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return base.VisitExtension(extensionExpression);
         }
 
-        /// <summary>
-        /// Extracts the property name from an OrderBy/ThenBy key selector lambda.
-        /// Handles expressions like: e => e.Name, e => e.Quantity, e => e.Price
-        /// Also handles nested properties: e => e.Address.City
-        /// </summary>
-        private string? ExtractPropertyNameFromKeySelector(LambdaExpression keySelector)
-        {
-            var body = keySelector.Body;
-
-            // Unwrap Convert expressions (common for value types)
-            if (body is UnaryExpression unary &&
-                (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
-            {
-                body = unary.Operand;
-            }
-
-            // Handle MemberExpression (e.g., e.Name, e.Address.City)
-            if (body is MemberExpression memberExpr && memberExpr.Member is PropertyInfo)
-            {
-                return BuildPropertyPath(memberExpr);
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Builds the property path for nested properties.
-        /// For e.Address.City returns "Address.City".
-        /// For e.Name returns "Name".
-        /// </summary>
-        private string BuildPropertyPath(MemberExpression memberExpr)
-        {
-            var parts = new List<string>();
-            Expression? current = memberExpr;
-
-            while (current is MemberExpression member)
-            {
-                parts.Add(member.Member.Name);
-                current = member.Expression;
-            }
-
-            // Reverse to get correct order (parent to child)
-            parts.Reverse();
-            return string.Join(".", parts);
-        }
-
         #region Translate Methods
 
         protected override ShapedQueryExpression? TranslateFirstOrDefault(
@@ -213,23 +166,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => FirestoreQueryExpression.TranslateAny(new(source, predicate));
 
         protected override ShapedQueryExpression? TranslateAverage(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            if (selector == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var propertyName = ExtractPropertyNameFromKeySelector(selector);
-            if (propertyName == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithAverage(propertyName, resultType);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateAverage(new(source, selector, resultType));
 
         protected override ShapedQueryExpression? TranslateCast(ShapedQueryExpression source, Type castType)
             => throw new NotImplementedException();
@@ -327,42 +264,10 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            if (selector == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var propertyName = ExtractPropertyNameFromKeySelector(selector);
-            if (propertyName == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithMax(propertyName, resultType);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateMax(new(source, selector, resultType));
 
         protected override ShapedQueryExpression? TranslateMin(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            if (selector == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var propertyName = ExtractPropertyNameFromKeySelector(selector);
-            if (propertyName == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithMin(propertyName, resultType);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateMin(new(source, selector, resultType));
 
         protected override ShapedQueryExpression? TranslateOfType(ShapedQueryExpression source, Type resultType)
             => throw new NotImplementedException();
