@@ -389,23 +389,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateSum(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
-        {
-            if (selector == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var propertyName = ExtractPropertyNameFromKeySelector(selector);
-            if (propertyName == null)
-            {
-                return null; // Client-side evaluation
-            }
-
-            var firestoreQueryExpression = (FirestoreQueryExpression)source.QueryExpression;
-            var newQueryExpression = firestoreQueryExpression.WithSum(propertyName, resultType);
-
-            return source.UpdateQueryExpression(newQueryExpression);
-        }
+            => FirestoreQueryExpression.TranslateSum(new(source, selector, resultType));
 
         protected override ShapedQueryExpression? TranslateTake(ShapedQueryExpression source, Expression count)
             => FirestoreQueryExpression.TranslateLimit(new(source, count, IsLimitToLast: false));
