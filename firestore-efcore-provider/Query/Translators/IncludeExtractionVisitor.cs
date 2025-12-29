@@ -1,5 +1,6 @@
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Query;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
@@ -73,9 +74,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// </summary>
         private List<MethodCallExpression> ExtractMethodCalls(Expression expression)
         {
-            var methodCalls = new List<MethodCallExpression>();
-            CollectMethodCalls(expression, methodCalls);
-            return methodCalls;
+            var collector = new MethodCallCollector();
+            collector.Visit(expression);
+            return collector.MethodCalls;
         }
 
         /// <summary>
@@ -283,6 +284,26 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         {
             var exprString = predicate.Body.ToString();
             return exprString.Contains("Property(");
+        }
+
+        private class MethodCallCollector : ExpressionVisitor
+        {
+            public List<MethodCallExpression> MethodCalls { get; } = new();
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                MethodCalls.Add(node);
+                return base.VisitMethodCall(node);
+            }
+            protected override Expression VisitExtension(Expression node)
+            {
+                // No atravesar IncludeExpression anidados - esos se manejan por separado
+                if (node is IncludeExpression)
+                {
+                    return node; // No visitar children
+                }
+                return base.VisitExtension(node);
+            }
         }
     }
 }
