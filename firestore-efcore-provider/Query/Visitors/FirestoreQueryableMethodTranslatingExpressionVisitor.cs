@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Preprocessing;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -5,29 +6,33 @@ using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
 using System;
 using System.Linq.Expressions;
-using System.Reflection;
 
 namespace Firestore.EntityFrameworkCore.Query.Visitors
 {
     public class FirestoreQueryableMethodTranslatingExpressionVisitor
         : QueryableMethodTranslatingExpressionVisitor
     {
+        private readonly IFirestoreCollectionManager _collectionManager;
+
         public FirestoreQueryableMethodTranslatingExpressionVisitor(
             QueryableMethodTranslatingExpressionVisitorDependencies dependencies,
-            QueryCompilationContext queryCompilationContext)
+            QueryCompilationContext queryCompilationContext,
+            IFirestoreCollectionManager collectionManager)
             : base(dependencies, queryCompilationContext, subquery: false)
         {
+            _collectionManager = collectionManager;
         }
 
         protected FirestoreQueryableMethodTranslatingExpressionVisitor(
             FirestoreQueryableMethodTranslatingExpressionVisitor parentVisitor)
             : base(parentVisitor.Dependencies, parentVisitor.QueryCompilationContext, subquery: true)
         {
+            _collectionManager = parentVisitor._collectionManager;
         }
 
         protected override ShapedQueryExpression CreateShapedQueryExpression(IEntityType entityType)
         {
-            var collectionName = GetCollectionName(entityType);
+            var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
             var queryExpression = new FirestoreQueryExpression(entityType, collectionName);
 
             var entityShaperExpression = new StructuralTypeShaperExpression(
@@ -39,42 +44,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 nullable: false);
 
             return new ShapedQueryExpression(queryExpression, entityShaperExpression);
-        }
-
-        private string GetCollectionName(IEntityType entityType)
-        {
-            var tableAttribute = entityType.ClrType
-                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
-
-            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
-                return tableAttribute.Name;
-
-            var entityName = entityType.ClrType.Name;
-            return Pluralize(entityName);
-        }
-
-        private static string Pluralize(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return name;
-
-            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
-                name.Length > 1 &&
-                !IsVowel(name[name.Length - 2]))
-            {
-                return name.Substring(0, name.Length - 1) + "ies";
-            }
-
-            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
-                return name + "es";
-
-            return name + "s";
-        }
-
-        private static bool IsVowel(char c)
-        {
-            c = char.ToLowerInvariant(c);
-            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
         }
 
         protected override QueryableMethodTranslatingExpressionVisitor CreateSubqueryVisitor()

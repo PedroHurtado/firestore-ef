@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
 
 namespace Firestore.EntityFrameworkCore.Query.Visitors
@@ -7,13 +8,16 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
     {
         private readonly ShapedQueryCompilingExpressionVisitorDependencies _dependencies;
         private readonly IFirestoreQueryExecutor _queryExecutor;
+        private readonly IFirestoreCollectionManager _collectionManager;
 
         public FirestoreShapedQueryCompilingExpressionVisitorFactory(
             ShapedQueryCompilingExpressionVisitorDependencies dependencies,
-            IFirestoreQueryExecutor queryExecutor)
+            IFirestoreQueryExecutor queryExecutor,
+            IFirestoreCollectionManager collectionManager)
         {
             _dependencies = dependencies;
             _queryExecutor = queryExecutor;
+            _collectionManager = collectionManager;
         }
 
         public ShapedQueryCompilingExpressionVisitor Create(QueryCompilationContext queryCompilationContext)
@@ -21,7 +25,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             return new FirestoreShapedQueryCompilingExpressionVisitor(
                 _dependencies,
                 queryCompilationContext,
-                _queryExecutor);
+                _queryExecutor,
+                _collectionManager);
         }
     }
 }

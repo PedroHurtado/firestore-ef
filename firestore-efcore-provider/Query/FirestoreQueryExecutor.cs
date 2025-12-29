@@ -29,15 +29,18 @@ namespace Firestore.EntityFrameworkCore.Query
     {
         private readonly IFirestoreClientWrapper _client;
         private readonly IFirestoreDocumentDeserializer _deserializer;
+        private readonly IFirestoreCollectionManager _collectionManager;
         private readonly ILogger<FirestoreQueryExecutor> _logger;
 
         public FirestoreQueryExecutor(
             IFirestoreClientWrapper client,
             IFirestoreDocumentDeserializer deserializer,
+            IFirestoreCollectionManager collectionManager,
             ILogger<FirestoreQueryExecutor> logger)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
             _deserializer = deserializer ?? throw new ArgumentNullException(nameof(deserializer));
+            _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -488,7 +491,7 @@ namespace Firestore.EntityFrameworkCore.Query
             if (!navigation.IsSubCollection())
                 return;
 
-            var subCollectionName = GetSubCollectionName(navigation);
+            var subCollectionName = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
             var targetEntityType = navigation.TargetEntityType;
 
             // Construir query con filtros aplicados a nivel de Firestore
@@ -643,7 +646,7 @@ namespace Firestore.EntityFrameworkCore.Query
                     }
                 }
 
-                var collectionName = GetCollectionNameForEntityType(model.FindEntityType(targetEntityType.ClrType)!);
+                var collectionName = _collectionManager.GetCollectionName(targetEntityType.ClrType);
                 var docPath = $"{collectionName}/{id}";
                 referencedDoc = await GetDocumentByReferenceAsync(docPath, cancellationToken);
             }
@@ -753,7 +756,7 @@ namespace Firestore.EntityFrameworkCore.Query
                 var targetEntityType = model.FindEntityType(targetType);
                 if (targetEntityType != null)
                 {
-                    var collectionName = GetCollectionNameForEntityType(targetEntityType);
+                    var collectionName = _collectionManager.GetCollectionName(targetEntityType.ClrType);
                     var docPath = $"{collectionName}/{id}";
                     referencedDoc = await GetDocumentByReferenceAsync(docPath, cancellationToken);
                 }
@@ -928,56 +931,6 @@ namespace Firestore.EntityFrameworkCore.Query
                     }
                 }
             }
-        }
-
-        /// <summary>
-        /// Obtiene el nombre de una subcollection.
-        /// </summary>
-        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
-        {
-            var childEntityType = navigation.ForeignKey.DeclaringEntityType;
-            return Pluralize(childEntityType.ClrType.Name);
-        }
-
-        /// <summary>
-        /// Obtiene el nombre de colección para un EntityType.
-        /// </summary>
-        private static string GetCollectionNameForEntityType(IEntityType entityType)
-        {
-            var tableAttribute = entityType.ClrType
-                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
-
-            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
-                return tableAttribute.Name;
-
-            return Pluralize(entityType.ClrType.Name);
-        }
-
-        /// <summary>
-        /// Pluraliza un nombre.
-        /// </summary>
-        private static string Pluralize(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return name;
-
-            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
-                name.Length > 1 &&
-                !IsVowel(name[name.Length - 2]))
-            {
-                return name.Substring(0, name.Length - 1) + "ies";
-            }
-
-            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
-                return name + "es";
-
-            return name + "s";
-        }
-
-        private static bool IsVowel(char c)
-        {
-            c = char.ToLowerInvariant(c);
-            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
         }
 
         #endregion

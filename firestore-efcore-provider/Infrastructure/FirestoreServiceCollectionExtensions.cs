@@ -57,7 +57,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                     .TryAddSingleton<IFirestoreDocumentSerializer, FirestoreDocumentSerializer>()
                     .TryAddScoped<IFirestoreDocumentDeserializer, FirestoreDocumentDeserializer>()
                     .TryAddScoped<IFirestoreQueryExecutor, FirestoreQueryExecutor>()
-                    .TryAddScoped<IFirestoreCollectionManager, FirestoreCollectionManager>());
+                    .TryAddSingleton<IFirestoreCollectionManager, FirestoreCollectionManager>());
 
             return serviceCollection;
         }

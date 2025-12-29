@@ -23,16 +23,19 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
     {
         private readonly FirestoreQueryCompilationContext _firestoreContext;
         private readonly IFirestoreQueryExecutor _queryExecutor;
+        private readonly IFirestoreCollectionManager _collectionManager;
 
         public FirestoreShapedQueryCompilingExpressionVisitor(
             ShapedQueryCompilingExpressionVisitorDependencies dependencies,
             QueryCompilationContext queryCompilationContext,
-            IFirestoreQueryExecutor queryExecutor)
+            IFirestoreQueryExecutor queryExecutor,
+            IFirestoreCollectionManager collectionManager)
             : base(dependencies, queryCompilationContext)
         {
             // Direct cast - same pattern as Cosmos DB and other official providers
             _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
             _queryExecutor = queryExecutor ?? throw new ArgumentNullException(nameof(queryExecutor));
+            _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
         }
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
@@ -1683,53 +1686,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         //         referenceProperty.SetValue(complexTypeInstance, referencedEntity);
         //     }
         // }
-
-        #endregion
-
-        #region Helper Methods
-
-        private static string GetSubCollectionName(IReadOnlyNavigation navigation)
-        {
-            var childEntityType = navigation.ForeignKey.DeclaringEntityType;
-
-            // Pluralizar el nombre del tipo de entidad
-            return Pluralize(childEntityType.ClrType.Name);
-        }
-
-        private static string GetCollectionNameForEntityType(IEntityType entityType)
-        {
-            var tableAttribute = entityType.ClrType
-                .GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
-
-            if (tableAttribute != null && !string.IsNullOrEmpty(tableAttribute.Name))
-                return tableAttribute.Name;
-
-            return Pluralize(entityType.ClrType.Name);
-        }
-
-        private static string Pluralize(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return name;
-
-            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) &&
-                name.Length > 1 &&
-                !IsVowel(name[name.Length - 2]))
-            {
-                return name.Substring(0, name.Length - 1) + "ies";
-            }
-
-            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
-                return name + "es";
-
-            return name + "s";
-        }
-
-        private static bool IsVowel(char c)
-        {
-            c = char.ToLowerInvariant(c);
-            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
-        }
 
         #endregion
 
