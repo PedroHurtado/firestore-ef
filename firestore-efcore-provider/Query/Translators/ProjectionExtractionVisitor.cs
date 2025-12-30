@@ -554,6 +554,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             var filterResult = _whereTranslator.Translate(predicateLambda.Body);
             if (filterResult != null)
             {
+                // Store the filter result for later processing
+                subcollection.FilterResults.Add(filterResult);
+
                 foreach (var clause in filterResult.AndClauses)
                 {
                     subcollection.Filters.Add(clause);

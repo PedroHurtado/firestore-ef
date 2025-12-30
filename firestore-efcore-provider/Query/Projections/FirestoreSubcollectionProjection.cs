@@ -89,6 +89,13 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         public List<FirestoreSubcollectionProjection> NestedSubcollections { get; }
 
         /// <summary>
+        /// Lista de resultados de filtros traducidos.
+        /// Cada FirestoreFilterResult corresponde a un .Where() en la subcollection.
+        /// Se almacena para procesamiento posterior sin afectar la funcionalidad existente.
+        /// </summary>
+        public List<FirestoreFilterResult> FilterResults { get; }
+
+        /// <summary>
         /// Creates a new subcollection projection definition.
         /// </summary>
         /// <param name="navigationName">Name of the navigation property in the entity.</param>
@@ -105,6 +112,7 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
             Filters = new List<FirestoreWhereClause>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             NestedSubcollections = new List<FirestoreSubcollectionProjection>();
+            FilterResults = new List<FirestoreFilterResult>();
         }
     }
 }

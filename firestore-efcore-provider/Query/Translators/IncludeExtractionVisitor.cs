@@ -135,6 +135,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             var filterResult = _whereTranslator.Translate(predicateLambda.Body);
             if (filterResult != null)
             {
+                // Store the filter result for later processing
+                includeInfo.AddFilterResult(filterResult);
+
                 if (filterResult.IsOrGroup && filterResult.OrGroup != null)
                 {
                     includeInfo.AddOrFilterGroup(filterResult.OrGroup);

@@ -118,6 +118,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             if (filterResult == null)
                 return null;
 
+            // Store the filter result for later processing
+            ast.AddFilterResult(filterResult);
+
             // Aplicar filtros al AST
             if (filterResult.IsOrGroup)
             {
@@ -179,6 +182,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             // Solo soporta operador ==
             if (clause.Operator != FirestoreOperator.EqualTo)
                 return null;
+
+            // Store the filter result for later processing
+            ast.AddFilterResult(filterResult);
 
             // Aplicar optimización
             ast.WithIdValueExpression(clause.ValueExpression);

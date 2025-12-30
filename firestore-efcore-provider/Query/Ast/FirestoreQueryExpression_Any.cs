@@ -47,6 +47,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
                 if (filterResult == null)
                     return null;
 
+                // Store the filter result for later processing
+                ast.AddFilterResult(filterResult);
+
                 if (filterResult.IsOrGroup)
                 {
                     ast.AddOrFilterGroup(filterResult.OrGroup!);

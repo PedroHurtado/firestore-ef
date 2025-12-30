@@ -50,6 +50,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             if (filterResult == null)
                 return null;
 
+            // Store the filter result for later processing
+            ast.AddFilterResult(filterResult);
+
             // Aplicar filtros al AST
             if (filterResult.IsOrGroup)
             {

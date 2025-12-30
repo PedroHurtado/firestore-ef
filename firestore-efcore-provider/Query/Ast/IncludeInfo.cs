@@ -51,6 +51,14 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         private readonly List<FirestoreOrFilterGroup> _orFilterGroups = new();
         public IReadOnlyList<FirestoreOrFilterGroup> OrFilterGroups => _orFilterGroups;
 
+        /// <summary>
+        /// Lista de resultados de filtros traducidos.
+        /// Cada FirestoreFilterResult corresponde a un .Where() en el Include filtrado.
+        /// Se almacena para procesamiento posterior sin afectar la funcionalidad existente.
+        /// </summary>
+        private readonly List<FirestoreFilterResult> _filterResults = new();
+        public IReadOnlyList<FirestoreFilterResult> FilterResults => _filterResults;
+
         #endregion
 
         #region OrderBy (translated by FirestoreOrderByTranslator)
@@ -135,6 +143,16 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         public IncludeInfo AddOrFilterGroup(FirestoreOrFilterGroup orGroup)
         {
             _orFilterGroups.Add(orGroup);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a filter result to the include.
+        /// Se almacena para procesamiento posterior.
+        /// </summary>
+        public IncludeInfo AddFilterResult(FirestoreFilterResult filterResult)
+        {
+            _filterResults.Add(filterResult);
             return this;
         }
 
