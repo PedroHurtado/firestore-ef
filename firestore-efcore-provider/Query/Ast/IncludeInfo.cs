@@ -67,26 +67,32 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         #region Limit/Skip (translated by FirestoreLimitTranslator)
 
         /// <summary>
+        /// Pagination information (Limit, LimitToLast, Skip) with support for
+        /// both constant values and parameterized expressions.
+        /// </summary>
+        public FirestorePaginationInfo Pagination { get; } = new();
+
+        // Backward compatibility properties - delegate to Pagination
+        // Note: Uses "Take" name for backward compatibility with existing code
+        /// <summary>
         /// Take limit for the subcollection (constant value).
         /// </summary>
-        public int? Take { get; private set; }
+        public int? Take => Pagination.Limit;
 
         /// <summary>
         /// Take limit expression for parameterized queries.
-        /// Resolved by AstResolver at execution time.
         /// </summary>
-        public Expression? TakeExpression { get; private set; }
+        public Expression? TakeExpression => Pagination.LimitExpression;
 
         /// <summary>
         /// Skip count for the subcollection (constant value).
         /// </summary>
-        public int? Skip { get; private set; }
+        public int? Skip => Pagination.Skip;
 
         /// <summary>
         /// Skip count expression for parameterized queries.
-        /// Resolved by AstResolver at execution time.
         /// </summary>
-        public Expression? SkipExpression { get; private set; }
+        public Expression? SkipExpression => Pagination.SkipExpression;
 
         #endregion
 
@@ -156,8 +162,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public IncludeInfo WithTake(int take)
         {
-            Take = take;
-            TakeExpression = null;
+            Pagination.WithLimit(take);
             return this;
         }
 
@@ -166,8 +171,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public IncludeInfo WithTakeExpression(Expression takeExpression)
         {
-            Take = null;
-            TakeExpression = takeExpression;
+            Pagination.WithLimitExpression(takeExpression);
             return this;
         }
 
@@ -176,8 +180,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public IncludeInfo WithSkip(int skip)
         {
-            Skip = skip;
-            SkipExpression = null;
+            Pagination.WithSkip(skip);
             return this;
         }
 
@@ -186,8 +189,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public IncludeInfo WithSkipExpression(Expression skipExpression)
         {
-            Skip = null;
-            SkipExpression = skipExpression;
+            Pagination.WithSkipExpression(skipExpression);
             return this;
         }
 
@@ -201,10 +203,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         public bool HasOperations => _filters.Count > 0 ||
                                      _orFilterGroups.Count > 0 ||
                                      _orderByClauses.Count > 0 ||
-                                     Take.HasValue ||
-                                     TakeExpression != null ||
-                                     Skip.HasValue ||
-                                     SkipExpression != null;
+                                     Pagination.HasPagination;
 
         #endregion
 

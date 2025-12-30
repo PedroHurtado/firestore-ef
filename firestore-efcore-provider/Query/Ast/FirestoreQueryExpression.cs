@@ -67,40 +67,41 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         public IReadOnlyList<FirestoreOrderByClause> OrderByClauses => _orderByClauses;
 
         /// <summary>
+        /// Pagination information (Limit, LimitToLast, Skip) with support for
+        /// both constant values and parameterized expressions.
+        /// </summary>
+        public FirestorePaginationInfo Pagination { get; } = new();
+
+        // Backward compatibility properties - delegate to Pagination
+        /// <summary>
         /// Límite de documentos a retornar (equivalente a LINQ Take).
         /// </summary>
-        public int? Limit { get; protected set; }
+        public int? Limit => Pagination.Limit;
 
         /// <summary>
         /// Expresión para el límite (para parámetros de EF Core).
-        /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? LimitExpression { get; protected set; }
+        public Expression? LimitExpression => Pagination.LimitExpression;
 
         /// <summary>
         /// Límite de documentos a retornar desde el final (equivalente a LINQ TakeLast).
-        /// Firestore usa LimitToLast() que requiere un OrderBy previo.
         /// </summary>
-        public int? LimitToLast { get; protected set; }
+        public int? LimitToLast => Pagination.LimitToLast;
 
         /// <summary>
         /// Expresión para LimitToLast (para parámetros de EF Core).
-        /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? LimitToLastExpression { get; protected set; }
+        public Expression? LimitToLastExpression => Pagination.LimitToLastExpression;
 
         /// <summary>
         /// Número de documentos a saltar (equivalente a LINQ Skip).
-        /// NOTA: Firestore no soporta offset nativo. Este skip se aplica
-        /// en memoria después de obtener los resultados.
         /// </summary>
-        public int? Skip { get; protected set; }
+        public int? Skip => Pagination.Skip;
 
         /// <summary>
         /// Expresión para el skip (para parámetros de EF Core).
-        /// Se evalúa en tiempo de ejecución.
         /// </summary>
-        public Expression? SkipExpression { get; protected set; }
+        public Expression? SkipExpression => Pagination.SkipExpression;
 
         /// <summary>
         /// Cursor desde el cual empezar (para paginación/Skip).

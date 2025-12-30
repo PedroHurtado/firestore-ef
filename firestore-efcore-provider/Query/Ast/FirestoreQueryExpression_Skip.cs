@@ -23,7 +23,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithSkip(int skip)
         {
-            Skip = skip;
+            Pagination.WithSkip(skip);
             return this;
         }
 
@@ -32,7 +32,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithSkipExpression(Expression skipExpression)
         {
-            SkipExpression = skipExpression;
+            Pagination.WithSkipExpression(skipExpression);
             return this;
         }
 

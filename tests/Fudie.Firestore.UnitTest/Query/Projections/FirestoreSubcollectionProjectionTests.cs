@@ -120,7 +120,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         public void Limit_CanBeSet()
         {
             var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
-            subcollection.Limit = 5;
+            subcollection.Pagination.WithLimit(5);
 
             Assert.Equal(5, subcollection.Limit);
         }
@@ -215,7 +215,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
 
             subcollection.OrderByClauses.Add(new FirestoreOrderByClause("Total", descending: true));
 
-            subcollection.Limit = 2;
+            subcollection.Pagination.WithLimit(2);
 
             Assert.Single(subcollection.Filters);
             Assert.Single(subcollection.OrderByClauses);

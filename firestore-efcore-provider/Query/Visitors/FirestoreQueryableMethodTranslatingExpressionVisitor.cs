@@ -109,52 +109,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             LambdaExpression outerKeySelector,
             LambdaExpression innerKeySelector,
             LambdaExpression resultSelector)
-        {
-            // En Firestore NO hacemos joins reales.
-            // LeftJoin se usa internamente por EF Core para Include de navegaciones.
-            // Estrategia: extraer la navegación y agregarla a PendingIncludes
-            // para que el executor la cargue después.
-
-            var outerQueryExpression = (FirestoreQueryExpression)outer.QueryExpression;
-            var innerQueryExpression = (FirestoreQueryExpression)inner.QueryExpression;
-
-            // Intentar extraer la navegación del outerKeySelector
-            IReadOnlyNavigation? navigation = null;
-
-            if (outerKeySelector.Body is MemberExpression memberExpression)
-            {
-                var memberName = memberExpression.Member.Name;
-                navigation = outerQueryExpression.EntityType.FindNavigation(memberName);
-            }
-
-            // Si encontramos una navegación, agregarla a PendingIncludes
-            if (navigation != null)
-            {
-                var newQueryExpression = outerQueryExpression.AddInclude(navigation.Name, navigation.IsCollection);
-                return outer.UpdateQueryExpression(newQueryExpression);
-            }
-
-            // Si no pudimos extraer la navegación, intentar detectarla desde el inner
-            var innerEntityType = innerQueryExpression.EntityType;
-            var outerEntityType = outerQueryExpression.EntityType;
-
-            // Buscar navegación en outer que apunte a inner
-            foreach (var nav in outerEntityType.GetNavigations())
-            {
-                if (nav.TargetEntityType == innerEntityType)
-                {
-                    var newQueryExpression = outerQueryExpression.AddInclude(nav.Name, nav.IsCollection);
-                    return outer.UpdateQueryExpression(newQueryExpression);
-                }
-            }
-
-            // Si llegamos aquí, no pudimos identificar la navegación
-            throw new NotSupportedException(
-                $"Firestore does not support real joins. " +
-                $"Could not identify navigation for LeftJoin between " +
-                $"'{outerEntityType.ClrType.Name}' and '{innerEntityType.ClrType.Name}'. " +
-                $"Use .Reference() to configure DocumentReference navigations.");
-        }
+            => FirestoreQueryExpression.TranslateLeftJoin(new(outer, inner, outerKeySelector, innerKeySelector, resultSelector));
 
         protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
             => FirestoreQueryExpression.TranslateMax(new(source, selector, resultType));
@@ -173,18 +128,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             if (selector.Body is IncludeExpression includeExpression)
                 return FirestoreQueryExpression.TranslateInclude(new(source, includeExpression));
 
-            // Identity projection (x => x)
-            if (selector.Body == selector.Parameters[0])
-                return source;
-
-            // Type conversion projection
-            if (selector.Body is UnaryExpression unary &&
-                unary.NodeType == ExpressionType.Convert &&
-                unary.Operand == selector.Parameters[0])
-                return source;
-
-            // TODO: Real projections will be implemented in Phase 3 with FirestoreProjectionTranslator
-            return source;
+            // Delegate to Slice for projection translation
+            return FirestoreQueryExpression.TranslateSelect(new(source, selector));
         }
 
         protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)

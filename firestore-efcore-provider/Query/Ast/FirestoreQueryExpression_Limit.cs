@@ -24,7 +24,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithLimit(int limit)
         {
-            Limit = limit;
+            Pagination.WithLimit(limit);
             return this;
         }
 
@@ -33,7 +33,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithLimitExpression(Expression limitExpression)
         {
-            LimitExpression = limitExpression;
+            Pagination.WithLimitExpression(limitExpression);
             return this;
         }
 
@@ -42,7 +42,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithLimitToLast(int limitToLast)
         {
-            LimitToLast = limitToLast;
+            Pagination.WithLimitToLast(limitToLast);
             return this;
         }
 
@@ -51,7 +51,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public FirestoreQueryExpression WithLimitToLastExpression(Expression limitToLastExpression)
         {
-            LimitToLastExpression = limitToLastExpression;
+            Pagination.WithLimitToLastExpression(limitToLastExpression);
             return this;
         }
 

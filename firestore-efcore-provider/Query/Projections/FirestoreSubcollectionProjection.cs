@@ -40,10 +40,31 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         public List<FirestoreOrderByClause> OrderByClauses { get; }
 
         /// <summary>
-        /// Maximum number of documents to return (Take).
-        /// Null means no limit.
+        /// Pagination information (Limit, LimitToLast, Skip) with support for
+        /// both constant values and parameterized expressions.
         /// </summary>
-        public int? Limit { get; set; }
+        public FirestorePaginationInfo Pagination { get; } = new();
+
+        // Backward compatibility properties - delegate to Pagination
+        /// <summary>
+        /// Maximum number of documents to return (Take).
+        /// </summary>
+        public int? Limit => Pagination.Limit;
+
+        /// <summary>
+        /// Number of documents to skip (Skip/Offset).
+        /// </summary>
+        public int? Offset => Pagination.Skip;
+
+        /// <summary>
+        /// Indicates if this is an Any() operation (returns bool).
+        /// </summary>
+        public bool IsAny { get; set; }
+
+        /// <summary>
+        /// Indicates if this returns a single element (First, FirstOrDefault, Single, SingleOrDefault).
+        /// </summary>
+        public bool IsSingleElement { get; set; }
 
         /// <summary>
         /// Fields to project from the subcollection.
