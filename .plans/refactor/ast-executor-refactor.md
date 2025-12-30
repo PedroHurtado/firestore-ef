@@ -939,14 +939,29 @@ FirestoreAggregationTranslator (abstracto)
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Crear tests del translator | `Tests/Query/Translators/FirestoreProjectionTranslatorTests.cs` |
-| IMPL | [ ] | Implementar translator | `Query/Translators/FirestoreProjectionTranslator.cs` |
-| INTEGRAR | [ ] | Mover lógica del Visitor al Translator | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
-| VERIFICAR | [ ] | Habilitar tests de Select (actualmente en Skip) | `Tests/Query/SelectTests.cs` |
+| TEST | [x] | Crear tests del translator | `Tests/Query/Translators/FirestoreProjectionTranslatorTests.cs` |
+| TEST | [x] | Crear tests de ProjectionExtractionVisitor | `Tests/Query/Translators/ProjectionExtractionVisitorTests.cs` |
+| IMPL | [x] | Crear FirestorePaginationInfo DTO | `Query/Ast/FirestorePaginationInfo.cs` |
+| IMPL | [x] | Implementar ProjectionExtractionVisitor | `Query/Translators/ProjectionExtractionVisitor.cs` |
+| IMPL | [x] | Implementar translator | `Query/Translators/FirestoreProjectionTranslator.cs` |
+| IMPL | [x] | Crear feature file Projection | `Query/Ast/FirestoreQueryExpression_Projection.cs` |
+| INTEGRAR | [x] | Visitor TranslateSelect delega a slice | `Query/Visitors/FirestoreQueryableMethodTranslatingExpressionVisitor.cs` |
+| REFACTOR | [x] | Refactorizar FirestoreSubcollectionProjection para usar FirestorePaginationInfo | `Query/Projections/FirestoreSubcollectionProjection.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 980 unit + 170 integration |
 
 **Qué traduce:** `Select` (proyecciones)
 
-**Commit:**
+**Archivos creados:**
+- `Query/Ast/FirestorePaginationInfo.cs` - DTO para consolidar Skip/Limit/HasLimit
+- `Query/Translators/ProjectionExtractionVisitor.cs` - Visitor para extraer proyecciones de Select
+- `Query/Translators/FirestoreProjectionTranslator.cs` - Coordinator que usa ProjectionExtractionVisitor
+- `Query/Ast/FirestoreQueryExpression_Projection.cs` - Slice con TranslateSelectRequest
+
+**También incluye LeftJoin extraction:**
+- `Query/Translators/FirestoreLeftJoinTranslator.cs` - Extrae navegación de LeftJoin
+- `Query/Ast/FirestoreQueryExpression_LeftJoin.cs` - Slice con TranslateLeftJoinRequest
+
+**Commit:** 497495f
 
 ---
 
