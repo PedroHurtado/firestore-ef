@@ -332,8 +332,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         // Behavior flags
         bool ReturnDefault,
-        Type? ReturnType,
-        bool IsTracking)
+        Type? ReturnType)
     {
         /// <summary>
         /// Whether this is an aggregation query.

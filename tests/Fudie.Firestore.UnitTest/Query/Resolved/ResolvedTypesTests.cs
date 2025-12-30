@@ -461,8 +461,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: null,
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: true);
+                ReturnType: null);
 
             Assert.Equal("customers", query.CollectionName);
             Assert.False(query.IsAggregation);
@@ -485,8 +484,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: typeof(int),
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: false);
+                ReturnType: null);
 
             Assert.True(query.IsAggregation);
             Assert.True(query.IsCountQuery);
@@ -509,8 +507,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: typeof(bool),
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: false);
+                ReturnType: null);
 
             Assert.True(query.IsAggregation);
             Assert.True(query.IsAnyQuery);
@@ -540,8 +537,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: null,
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: true);
+                ReturnType: null);
 
             Assert.Equal(2, query.TotalFilterCount);
             Assert.Single(query.OrderByClauses);
@@ -568,8 +564,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: null,
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: true);
+                ReturnType: null);
 
             var str = query.ToString();
             Assert.Contains("products", str);
@@ -610,8 +605,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 AggregationResultType: null,
                 Projection: null,
                 ReturnDefault: false,
-                ReturnType: null,
-                IsTracking: true);
+                ReturnType: null);
 
             Assert.Equal(5, query.TotalFilterCount);
         }
