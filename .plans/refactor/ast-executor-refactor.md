@@ -969,36 +969,33 @@ FirestoreAggregationTranslator (abstracto)
 
 Solo después de que TODOS los Translators estén funcionando.
 
-### 2.1 ResolvedFirestoreQuery
+### 2.1 Todos los ResolvedTypes en un solo archivo
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Tests de construcción y propiedades | `Tests/Query/ResolvedFirestoreQueryTests.cs` |
-| IMPL | [ ] | Crear estructura | `Query/ResolvedFirestoreQuery.cs` |
+| TEST | [x] | Tests de todos los records | `Tests/Query/Resolved/ResolvedTypesTests.cs` |
+| IMPL | [x] | Crear todos los records en un archivo | `Query/Resolved/ResolvedTypes.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 1017 unit + 170 integration |
 
-**Commit:**
+**Records creados:**
+- `ResolvedWhereClause` - Filtro con `object? Value` evaluado
+- `ResolvedOrFilterGroup` - Grupo OR de clauses
+- `ResolvedFilterResult` - Resultado de filtro (AndClauses/OrGroup/NestedOrGroups)
+- `ResolvedOrderByClause` - Ordenamiento resuelto
+- `ResolvedPaginationInfo` - Limit/Skip/LimitToLast como `int?`
+- `ResolvedCursor` - Cursor para paginación
+- `ResolvedInclude` - Include con solo FilterResults
+- `ResolvedSubcollectionProjection` - Proyección de subcolección
+- `ResolvedProjectionDefinition` - Definición de proyección
+- `ResolvedFirestoreQuery` - Query principal resuelta
 
----
+**Decisiones de diseño:**
+- Solo `FilterResults` almacenado (sin `Filters`/`OrFilterGroups` redundantes)
+- El Executor/Resolver centralizará la lógica de procesar FilterResults
+- Sin `IdValue` - la optimización de Id usará `IModel` en Fase 3
+- Tipos `int?` para paginación en lugar de `object`
 
-### 2.2 ResolvedWhereClause
-
-| Paso | Estado | Acción | Archivo |
-|------|--------|--------|---------|
-| TEST | [ ] | Tests de construcción | `Tests/Query/ResolvedWhereClauseTests.cs` |
-| IMPL | [ ] | Crear estructura | `Query/ResolvedWhereClause.cs` |
-
-**Commit:**
-
----
-
-### 2.3 ResolvedInclude
-
-| Paso | Estado | Acción | Archivo |
-|------|--------|--------|---------|
-| TEST | [ ] | Tests de construcción | `Tests/Query/ResolvedIncludeTests.cs` |
-| IMPL | [ ] | Crear estructura | `Query/ResolvedInclude.cs` |
-
-**Commit:**
+**Commit:** f004450
 
 ---
 
@@ -1018,6 +1015,196 @@ Solo después de que TODOS los Translators estén funcionando.
 - `EvaluateIdExpression` del Executor
 - `EvaluateValue` de `FirestoreWhereClause`
 - `CompileFilterPredicate` del Executor y Shaper
+
+---
+
+### 3.2 Optimización de Id con IModel (GetDocumentAsync)
+
+**Problema actual:**
+
+La optimización de Id solo funciona para la query principal y usa un nombre hardcodeado "Id":
+
+```csharp
+// Código actual en FirestoreQueryExpression_FirstOrDefault.cs
+if (propertyName == "Id" && op == FirestoreOperator.EqualTo)
+{
+    // Usa GetDocumentAsync en lugar de query
+}
+```
+
+**Limitaciones:**
+1. Solo funciona para la query principal, no para Includes ni Subcollections
+2. Requiere que la propiedad se llame exactamente "Id"
+3. No detecta el primary key real del modelo
+
+**Solución propuesta:**
+
+El `AstResolver` recibirá `IModel` y podrá detectar el primary key real de cualquier entidad:
+
+```csharp
+public class FirestoreAstResolver
+{
+    private readonly IModel _model;
+
+    public FirestoreAstResolver(IModel model)
+    {
+        _model = model;
+    }
+
+    private string? GetPrimaryKeyPropertyName(Type entityType)
+    {
+        var entityTypeInfo = _model.FindEntityType(entityType);
+        var primaryKey = entityTypeInfo?.FindPrimaryKey();
+        return primaryKey?.Properties.FirstOrDefault()?.Name;
+    }
+
+    private bool IsIdOnlyFilter(ResolvedFilterResult filter, Type entityType)
+    {
+        var pkName = GetPrimaryKeyPropertyName(entityType);
+        if (pkName == null) return false;
+
+        // Un solo filtro AND con igualdad en el PK
+        return filter.AndClauses.Count == 1
+            && filter.OrGroup == null
+            && filter.AndClauses[0].PropertyName == pkName
+            && filter.AndClauses[0].Operator == FirestoreOperator.EqualTo;
+    }
+}
+```
+
+---
+
+### 3.3 Ejemplo: Modelo Menu/Category/Item
+
+**Modelo de ejemplo (REST API de restaurante):**
+
+```csharp
+public class Menu
+{
+    public string MenuId { get; set; }  // PK - no se llama "Id"
+    public string Name { get; set; }
+    public List<Category> Categories { get; set; }
+}
+
+public class Category
+{
+    public string CategoryId { get; set; }  // PK
+    public string Name { get; set; }
+    public List<Item> Items { get; set; }
+}
+
+public class Item
+{
+    public string ItemId { get; set; }  // PK
+    public string Name { get; set; }
+    public decimal Price { get; set; }
+}
+```
+
+**Estructura en Firestore:**
+
+```
+menus/{menuId}
+    └── categories/{categoryId}
+            └── items/{itemId}
+```
+
+---
+
+### 3.4 Queries con optimización de Id a todos los niveles
+
+**Query 1: Menu por Id (query principal)**
+
+```csharp
+// LINQ
+var menu = await context.Menus
+    .FirstOrDefaultAsync(m => m.MenuId == "menu-123");
+
+// SIN optimización (query)
+FirestoreDb.Collection("menus").WhereEqualTo("MenuId", "menu-123").Limit(1)
+
+// CON optimización (GetDocumentAsync) ✅
+FirestoreDb.Collection("menus").Document("menu-123").GetSnapshotAsync()
+```
+
+**Query 2: Include con filtro por Id (subcolección)**
+
+```csharp
+// LINQ - Obtener menu con una categoría específica
+var menu = await context.Menus
+    .Include(m => m.Categories.Where(c => c.CategoryId == "cat-456"))
+    .FirstOrDefaultAsync(m => m.MenuId == "menu-123");
+
+// SIN optimización (2 queries)
+// 1. menus/menu-123 (GetDocumentAsync - ya optimizado)
+// 2. menus/menu-123/categories.WhereEqualTo("CategoryId", "cat-456")
+
+// CON optimización (2 GetDocumentAsync) ✅
+// 1. menus/menu-123 (GetDocumentAsync)
+// 2. menus/menu-123/categories/cat-456 (GetDocumentAsync)
+```
+
+**Query 3: Include anidado con filtros por Id**
+
+```csharp
+// LINQ - Obtener menu > categoría específica > item específico
+var menu = await context.Menus
+    .Include(m => m.Categories.Where(c => c.CategoryId == "cat-456"))
+        .ThenInclude(c => c.Items.Where(i => i.ItemId == "item-789"))
+    .FirstOrDefaultAsync(m => m.MenuId == "menu-123");
+
+// SIN optimización (3 operaciones, 2 son queries)
+// 1. menus/menu-123 (GetDocumentAsync)
+// 2. menus/menu-123/categories.WhereEqualTo("CategoryId", "cat-456")
+// 3. menus/menu-123/categories/cat-456/items.WhereEqualTo("ItemId", "item-789")
+
+// CON optimización (3 GetDocumentAsync) ✅
+// 1. menus/menu-123 (GetDocumentAsync)
+// 2. menus/menu-123/categories/cat-456 (GetDocumentAsync)
+// 3. menus/menu-123/categories/cat-456/items/item-789 (GetDocumentAsync)
+```
+
+**Query 4: Proyección con subcolección filtrada por Id**
+
+```csharp
+// LINQ - Proyectar menu con items de una categoría específica
+var result = await context.Menus
+    .Where(m => m.MenuId == "menu-123")
+    .Select(m => new {
+        m.Name,
+        SpecialItems = m.Categories
+            .Where(c => c.CategoryId == "cat-456")
+            .SelectMany(c => c.Items)
+    })
+    .FirstOrDefaultAsync();
+
+// CON optimización en proyección ✅
+// 1. menus/menu-123 (GetDocumentAsync - query principal)
+// 2. menus/menu-123/categories/cat-456 (GetDocumentAsync - subcolección en proyección)
+// 3. menus/menu-123/categories/cat-456/items (query normal - no tiene filtro por Id)
+```
+
+---
+
+### 3.5 Beneficios de la optimización con IModel
+
+| Aspecto | Antes | Después |
+|---------|-------|---------|
+| Detección de PK | Hardcodeado "Id" | Usa `IModel.FindPrimaryKey()` |
+| Nombres de PK | Solo "Id" | Cualquiera (MenuId, CategoryId, etc.) |
+| Query principal | ✅ Optimizado | ✅ Optimizado |
+| Includes | ❌ No optimizado | ✅ Optimizado |
+| Proyecciones | ❌ No optimizado | ✅ Optimizado |
+| Subcolecciones anidadas | ❌ No optimizado | ✅ Optimizado |
+
+**Impacto en rendimiento:**
+
+- `GetDocumentAsync`: ~50ms latencia típica
+- Query con filtro: ~100-200ms latencia típica
+
+Para un endpoint REST como `GET /menus/{menuId}/categories/{categoryId}/items/{itemId}`:
+- Sin optimización: 3 queries = ~400ms
+- Con optimización: 3 GetDocument = ~150ms
 
 **Commit:**
 
