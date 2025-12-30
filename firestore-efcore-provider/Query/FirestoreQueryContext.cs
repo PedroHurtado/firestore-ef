@@ -1,8 +1,20 @@
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
+using System.Collections.Generic;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
-    public class FirestoreQueryContext(QueryContextDependencies dependencies) : QueryContext(dependencies)
+    /// <summary>
+    /// Firestore-specific query context that implements IFirestoreQueryContext
+    /// for testability and dependency injection.
+    /// </summary>
+    public class FirestoreQueryContext(QueryContextDependencies dependencies)
+        : QueryContext(dependencies), IFirestoreQueryContext
     {
+        /// <inheritdoc />
+        IReadOnlyDictionary<string, object?> IFirestoreQueryContext.ParameterValues => ParameterValues;
+
+        /// <inheritdoc />
+        IModel IFirestoreQueryContext.Model => Context.Model;
     }
 }

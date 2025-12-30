@@ -273,15 +273,39 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void ResolvedInclude_BasicInclude_NoOperations()
         {
             var include = new ResolvedInclude(
-                "Orders",
+                NavigationName: "Orders",
                 IsCollection: true,
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
-                Pagination: ResolvedPaginationInfo.None);
+                Pagination: ResolvedPaginationInfo.None,
+                NestedIncludes: Array.Empty<ResolvedInclude>());
 
             Assert.Equal("Orders", include.NavigationName);
             Assert.True(include.IsCollection);
+            Assert.Equal("orders", include.CollectionPath);
+            Assert.False(include.IsDocumentQuery);
             Assert.False(include.HasOperations);
+        }
+
+        [Fact]
+        public void ResolvedInclude_WithDocumentId_IsDocumentQueryTrue()
+        {
+            var include = new ResolvedInclude(
+                NavigationName: "Category",
+                IsCollection: true,
+                TargetEntityType: typeof(object),
+                CollectionPath: "categories",
+                DocumentId: "cat-456",
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
+                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
+                Pagination: ResolvedPaginationInfo.None,
+                NestedIncludes: Array.Empty<ResolvedInclude>());
+
+            Assert.True(include.IsDocumentQuery);
+            Assert.Equal("cat-456", include.DocumentId);
         }
 
         [Fact]
@@ -291,11 +315,15 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 new ResolvedWhereClause("Status", FirestoreOperator.EqualTo, "Active"));
 
             var include = new ResolvedInclude(
-                "Orders",
+                NavigationName: "Orders",
                 IsCollection: true,
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: null,
                 FilterResults: new[] { filterResult },
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
-                Pagination: ResolvedPaginationInfo.None);
+                Pagination: ResolvedPaginationInfo.None,
+                NestedIncludes: Array.Empty<ResolvedInclude>());
 
             Assert.True(include.HasOperations);
             Assert.Equal(1, include.TotalFilterCount);
@@ -305,42 +333,46 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void ResolvedInclude_WithPagination_HasOperationsTrue()
         {
             var include = new ResolvedInclude(
-                "Orders",
+                NavigationName: "Orders",
                 IsCollection: true,
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
-                Pagination: new ResolvedPaginationInfo(Limit: 5));
+                Pagination: new ResolvedPaginationInfo(Limit: 5),
+                NestedIncludes: Array.Empty<ResolvedInclude>());
 
             Assert.True(include.HasOperations);
         }
 
         [Fact]
-        public void ResolvedInclude_TotalFilterCount_CountsAllClauses()
+        public void ResolvedInclude_WithNestedIncludes()
         {
-            // FilterResult with 2 AND clauses
-            var filterResult1 = new ResolvedFilterResult(
-                new[]
-                {
-                    new ResolvedWhereClause("A", FirestoreOperator.EqualTo, 1),
-                    new ResolvedWhereClause("B", FirestoreOperator.EqualTo, 2)
-                });
-
-            // FilterResult with OR group (2 clauses)
-            var orGroup = new ResolvedOrFilterGroup(new[]
-            {
-                new ResolvedWhereClause("C", FirestoreOperator.EqualTo, 3),
-                new ResolvedWhereClause("D", FirestoreOperator.EqualTo, 4)
-            });
-            var filterResult2 = ResolvedFilterResult.FromOrGroup(orGroup);
+            var nestedInclude = new ResolvedInclude(
+                NavigationName: "Items",
+                IsCollection: true,
+                TargetEntityType: typeof(object),
+                CollectionPath: "items",
+                DocumentId: null,
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
+                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
+                Pagination: ResolvedPaginationInfo.None,
+                NestedIncludes: Array.Empty<ResolvedInclude>());
 
             var include = new ResolvedInclude(
-                "Orders",
+                NavigationName: "Categories",
                 IsCollection: true,
-                FilterResults: new[] { filterResult1, filterResult2 },
+                TargetEntityType: typeof(object),
+                CollectionPath: "categories",
+                DocumentId: null,
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
-                Pagination: ResolvedPaginationInfo.None);
+                Pagination: ResolvedPaginationInfo.None,
+                NestedIncludes: new[] { nestedInclude });
 
-            Assert.Equal(4, include.TotalFilterCount);
+            Assert.Single(include.NestedIncludes);
+            Assert.Equal("Items", include.NestedIncludes[0].NavigationName);
         }
 
         #endregion
@@ -382,9 +414,11 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void ResolvedSubcollectionProjection_Basic()
         {
             var subcollection = new ResolvedSubcollectionProjection(
-                "Orders",
-                "Orders",
-                "orders",
+                NavigationName: "Orders",
+                ResultName: "Orders",
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,
@@ -394,17 +428,41 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
 
             Assert.Equal("Orders", subcollection.NavigationName);
-            Assert.Equal("orders", subcollection.CollectionName);
+            Assert.Equal("orders", subcollection.CollectionPath);
+            Assert.False(subcollection.IsDocumentQuery);
             Assert.False(subcollection.IsAggregation);
+        }
+
+        [Fact]
+        public void ResolvedSubcollectionProjection_WithDocumentId_IsDocumentQueryTrue()
+        {
+            var subcollection = new ResolvedSubcollectionProjection(
+                NavigationName: "Order",
+                ResultName: "Order",
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: "order-123",
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
+                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
+                Pagination: ResolvedPaginationInfo.None,
+                Fields: null,
+                Aggregation: null,
+                AggregationPropertyName: null,
+                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
+
+            Assert.True(subcollection.IsDocumentQuery);
+            Assert.Equal("order-123", subcollection.DocumentId);
         }
 
         [Fact]
         public void ResolvedSubcollectionProjection_WithAggregation_IsAggregationTrue()
         {
             var subcollection = new ResolvedSubcollectionProjection(
-                "Orders",
-                "OrderCount",
-                "orders",
+                NavigationName: "Orders",
+                ResultName: "OrderCount",
+                TargetEntityType: typeof(object),
+                CollectionPath: "orders",
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,
@@ -416,41 +474,17 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             Assert.True(subcollection.IsAggregation);
         }
 
-        [Fact]
-        public void ResolvedSubcollectionProjection_TotalFilterCount_CountsAllClauses()
-        {
-            var filterResult = new ResolvedFilterResult(
-                new[]
-                {
-                    new ResolvedWhereClause("Status", FirestoreOperator.EqualTo, "Active"),
-                    new ResolvedWhereClause("Amount", FirestoreOperator.GreaterThan, 100)
-                });
-
-            var subcollection = new ResolvedSubcollectionProjection(
-                "Orders",
-                "Orders",
-                "orders",
-                FilterResults: new[] { filterResult },
-                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
-                Pagination: ResolvedPaginationInfo.None,
-                Fields: null,
-                Aggregation: null,
-                AggregationPropertyName: null,
-                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
-
-            Assert.Equal(2, subcollection.TotalFilterCount);
-        }
-
         #endregion
 
         #region ResolvedFirestoreQuery Tests
 
         [Fact]
-        public void ResolvedFirestoreQuery_Basic()
+        public void ResolvedFirestoreQuery_Basic_CollectionQuery()
         {
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "customers",
+                CollectionPath: "customers",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,
@@ -463,17 +497,42 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 ReturnDefault: false,
                 ReturnType: null);
 
-            Assert.Equal("customers", query.CollectionName);
+            Assert.Equal("customers", query.CollectionPath);
+            Assert.False(query.IsDocumentQuery);
             Assert.False(query.IsAggregation);
             Assert.False(query.HasProjection);
+        }
+
+        [Fact]
+        public void ResolvedFirestoreQuery_WithDocumentId_IsDocumentQueryTrue()
+        {
+            var query = new ResolvedFirestoreQuery(
+                CollectionPath: "customers",
+                EntityClrType: typeof(object),
+                DocumentId: "cust-123",
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
+                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
+                Pagination: ResolvedPaginationInfo.None,
+                StartAfterCursor: null,
+                Includes: Array.Empty<ResolvedInclude>(),
+                AggregationType: FirestoreAggregationType.None,
+                AggregationPropertyName: null,
+                AggregationResultType: null,
+                Projection: null,
+                ReturnDefault: true,
+                ReturnType: typeof(object));
+
+            Assert.True(query.IsDocumentQuery);
+            Assert.Equal("cust-123", query.DocumentId);
         }
 
         [Fact]
         public void ResolvedFirestoreQuery_CountQuery()
         {
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "customers",
+                CollectionPath: "customers",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,
@@ -495,8 +554,9 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void ResolvedFirestoreQuery_AnyQuery()
         {
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "customers",
+                CollectionPath: "customers",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: Array.Empty<ResolvedFilterResult>(),
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,
@@ -525,8 +585,9 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 });
 
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "customers",
+                CollectionPath: "customers",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: new[] { filterResult },
                 OrderByClauses: new[] { new ResolvedOrderByClause("Name") },
                 Pagination: new ResolvedPaginationInfo(Limit: 10, Skip: 5),
@@ -546,14 +607,15 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         }
 
         [Fact]
-        public void ResolvedFirestoreQuery_ToString_IncludesKeyInfo()
+        public void ResolvedFirestoreQuery_ToString_CollectionQuery()
         {
             var filterResult = ResolvedFilterResult.FromClause(
                 new ResolvedWhereClause("Price", FirestoreOperator.GreaterThan, 100));
 
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "products",
+                CollectionPath: "products",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: new[] { filterResult },
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: new ResolvedPaginationInfo(Limit: 20),
@@ -567,9 +629,32 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 ReturnType: null);
 
             var str = query.ToString();
-            Assert.Contains("products", str);
+            Assert.Contains("Collection: products", str);
             Assert.Contains("Filters", str);
             Assert.Contains("Limit: 20", str);
+        }
+
+        [Fact]
+        public void ResolvedFirestoreQuery_ToString_DocumentQuery()
+        {
+            var query = new ResolvedFirestoreQuery(
+                CollectionPath: "menus",
+                EntityClrType: typeof(object),
+                DocumentId: "menu-123",
+                FilterResults: Array.Empty<ResolvedFilterResult>(),
+                OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
+                Pagination: ResolvedPaginationInfo.None,
+                StartAfterCursor: null,
+                Includes: Array.Empty<ResolvedInclude>(),
+                AggregationType: FirestoreAggregationType.None,
+                AggregationPropertyName: null,
+                AggregationResultType: null,
+                Projection: null,
+                ReturnDefault: true,
+                ReturnType: typeof(object));
+
+            var str = query.ToString();
+            Assert.Contains("Document: menus/menu-123", str);
         }
 
         [Fact]
@@ -593,8 +678,9 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             var filterResult2 = ResolvedFilterResult.FromOrGroup(orGroup);
 
             var query = new ResolvedFirestoreQuery(
-                CollectionName: "test",
+                CollectionPath: "test",
                 EntityClrType: typeof(object),
+                DocumentId: null,
                 FilterResults: new[] { filterResult1, filterResult2 },
                 OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
                 Pagination: ResolvedPaginationInfo.None,

@@ -178,16 +178,35 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of IncludeInfo.
-    /// Contains only FilterResults - the Executor/Resolver handles the logic.
-    /// No "expanded" Filters/OrFilterGroups lists.
+    /// Contains the resolved collection path and optional document ID for GetDocumentAsync optimization.
+    /// The Executor just executes - no logic needed.
     /// </summary>
     public record ResolvedInclude(
         string NavigationName,
         bool IsCollection,
+        Type TargetEntityType,
+
+        // Path resolved by Resolver - relative to parent document
+        // e.g., "categories" for menus/{id}/categories
+        string CollectionPath,
+
+        // If set, use GetDocumentAsync instead of query (Id optimization)
+        // e.g., "cat-456" for menus/{id}/categories/cat-456
+        string? DocumentId,
+
+        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
-        ResolvedPaginationInfo Pagination)
+        ResolvedPaginationInfo Pagination,
+
+        // Nested includes
+        IReadOnlyList<ResolvedInclude> NestedIncludes)
     {
+        /// <summary>
+        /// Whether this is a document query (GetDocumentAsync) vs collection query.
+        /// </summary>
+        public bool IsDocumentQuery => DocumentId != null;
+
         /// <summary>
         /// Whether this include has any filter/ordering/limit operations.
         /// </summary>
@@ -208,6 +227,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         {
             var parts = new List<string> { NavigationName };
             if (IsCollection) parts.Add("[Collection]");
+            if (DocumentId != null)
+                parts.Add($"Doc({DocumentId})");
             if (FilterResults.Count > 0)
                 parts.Add($"Where({TotalFilterCount})");
             if (OrderByClauses.Count > 0)
@@ -247,21 +268,34 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreSubcollectionProjection.
-    /// Contains only FilterResults - the Executor/Resolver handles the logic.
-    /// No "expanded" Filters lists.
+    /// Contains the resolved collection path and optional document ID for GetDocumentAsync optimization.
     /// </summary>
     public record ResolvedSubcollectionProjection(
         string NavigationName,
         string ResultName,
-        string CollectionName,
+        Type TargetEntityType,
+
+        // Path resolved by Resolver - relative to parent document
+        string CollectionPath,
+
+        // If set, use GetDocumentAsync instead of query (Id optimization)
+        string? DocumentId,
+
+        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
         ResolvedPaginationInfo Pagination,
+
         IReadOnlyList<FirestoreProjectedField>? Fields,
         FirestoreAggregationType? Aggregation,
         string? AggregationPropertyName,
         IReadOnlyList<ResolvedSubcollectionProjection> NestedSubcollections)
     {
+        /// <summary>
+        /// Whether this is a document query (GetDocumentAsync) vs collection query.
+        /// </summary>
+        public bool IsDocumentQuery => DocumentId != null;
+
         /// <summary>
         /// Indicates if this is an aggregation projection.
         /// </summary>
@@ -278,6 +312,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         public override string ToString()
         {
             var parts = new List<string> { NavigationName };
+            if (DocumentId != null)
+                parts.Add($"Doc({DocumentId})");
             if (FilterResults.Count > 0)
                 parts.Add($"Where({TotalFilterCount})");
             if (OrderByClauses.Count > 0)
@@ -297,17 +333,21 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     /// <summary>
     /// Resolved version of FirestoreQueryExpression.
     /// Contains all resolved values ready for execution by FirestoreQueryExecutor.
-    /// No Expressions, no EF Core types - pure data.
+    /// No Expressions, no EF Core types - pure data ready for SDK calls.
     ///
-    /// Only FilterResults is stored - the Executor/Resolver handles the logic of
-    /// detecting OR groups, Id-only queries, etc. No "expanded" Filters/OrFilterGroups.
+    /// The Executor is now "dumb" - it just builds SDK calls from this data.
+    /// All logic (path resolution, Id optimization, PK detection) is done by the Resolver.
     /// </summary>
     public record ResolvedFirestoreQuery(
-        // Basic info
-        string CollectionName,
+        // Path resolved by Resolver - e.g., "menus" or for nested queries
+        string CollectionPath,
         Type EntityClrType,
 
-        // Filters - only FilterResults, Executor handles the logic
+        // If set, use GetDocumentAsync instead of query (Id optimization)
+        // e.g., "menu-123" for menus/menu-123
+        string? DocumentId,
+
+        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
 
         // OrderBy (already pure)
@@ -319,7 +359,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         // Cursor (already pure)
         ResolvedCursor? StartAfterCursor,
 
-        // Includes (resolved)
+        // Includes (resolved with paths)
         IReadOnlyList<ResolvedInclude> Includes,
 
         // Aggregation (already pure)
@@ -334,6 +374,11 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         bool ReturnDefault,
         Type? ReturnType)
     {
+        /// <summary>
+        /// Whether this is a document query (GetDocumentAsync) vs collection query.
+        /// </summary>
+        public bool IsDocumentQuery => DocumentId != null;
+
         /// <summary>
         /// Whether this is an aggregation query.
         /// </summary>
@@ -364,7 +409,12 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         public override string ToString()
         {
-            var parts = new List<string> { $"Collection: {CollectionName}" };
+            var parts = new List<string>();
+
+            if (DocumentId != null)
+                parts.Add($"Document: {CollectionPath}/{DocumentId}");
+            else
+                parts.Add($"Collection: {CollectionPath}");
 
             if (FilterResults.Count > 0)
                 parts.Add($"Filters: {TotalFilterCount} clauses in {FilterResults.Count} results");
