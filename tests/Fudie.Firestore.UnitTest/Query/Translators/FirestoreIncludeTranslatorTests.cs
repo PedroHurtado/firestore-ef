@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
@@ -14,6 +15,21 @@ namespace Fudie.Firestore.UnitTest.Query.Translators;
 /// </summary>
 public class FirestoreIncludeTranslatorTests
 {
+    #region Test Entities
+
+    private class Pedido { public string Id { get; set; } = ""; }
+    private class Linea { public string Id { get; set; } = ""; }
+
+    #endregion
+
+    private static IFirestoreCollectionManager CreateCollectionManagerMock()
+    {
+        var mock = new Mock<IFirestoreCollectionManager>();
+        mock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        return mock.Object;
+    }
+
     /// <summary>
     /// Tests that FirestoreIncludeTranslator delegates to the injected visitor
     /// and returns the visitor's DetectedIncludes.
@@ -22,9 +38,9 @@ public class FirestoreIncludeTranslatorTests
     public void Translate_DelegatesToVisitor_ReturnsDetectedIncludes()
     {
         // Arrange - Create a mock visitor with pre-populated includes
-        var mockVisitor = new TestableIncludeExtractionVisitor();
-        mockVisitor.DetectedIncludes.Add(new IncludeInfo("Pedidos", isCollection: true));
-        mockVisitor.DetectedIncludes.Add(new IncludeInfo("Lineas", isCollection: true));
+        var mockVisitor = new TestableIncludeExtractionVisitor(CreateCollectionManagerMock());
+        mockVisitor.DetectedIncludes.Add(new IncludeInfo("Pedidos", true, "pedidos", typeof(Pedido)));
+        mockVisitor.DetectedIncludes.Add(new IncludeInfo("Lineas", true, "lineas", typeof(Linea)));
 
         var translator = new FirestoreIncludeTranslator(mockVisitor);
 
@@ -52,6 +68,11 @@ public class FirestoreIncludeTranslatorTests
     private class TestableIncludeExtractionVisitor : IncludeExtractionVisitor
     {
         public bool VisitWasCalled { get; private set; }
+
+        public TestableIncludeExtractionVisitor(IFirestoreCollectionManager collectionManager)
+            : base(collectionManager)
+        {
+        }
 
         public override Expression? Visit(Expression? node)
         {

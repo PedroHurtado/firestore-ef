@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
@@ -14,10 +15,14 @@ namespace Fudie.Firestore.UnitTest.Query.Translators;
 public class FirestoreLeftJoinTranslatorTests
 {
     private readonly FirestoreLeftJoinTranslator _translator;
+    private readonly Mock<IFirestoreCollectionManager> _collectionManagerMock;
 
     public FirestoreLeftJoinTranslatorTests()
     {
-        _translator = new FirestoreLeftJoinTranslator();
+        _collectionManagerMock = new Mock<IFirestoreCollectionManager>();
+        _collectionManagerMock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        _translator = new FirestoreLeftJoinTranslator(_collectionManagerMock.Object);
     }
 
     #region Test Entities

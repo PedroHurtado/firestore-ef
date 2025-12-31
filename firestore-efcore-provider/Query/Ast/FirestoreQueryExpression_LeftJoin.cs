@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
@@ -13,7 +14,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         ShapedQueryExpression Inner,
         LambdaExpression OuterKeySelector,
         LambdaExpression InnerKeySelector,
-        LambdaExpression ResultSelector);
+        LambdaExpression ResultSelector,
+        IFirestoreCollectionManager CollectionManager);
 
     /// <summary>
     /// Feature: LeftJoin translation.
@@ -34,7 +36,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             var outerQueryExpression = (FirestoreQueryExpression)request.Outer.QueryExpression;
             var innerQueryExpression = (FirestoreQueryExpression)request.Inner.QueryExpression;
 
-            var translator = new FirestoreLeftJoinTranslator();
+            var translator = new FirestoreLeftJoinTranslator(request.CollectionManager);
             var includeInfo = translator.Translate(
                 request.OuterKeySelector,
                 outerQueryExpression.EntityType,
@@ -42,10 +44,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
             if (includeInfo != null)
             {
-                var newQueryExpression = outerQueryExpression.AddInclude(
-                    includeInfo.NavigationName,
-                    includeInfo.IsCollection);
-                return request.Outer.UpdateQueryExpression(newQueryExpression);
+                outerQueryExpression.AddInclude(includeInfo);
+                return request.Outer.UpdateQueryExpression(outerQueryExpression);
             }
 
             // No navigation found - throw descriptive error

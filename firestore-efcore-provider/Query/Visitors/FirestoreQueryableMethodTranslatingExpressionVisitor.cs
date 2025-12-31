@@ -109,7 +109,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             LambdaExpression outerKeySelector,
             LambdaExpression innerKeySelector,
             LambdaExpression resultSelector)
-            => FirestoreQueryExpression.TranslateLeftJoin(new(outer, inner, outerKeySelector, innerKeySelector, resultSelector));
+            => FirestoreQueryExpression.TranslateLeftJoin(new(outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager));
 
         protected override ShapedQueryExpression? TranslateMax(ShapedQueryExpression source, LambdaExpression? selector, Type resultType)
             => FirestoreQueryExpression.TranslateMax(new(source, selector, resultType));
@@ -126,7 +126,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             // Include expressions - delegate to MicroDomain (one-liner)
             if (selector.Body is IncludeExpression includeExpression)
-                return FirestoreQueryExpression.TranslateInclude(new(source, includeExpression));
+                return FirestoreQueryExpression.TranslateInclude(new(source, includeExpression, _collectionManager));
 
             // Delegate to Slice for projection translation
             return FirestoreQueryExpression.TranslateSelect(new(source, selector));

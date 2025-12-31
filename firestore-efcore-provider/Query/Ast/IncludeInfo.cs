@@ -16,6 +16,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// Structure:
     /// - NavigationName (string) - the property name
     /// - IsCollection (bool) - SubCollection vs DocumentReference
+    /// - CollectionName (string) - Firestore collection name
+    /// - TargetClrType (Type) - CLR type of the target entity
     /// - FirestoreWhereClause for filters
     /// - FirestoreOrderByClause for ordering
     /// - int?/Expression? for Take/Skip (Expression only for parameterized queries)
@@ -33,6 +35,16 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// Whether this is a collection navigation (SubCollection) or single (DocumentReference).
         /// </summary>
         public bool IsCollection { get; }
+
+        /// <summary>
+        /// The Firestore collection name for this navigation.
+        /// </summary>
+        public string CollectionName { get; }
+
+        /// <summary>
+        /// The CLR type of the target entity.
+        /// </summary>
+        public Type TargetClrType { get; }
 
         #endregion
 
@@ -107,12 +119,14 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         #region Constructors
 
         /// <summary>
-        /// Creates an IncludeInfo with navigation name and collection flag.
+        /// Creates an IncludeInfo with full navigation information.
         /// </summary>
-        public IncludeInfo(string navigationName, bool isCollection)
+        public IncludeInfo(string navigationName, bool isCollection, string collectionName, Type targetClrType)
         {
             NavigationName = navigationName ?? throw new ArgumentNullException(nameof(navigationName));
             IsCollection = isCollection;
+            CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
+            TargetClrType = targetClrType ?? throw new ArgumentNullException(nameof(targetClrType));
         }
 
         #endregion

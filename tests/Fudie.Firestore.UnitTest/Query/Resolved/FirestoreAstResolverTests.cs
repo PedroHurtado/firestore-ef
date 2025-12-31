@@ -413,7 +413,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 collectionManagerMock.Object);
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
-            ast.AddInclude("Categories", true);
+            ast.AddInclude("Categories", true, "categories", typeof(Category));
 
             var result = resolver.Resolve(ast);
 
@@ -450,8 +450,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 collectionManagerMock.Object);
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
-            ast.AddInclude("Categories", true);
-            ast.AddInclude("Items", true); // This belongs to Category
+            ast.AddInclude("Categories", true, "categories", typeof(Category));
+            ast.AddInclude("Items", true, "items", typeof(Item)); // This belongs to Category
 
             var result = resolver.Resolve(ast);
 

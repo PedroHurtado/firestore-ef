@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;
@@ -13,6 +14,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
     /// </summary>
     internal class IncludeExtractionVisitor : ExpressionVisitor
     {
+        private readonly IFirestoreCollectionManager _collectionManager;
         private readonly FirestoreWhereTranslator _whereTranslator = new();
         private readonly FirestoreOrderByTranslator _orderByTranslator = new();
         private readonly FirestoreLimitTranslator _limitTranslator = new();
@@ -24,6 +26,11 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// </summary>
         public List<IncludeInfo> DetectedIncludes { get; } = new();
 
+        public IncludeExtractionVisitor(IFirestoreCollectionManager collectionManager)
+        {
+            _collectionManager = collectionManager;
+        }
+
         protected override Expression VisitExtension(Expression node)
         {
             if (node is Microsoft.EntityFrameworkCore.Query.IncludeExpression includeExpression)
@@ -32,8 +39,16 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 {
                     DetectedNavigations.Add(navigation);
 
-                    // Crear IncludeInfo con nuevo constructor
-                    var includeInfo = new IncludeInfo(navigation.Name, navigation.IsCollection);
+                    // Obtener información completa de la navegación
+                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var collectionName = _collectionManager.GetCollectionName(targetClrType);
+
+                    // Crear IncludeInfo con información completa
+                    var includeInfo = new IncludeInfo(
+                        navigation.Name,
+                        navigation.IsCollection,
+                        collectionName,
+                        targetClrType);
 
                     // Extraer operaciones del NavigationExpression
                     ExtractOperationsFromNavigationExpression(includeExpression.NavigationExpression, includeInfo);

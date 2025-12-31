@@ -56,7 +56,7 @@ public class FirestoreQueryExpression_IncludeTests
     public void AddInclude_AddsIncludeInfoToList()
     {
         var ast = new FirestoreQueryExpression(_entityTypeMock.Object, "clientes");
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = new IncludeInfo("Pedidos", true, "pedidos", typeof(TestPedido));
 
         ast.AddInclude(includeInfo);
 
@@ -70,7 +70,7 @@ public class FirestoreQueryExpression_IncludeTests
     {
         var ast = new FirestoreQueryExpression(_entityTypeMock.Object, "clientes");
 
-        ast.AddInclude("Pedidos", isCollection: true);
+        ast.AddInclude("Pedidos", true, "pedidos", typeof(TestPedido));
 
         ast.PendingIncludes.Should().HaveCount(1);
         ast.PendingIncludes[0].NavigationName.Should().Be("Pedidos");
@@ -81,8 +81,8 @@ public class FirestoreQueryExpression_IncludeTests
     {
         var ast = new FirestoreQueryExpression(_entityTypeMock.Object, "clientes");
 
-        ast.AddInclude("Pedidos", isCollection: true);
-        ast.AddInclude("Pedidos", isCollection: true);
+        ast.AddInclude("Pedidos", true, "pedidos", typeof(TestPedido));
+        ast.AddInclude("Pedidos", true, "pedidos", typeof(TestPedido));
 
         ast.PendingIncludes.Should().HaveCount(1);
     }
@@ -92,8 +92,8 @@ public class FirestoreQueryExpression_IncludeTests
     {
         var ast = new FirestoreQueryExpression(_entityTypeMock.Object, "clientes");
 
-        ast.AddInclude("Pedidos", isCollection: true);
-        ast.AddInclude("CategoriaFavorita", isCollection: false);
+        ast.AddInclude("Pedidos", true, "pedidos", typeof(TestPedido));
+        ast.AddInclude("CategoriaFavorita", false, "categorias", typeof(TestCategoria));
 
         ast.PendingIncludes.Should().HaveCount(2);
         ast.PendingIncludes.Should().Contain(i => i.NavigationName == "Pedidos");
@@ -104,8 +104,8 @@ public class FirestoreQueryExpression_IncludeTests
     public void AddInclude_MultipleTimes_AddsAll()
     {
         var ast = new FirestoreQueryExpression(_entityTypeMock.Object, "clientes");
-        var includeInfo1 = new IncludeInfo("Pedidos", isCollection: true);
-        var includeInfo2 = new IncludeInfo("CategoriaFavorita", isCollection: false);
+        var includeInfo1 = new IncludeInfo("Pedidos", true, "pedidos", typeof(TestPedido));
+        var includeInfo2 = new IncludeInfo("CategoriaFavorita", false, "categorias", typeof(TestCategoria));
 
         ast.AddInclude(includeInfo1);
         ast.AddInclude(includeInfo2);

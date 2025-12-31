@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System.Linq.Expressions;
@@ -18,6 +19,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
     /// </summary>
     internal class FirestoreLeftJoinTranslator
     {
+        private readonly IFirestoreCollectionManager _collectionManager;
+
+        public FirestoreLeftJoinTranslator(IFirestoreCollectionManager collectionManager)
+        {
+            _collectionManager = collectionManager;
+        }
+
         /// <summary>
         /// Translates a LeftJoin operation to an IncludeInfo.
         /// </summary>
@@ -38,7 +46,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
 
                 if (navigation != null)
                 {
-                    return new IncludeInfo(navigation.Name, navigation.IsCollection);
+                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var collectionName = _collectionManager.GetCollectionName(targetClrType);
+                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType);
                 }
             }
 
@@ -47,7 +57,9 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             {
                 if (navigation.TargetEntityType.ClrType == innerEntityType.ClrType)
                 {
-                    return new IncludeInfo(navigation.Name, navigation.IsCollection);
+                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var collectionName = _collectionManager.GetCollectionName(targetClrType);
+                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType);
                 }
             }
 

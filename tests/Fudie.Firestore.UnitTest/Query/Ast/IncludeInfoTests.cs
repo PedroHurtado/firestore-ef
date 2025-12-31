@@ -9,10 +9,30 @@ namespace Fudie.Firestore.UnitTest.Query.Ast;
 /// </summary>
 public class IncludeInfoTests
 {
+    #region Test Entities
+
+    private class Pedido { public string Id { get; set; } = ""; }
+    private class Categoria { public string Id { get; set; } = ""; }
+
+    #endregion
+
+    #region Helper Methods
+
+    private static IncludeInfo CreateIncludeInfo(string navigationName, bool isCollection, string? collectionName = null, Type? targetType = null)
+    {
+        return new IncludeInfo(
+            navigationName,
+            isCollection,
+            collectionName ?? navigationName.ToLower(),
+            targetType ?? typeof(Pedido));
+    }
+
+    #endregion
+
     [Fact]
     public void AddFilter_AddsFirestoreWhereClause()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var clause = new FirestoreWhereClause("Total", FirestoreOperator.GreaterThan, Expression.Constant(100m));
 
         includeInfo.AddFilter(clause);
@@ -25,7 +45,7 @@ public class IncludeInfoTests
     [Fact]
     public void AddOrderBy_AddsFirestoreOrderByClause()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var clause = new FirestoreOrderByClause("Fecha", descending: true);
 
         includeInfo.AddOrderBy(clause);
@@ -38,7 +58,7 @@ public class IncludeInfoTests
     [Fact]
     public void WithTakeSkip_SetsValues()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
 
         includeInfo.WithSkip(2).WithTake(5);
 
@@ -50,7 +70,7 @@ public class IncludeInfoTests
     [Fact]
     public void WithTakeExpression_SetsExpression()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var expr = Expression.Constant(10);
 
         includeInfo.WithTakeExpression(expr);
@@ -63,7 +83,7 @@ public class IncludeInfoTests
     [Fact]
     public void WithSkipExpression_SetsExpression()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var expr = Expression.Constant(5);
 
         includeInfo.WithSkipExpression(expr);
@@ -76,7 +96,7 @@ public class IncludeInfoTests
     [Fact]
     public void AddFilters_AddMultipleClauses()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var clauses = new[]
         {
             new FirestoreWhereClause("Total", FirestoreOperator.GreaterThan, Expression.Constant(100m)),
@@ -92,7 +112,7 @@ public class IncludeInfoTests
     [Fact]
     public void SetOrderBy_ReplacesExistingOrderBy()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var clause1 = new FirestoreOrderByClause("Total", descending: false);
         var clause2 = new FirestoreOrderByClause("Fecha", descending: true);
 
@@ -106,7 +126,7 @@ public class IncludeInfoTests
     [Fact]
     public void AddOrFilterGroup_AddsGroup()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
         var orGroup = new FirestoreOrFilterGroup(new[]
         {
             new FirestoreWhereClause("Estado", FirestoreOperator.EqualTo, Expression.Constant(1)),
@@ -123,7 +143,7 @@ public class IncludeInfoTests
     [Fact]
     public void NavigationName_ReturnsCorrectValue()
     {
-        var includeInfo = new IncludeInfo("CustomName", isCollection: false);
+        var includeInfo = CreateIncludeInfo("CustomName", isCollection: false, targetType: typeof(Categoria));
 
         includeInfo.NavigationName.Should().Be("CustomName");
     }
@@ -131,8 +151,8 @@ public class IncludeInfoTests
     [Fact]
     public void IsCollection_ReturnsCorrectValue()
     {
-        var subCollectionInclude = new IncludeInfo("Pedidos", isCollection: true);
-        var referenceInclude = new IncludeInfo("CategoriaFavorita", isCollection: false);
+        var subCollectionInclude = CreateIncludeInfo("Pedidos", isCollection: true);
+        var referenceInclude = CreateIncludeInfo("CategoriaFavorita", isCollection: false, targetType: typeof(Categoria));
 
         subCollectionInclude.IsCollection.Should().BeTrue();
         referenceInclude.IsCollection.Should().BeFalse();
@@ -141,7 +161,7 @@ public class IncludeInfoTests
     [Fact]
     public void HasOperations_FalseWhenEmpty()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
 
         includeInfo.HasOperations.Should().BeFalse();
     }
@@ -149,7 +169,7 @@ public class IncludeInfoTests
     [Fact]
     public void CombinedOperations_AllPresent()
     {
-        var includeInfo = new IncludeInfo("Pedidos", isCollection: true);
+        var includeInfo = CreateIncludeInfo("Pedidos", isCollection: true);
 
         includeInfo
             .AddFilter(new FirestoreWhereClause("Total", FirestoreOperator.GreaterThan, Expression.Constant(100m)))
@@ -162,5 +182,21 @@ public class IncludeInfoTests
         includeInfo.Skip.Should().Be(1);
         includeInfo.Take.Should().Be(5);
         includeInfo.HasOperations.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CollectionName_ReturnsCorrectValue()
+    {
+        var includeInfo = new IncludeInfo("Pedidos", true, "orders", typeof(Pedido));
+
+        includeInfo.CollectionName.Should().Be("orders");
+    }
+
+    [Fact]
+    public void TargetClrType_ReturnsCorrectValue()
+    {
+        var includeInfo = new IncludeInfo("Pedidos", true, "orders", typeof(Pedido));
+
+        includeInfo.TargetClrType.Should().Be(typeof(Pedido));
     }
 }

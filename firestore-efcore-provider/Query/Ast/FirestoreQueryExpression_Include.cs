@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Query;
 
@@ -8,7 +9,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// </summary>
     public record TranslateIncludeRequest(
         ShapedQueryExpression Source,
-        IncludeExpression IncludeExpression);
+        IncludeExpression IncludeExpression,
+        IFirestoreCollectionManager CollectionManager);
 
     /// <summary>
     /// Partial class for Include feature (MicroDomain pattern).
@@ -22,11 +24,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public static ShapedQueryExpression TranslateInclude(TranslateIncludeRequest request)
         {
-            var (source, includeExpression) = request;
+            var (source, includeExpression, collectionManager) = request;
             var ast = (FirestoreQueryExpression)source.QueryExpression;
 
             // Create visitor and translator
-            var visitor = new IncludeExtractionVisitor();
+            var visitor = new IncludeExtractionVisitor(collectionManager);
             var translator = new FirestoreIncludeTranslator(visitor);
 
             var includes = translator.Translate(includeExpression);

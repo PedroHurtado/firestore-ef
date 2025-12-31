@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -95,13 +96,27 @@ public class IncludeExtractionVisitorTests
 
     #region Helper Methods
 
-    private static IReadOnlyNavigation CreateNavigationMock(string name, bool isCollection)
+    private static IFirestoreCollectionManager CreateCollectionManagerMock()
+    {
+        var mock = new Mock<IFirestoreCollectionManager>();
+        mock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        return mock.Object;
+    }
+
+    private static IReadOnlyNavigation CreateNavigationMock(string name, bool isCollection, Type? targetType = null)
     {
         var navMock = new Mock<IReadOnlyNavigation>();
         navMock.Setup(n => n.Name).Returns(name);
         navMock.Setup(n => n.IsCollection).Returns(isCollection);
         navMock.As<INavigationBase>().Setup(n => n.Name).Returns(name);
         navMock.As<INavigationBase>().Setup(n => n.IsCollection).Returns(isCollection);
+
+        // Setup TargetEntityType
+        var entityTypeMock = new Mock<IEntityType>();
+        entityTypeMock.Setup(e => e.ClrType).Returns(targetType ?? typeof(object));
+        navMock.Setup(n => n.TargetEntityType).Returns(entityTypeMock.Object);
+
         return navMock.Object;
     }
 
@@ -206,7 +221,7 @@ public class IncludeExtractionVisitorTests
             navigation: (INavigationBase)pedidosNavigation);
 
         // Act
-        var visitor = new IncludeExtractionVisitor();
+        var visitor = new IncludeExtractionVisitor(CreateCollectionManagerMock());
         visitor.Visit(pedidosInclude);
 
         // Assert - Should detect BOTH navigations
@@ -256,7 +271,7 @@ public class IncludeExtractionVisitorTests
             navigation: (INavigationBase)productoNavigation);
 
         // Act
-        var visitor = new IncludeExtractionVisitor();
+        var visitor = new IncludeExtractionVisitor(CreateCollectionManagerMock());
         visitor.Visit(productoInclude);
 
         // Assert
@@ -296,7 +311,7 @@ public class IncludeExtractionVisitorTests
             navigation: (INavigationBase)vendedorNavigation);
 
         // Act
-        var visitor = new IncludeExtractionVisitor();
+        var visitor = new IncludeExtractionVisitor(CreateCollectionManagerMock());
         visitor.Visit(vendedorInclude);
 
         // Assert

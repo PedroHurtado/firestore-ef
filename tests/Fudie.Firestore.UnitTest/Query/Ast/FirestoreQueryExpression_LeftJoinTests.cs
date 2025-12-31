@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -14,6 +15,16 @@ namespace Fudie.Firestore.UnitTest.Query.Ast;
 /// </summary>
 public class FirestoreQueryExpression_LeftJoinTests
 {
+    private readonly IFirestoreCollectionManager _collectionManager;
+
+    public FirestoreQueryExpression_LeftJoinTests()
+    {
+        var mock = new Mock<IFirestoreCollectionManager>();
+        mock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        _collectionManager = mock.Object;
+    }
+
     #region Test Entities
 
     private class Cliente
@@ -105,7 +116,7 @@ public class FirestoreQueryExpression_LeftJoinTests
         Expression<Func<Cliente, Pedido, object>> resultSelector = (c, p) => new { c, p };
 
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Act
         var result = FirestoreQueryExpression.TranslateLeftJoin(request);
@@ -137,7 +148,7 @@ public class FirestoreQueryExpression_LeftJoinTests
         Expression<Func<Cliente, Vendedor, object>> resultSelector = (c, v) => new { c, v };
 
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Act
         var result = FirestoreQueryExpression.TranslateLeftJoin(request);
@@ -169,7 +180,7 @@ public class FirestoreQueryExpression_LeftJoinTests
         Expression<Func<Cliente, Pedido, object>> resultSelector = (c, p) => new { c, p };
 
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Act
         var result = FirestoreQueryExpression.TranslateLeftJoin(request);
@@ -200,7 +211,7 @@ public class FirestoreQueryExpression_LeftJoinTests
         Expression<Func<Cliente, Vendedor, object>> resultSelector = (c, v) => new { c, v };
 
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Act & Assert
         Action act = () => FirestoreQueryExpression.TranslateLeftJoin(request);
@@ -224,7 +235,7 @@ public class FirestoreQueryExpression_LeftJoinTests
         Expression<Func<Cliente, Pedido, object>> resultSelector = (c, p) => new { c, p };
 
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Act
         var result = FirestoreQueryExpression.TranslateLeftJoin(request);
@@ -251,7 +262,7 @@ public class FirestoreQueryExpression_LeftJoinTests
 
         // Act
         var request = new TranslateLeftJoinRequest(
-            outer, inner, outerKeySelector, innerKeySelector, resultSelector);
+            outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager);
 
         // Assert
         request.Outer.Should().Be(outer);

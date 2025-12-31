@@ -275,12 +275,12 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         }
 
         /// <summary>
-        /// Adds an Include with the given navigation name and collection flag.
+        /// Adds an Include with full navigation information.
         /// Convenience overload that creates IncludeInfo internally.
         /// </summary>
-        public FirestoreQueryExpression AddInclude(string navigationName, bool isCollection)
+        public FirestoreQueryExpression AddInclude(string navigationName, bool isCollection, string collectionName, Type targetClrType)
         {
-            return AddInclude(new IncludeInfo(navigationName, isCollection));
+            return AddInclude(new IncludeInfo(navigationName, isCollection, collectionName, targetClrType));
         }
 
         /// <summary>
