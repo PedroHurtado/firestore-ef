@@ -28,6 +28,17 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         public string CollectionName { get; }
 
         /// <summary>
+        /// Whether this is a collection navigation (subcollection) or a reference navigation (document reference).
+        /// True for subcollections (List&lt;T&gt;), false for document references (single entity).
+        /// </summary>
+        public bool IsCollection { get; }
+
+        /// <summary>
+        /// The CLR type of the target entity.
+        /// </summary>
+        public Type TargetClrType { get; }
+
+        /// <summary>
         /// Filters to apply to the subcollection query.
         /// Reuses FirestoreWhereClause for consistency with main query filters.
         /// </summary>
@@ -101,14 +112,20 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         /// <param name="navigationName">Name of the navigation property in the entity.</param>
         /// <param name="resultName">Name of the field in the projection result.</param>
         /// <param name="collectionName">Name of the collection in Firestore.</param>
+        /// <param name="isCollection">Whether this is a collection navigation (true) or reference navigation (false).</param>
+        /// <param name="targetClrType">The CLR type of the target entity.</param>
         public FirestoreSubcollectionProjection(
             string navigationName,
             string resultName,
-            string collectionName)
+            string collectionName,
+            bool isCollection,
+            Type targetClrType)
         {
             NavigationName = navigationName ?? throw new ArgumentNullException(nameof(navigationName));
             ResultName = resultName ?? throw new ArgumentNullException(nameof(resultName));
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
+            IsCollection = isCollection;
+            TargetClrType = targetClrType ?? throw new ArgumentNullException(nameof(targetClrType));
             Filters = new List<FirestoreWhereClause>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             NestedSubcollections = new List<FirestoreSubcollectionProjection>();

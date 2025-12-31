@@ -1,8 +1,10 @@
 using System.Linq.Expressions;
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
+using Moq;
 
 namespace Fudie.Firestore.UnitTest.Query.Translators;
 
@@ -16,7 +18,10 @@ public class FirestoreProjectionTranslatorTests
 
     public FirestoreProjectionTranslatorTests()
     {
-        _translator = new FirestoreProjectionTranslator();
+        var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
+        collectionManagerMock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        _translator = new FirestoreProjectionTranslator(collectionManagerMock.Object);
     }
 
     #region Test Entities

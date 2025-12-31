@@ -1,6 +1,8 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Firestore.EntityFrameworkCore.Query.Translators;
+using Moq;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
@@ -14,13 +16,23 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
     /// </summary>
     public class ProjectionExtractionVisitorTests
     {
+        private static IFirestoreCollectionManager CreateCollectionManagerMock()
+        {
+            var mock = new Mock<IFirestoreCollectionManager>();
+            mock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+                .Returns((Type t) => t.Name.ToLower() + "s");
+            return mock.Object;
+        }
+
+        private static ProjectionExtractionVisitor CreateVisitor()
+            => new ProjectionExtractionVisitor(CreateCollectionManagerMock());
         #region Case 1: Identity projection (e => e)
 
         [Fact]
         public void Extract_IdentityProjection_ReturnsNull()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestEntity>> selector = e => e;
 
             // Act
@@ -34,7 +46,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_TypeConversionProjection_ReturnsNull()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestDerivedEntity, TestEntity>> selector = e => e;
 
             // Act
@@ -52,7 +64,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SingleField_ReturnsSingleFieldProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, string>> selector = e => e.Name;
 
             // Act
@@ -68,7 +80,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SingleField_HasCorrectFieldPath()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, string>> selector = e => e.Name;
 
             // Act
@@ -85,7 +97,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SingleField_IntProperty_ReturnsCorrectType()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, int>> selector = e => e.Quantity;
 
             // Act
@@ -101,7 +113,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SingleField_DecimalProperty_ReturnsCorrectType()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, decimal>> selector = e => e.Price;
 
             // Act
@@ -120,7 +132,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_AnonymousType_ReturnsAnonymousTypeProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, object>> selector = e => new { e.Id, e.Name };
 
             // Act
@@ -135,7 +147,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_AnonymousType_HasAllFields()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, object>> selector = e => new { e.Id, e.Name, e.Price };
 
             // Act
@@ -150,7 +162,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_AnonymousType_FieldsHaveCorrectNames()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, object>> selector = e => new { e.Id, e.Name };
 
             // Act
@@ -165,7 +177,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_AnonymousType_WithAlias_UsesAliasAsResultName()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, object>> selector = e => new { Identifier = e.Id, ProductName = e.Name };
 
             // Act
@@ -184,7 +196,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_DtoClass_ReturnsDtoClassProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestDto>> selector = e => new TestDto { Id = e.Id, Name = e.Name };
 
             // Act
@@ -200,7 +212,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_DtoClass_HasAllAssignedFields()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestDto>> selector = e => new TestDto { Id = e.Id, Name = e.Name, Price = e.Price };
 
             // Act
@@ -215,7 +227,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_DtoClass_FieldsHaveCorrectMapping()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestDto>> selector = e => new TestDto { Id = e.Id, Name = e.Name };
 
             // Act
@@ -234,7 +246,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_Record_ReturnsRecordProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestRecord>> selector = e => new TestRecord(e.Id, e.Name, e.Price);
 
             // Act
@@ -250,7 +262,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_Record_FieldsHaveConstructorIndices()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestRecord>> selector = e => new TestRecord(e.Id, e.Name, e.Price);
 
             // Act
@@ -268,7 +280,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_Record_FieldsAreMarkedAsConstructorParameters()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, TestRecord>> selector = e => new TestRecord(e.Id, e.Name, e.Price);
 
             // Act
@@ -286,7 +298,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_ComplexType_ReturnsSingleFieldProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, TestDireccion>> selector = e => e.Direccion;
 
             // Act
@@ -302,7 +314,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_ComplexType_HasCorrectFieldPath()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, TestDireccion>> selector = e => e.Direccion;
 
             // Act
@@ -321,7 +333,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_NestedField_HasDottedFieldPath()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, string>> selector = e => e.Direccion.Ciudad;
 
             // Act
@@ -337,7 +349,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_NestedField_ResultNameIsLastSegment()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, string>> selector = e => e.Direccion.Ciudad;
 
             // Act
@@ -351,7 +363,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_DeeplyNestedField_HasFullPath()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, double>> selector = e => e.Direccion.Coordenadas.Latitud;
 
             // Act
@@ -365,7 +377,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_AnonymousType_WithNestedField_HasCorrectPaths()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithComplexType, object>> selector = e => new
             {
                 e.Nombre,
@@ -388,7 +400,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_WithSubcollection_DetectsSubcollection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new { e.Nombre, e.Pedidos };
 
             // Act
@@ -404,7 +416,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_WithSubcollection_HasBothFieldsAndSubcollections()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new { e.Nombre, e.Pedidos };
 
             // Act
@@ -420,7 +432,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithAlias_UsesAliasAsResultName()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new { e.Nombre, Orders = e.Pedidos };
 
             // Act
@@ -439,7 +451,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithWhere_ExtractsFilters()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 e.Nombre,
@@ -458,7 +470,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithWhere_FilterHasCorrectProperty()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PedidosActivos = e.Pedidos.Where(p => p.Estado == "Activo")
@@ -480,7 +492,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithOrderBy_ExtractsOrdering()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PedidosOrdenados = e.Pedidos.OrderBy(p => p.Total)
@@ -499,7 +511,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithOrderByDescending_HasDescendingOrder()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PedidosOrdenados = e.Pedidos.OrderByDescending(p => p.Total)
@@ -516,7 +528,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithThenBy_HasMultipleOrderClauses()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 Pedidos = e.Pedidos.OrderBy(p => p.Estado).ThenBy(p => p.Total)
@@ -537,7 +549,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithTake_ExtractsLimit()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 TopPedidos = e.Pedidos.Take(5)
@@ -558,7 +570,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithWhereOrderByTake_ExtractsAllOperations()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 TopPedidosActivos = e.Pedidos
@@ -586,7 +598,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithSelect_ExtractsNestedProjection()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 Totales = e.Pedidos.Select(p => p.Total)
@@ -605,7 +617,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithSelectAnonymous_ExtractsMultipleFields()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PedidosResumen = e.Pedidos.Select(p => new { p.NumeroOrden, p.Total })
@@ -628,7 +640,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithCount_DetectsAggregation()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 CantidadPedidos = e.Pedidos.Count()
@@ -646,7 +658,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithSum_DetectsAggregationWithProperty()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 TotalVentas = e.Pedidos.Sum(p => p.Total)
@@ -665,7 +677,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithAverage_DetectsAggregation()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PromedioVentas = e.Pedidos.Average(p => p.Total)
@@ -682,7 +694,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithMin_DetectsAggregation()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 MinimoTotal = e.Pedidos.Min(p => p.Total)
@@ -699,7 +711,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithMax_DetectsAggregation()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 MaximoTotal = e.Pedidos.Max(p => p.Total)
@@ -720,7 +732,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_NullSelector_ReturnsNull()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
 
             // Act
             var result = visitor.Extract(null!);
@@ -733,7 +745,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_EmptyAnonymousType_ReturnsEmptyFields()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, object>> selector = e => new { };
 
             // Act
@@ -752,7 +764,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_BinaryExpression_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, decimal>> selector = e => e.Price * 1.21m;
 
             // Act & Assert
@@ -763,7 +775,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_ConstantInProjection_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             var fecha = DateTime.Now;
             Expression<Func<TestEntity, object>> selector = e => new { e.Name, Fecha = fecha };
 
@@ -775,7 +787,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_MethodCallOnProperty_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, string>> selector = e => e.Name.ToUpper();
 
             // Act & Assert
@@ -786,7 +798,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_ConditionalExpression_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntity, string>> selector = e => e.Quantity > 0 ? "Disponible" : "Agotado";
 
             // Act & Assert
@@ -797,7 +809,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithSkip_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 Pedidos = e.Pedidos.Skip(5)
@@ -811,7 +823,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithFirstOrDefault_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 PrimerPedido = e.Pedidos.FirstOrDefault()
@@ -825,7 +837,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithAny_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 TienePedidosGrandes = e.Pedidos.Any(p => p.Total > 100)
@@ -839,7 +851,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         public void Extract_SubcollectionWithAll_ThrowsNotSupportedException()
         {
             // Arrange
-            var visitor = new ProjectionExtractionVisitor();
+            var visitor = CreateVisitor();
             Expression<Func<TestEntityWithSubcollection, object>> selector = e => new
             {
                 TodosActivos = e.Pedidos.All(p => p.Estado == "Activo")

@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using FluentAssertions;
@@ -16,12 +17,21 @@ namespace Fudie.Firestore.UnitTest.Query.Ast;
 public class FirestoreQueryExpression_ProjectionTests
 {
     private readonly Mock<IEntityType> _entityTypeMock;
+    private readonly IFirestoreCollectionManager _collectionManager;
 
     public FirestoreQueryExpression_ProjectionTests()
     {
         _entityTypeMock = new Mock<IEntityType>();
         _entityTypeMock.Setup(e => e.ClrType).Returns(typeof(TestEntity));
+
+        var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
+        collectionManagerMock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
+            .Returns((Type t) => t.Name.ToLower() + "s");
+        _collectionManager = collectionManagerMock.Object;
     }
+
+    private TranslateSelectRequest CreateRequest(ShapedQueryExpression source, LambdaExpression selector)
+        => new TranslateSelectRequest(source, selector, _collectionManager);
 
     #region Test Entities
 
@@ -66,7 +76,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, TestEntity>> selector = e => e;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -81,7 +91,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, object>> selector = e => e;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -99,7 +109,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Name;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -116,7 +126,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Address.City;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -134,7 +144,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, object>> selector = e => new { e.Id, e.Name };
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -150,7 +160,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, object>> selector = e => new { ProductId = e.Id, ProductName = e.Name };
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -168,7 +178,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, TestRecord>> selector = e => new TestRecord(e.Id, e.Name);
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -187,7 +197,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, object>> selector = e => new { e.Name, e.Orders };
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -205,7 +215,7 @@ public class FirestoreQueryExpression_ProjectionTests
             e.Name,
             TopOrders = e.Orders.OrderByDescending(o => o.Total).Take(3)
         };
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -225,7 +235,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Name;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         var result = FirestoreQueryExpression.TranslateSelect(request);
 
@@ -243,7 +253,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, decimal>> selector = e => e.Price * 1.21m;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         Action act = () => FirestoreQueryExpression.TranslateSelect(request);
 
@@ -256,7 +266,7 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Name.ToUpper();
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         Action act = () => FirestoreQueryExpression.TranslateSelect(request);
 
@@ -274,7 +284,7 @@ public class FirestoreQueryExpression_ProjectionTests
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Name;
 
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
         request.Source.Should().Be(source);
         request.Selector.Should().Be(selector);
@@ -285,12 +295,13 @@ public class FirestoreQueryExpression_ProjectionTests
     {
         var source = CreateShapedQuery();
         Expression<Func<TestEntity, string>> selector = e => e.Name;
-        var request = new TranslateSelectRequest(source, selector);
+        var request = CreateRequest(source, selector);
 
-        var (src, sel) = request;
+        var (src, sel, cm) = request;
 
         src.Should().Be(source);
         sel.Should().Be(selector);
+        cm.Should().Be(_collectionManager);
     }
 
     #endregion

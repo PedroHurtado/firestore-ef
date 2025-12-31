@@ -129,7 +129,7 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                 return FirestoreQueryExpression.TranslateInclude(new(source, includeExpression, _collectionManager));
 
             // Delegate to Slice for projection translation
-            return FirestoreQueryExpression.TranslateSelect(new(source, selector));
+            return FirestoreQueryExpression.TranslateSelect(new(source, selector, _collectionManager));
         }
 
         protected override ShapedQueryExpression? TranslateSingleOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)

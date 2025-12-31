@@ -168,7 +168,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void ProjectionWithSubcollection_HasSubcollections()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos", true, typeof(TestEntity));
             var projection = FirestoreProjectionDefinition.CreateEntityProjection(typeof(TestEntity));
             projection.Subcollections.Add(subcollection);
 
@@ -183,7 +183,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
             {
                 new("Name", "Name", typeof(string))
             };
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Items", "Pedidos");
+            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Items", "Pedidos", true, typeof(TestEntity));
 
             var projection = FirestoreProjectionDefinition.CreateAnonymousTypeProjection(typeof(object), fields);
             projection.Subcollections.Add(subcollection);

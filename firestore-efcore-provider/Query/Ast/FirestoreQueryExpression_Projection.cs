@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Linq.Expressions;
@@ -9,7 +10,8 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// </summary>
     public record TranslateSelectRequest(
         ShapedQueryExpression Source,
-        LambdaExpression Selector);
+        LambdaExpression Selector,
+        IFirestoreCollectionManager CollectionManager);
 
     /// <summary>
     /// Feature: Select/Projection translation and commands.
@@ -23,10 +25,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public static ShapedQueryExpression TranslateSelect(TranslateSelectRequest request)
         {
-            var translator = new FirestoreProjectionTranslator();
-            var projection = translator.Translate(request.Selector);
-
             var ast = (FirestoreQueryExpression)request.Source.QueryExpression;
+            var translator = new FirestoreProjectionTranslator(request.CollectionManager, ast.EntityType);
+            var projection = translator.Translate(request.Selector);
 
             if (projection != null)
             {

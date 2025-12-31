@@ -11,12 +11,29 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
     /// </summary>
     public class FirestoreSubcollectionProjectionTests
     {
+        // Test entity classes for type parameter
+        private class Pedido { public string Id { get; set; } = ""; }
+        private class Linea { public string Id { get; set; } = ""; }
+
+        private static FirestoreSubcollectionProjection CreateSubcollection(
+            string navigationName,
+            string resultName,
+            string collectionName,
+            bool isCollection = true)
+            => new FirestoreSubcollectionProjection(navigationName, resultName, collectionName, isCollection, typeof(Pedido));
+
+        private static FirestoreSubcollectionProjection CreateLineaSubcollection(
+            string navigationName,
+            string resultName,
+            string collectionName)
+            => new FirestoreSubcollectionProjection(navigationName, resultName, collectionName, true, typeof(Linea));
+
         #region Basic Properties
 
         [Fact]
         public void Constructor_SetsNavigationName()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Equal("Pedidos", subcollection.NavigationName);
         }
@@ -24,7 +41,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Constructor_SetsResultName()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "TopPedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "TopPedidos", "Pedidos");
 
             Assert.Equal("TopPedidos", subcollection.ResultName);
         }
@@ -32,7 +49,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Constructor_SetsCollectionName()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "orders");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "orders");
 
             Assert.Equal("orders", subcollection.CollectionName);
         }
@@ -40,7 +57,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Filters_DefaultsToEmptyList()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Empty(subcollection.Filters);
         }
@@ -48,7 +65,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void OrderByClauses_DefaultsToEmptyList()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Empty(subcollection.OrderByClauses);
         }
@@ -56,7 +73,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Limit_DefaultsToNull()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Null(subcollection.Limit);
         }
@@ -64,7 +81,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Fields_DefaultsToNull()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Null(subcollection.Fields);
         }
@@ -76,7 +93,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void AddFilter_AddsFirestoreWhereClause()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             var filter = new FirestoreWhereClause("Estado", FirestoreOperator.EqualTo, System.Linq.Expressions.Expression.Constant(1));
 
             subcollection.Filters.Add(filter);
@@ -88,7 +105,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Filters_CanHaveMultipleClauses()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             subcollection.Filters.Add(new FirestoreWhereClause("Estado", FirestoreOperator.EqualTo, System.Linq.Expressions.Expression.Constant(1)));
             subcollection.Filters.Add(new FirestoreWhereClause("Total", FirestoreOperator.GreaterThan, System.Linq.Expressions.Expression.Constant(100m)));
 
@@ -102,7 +119,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void AddOrderBy_AddsFirestoreOrderByClause()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             var orderBy = new FirestoreOrderByClause("Total", descending: true);
 
             subcollection.OrderByClauses.Add(orderBy);
@@ -119,7 +136,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Limit_CanBeSet()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             subcollection.Pagination.WithLimit(5);
 
             Assert.Equal(5, subcollection.Limit);
@@ -132,7 +149,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Fields_CanBeSetForProjectedSubcollection()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             subcollection.Fields = new List<FirestoreProjectedField>
             {
                 new("Total", "Total", typeof(decimal))
@@ -149,7 +166,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Aggregation_DefaultsToNull()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Null(subcollection.Aggregation);
         }
@@ -157,7 +174,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Aggregation_CanBeSetToCount()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Lineas", "CantidadLineas", "Lineas");
+            var subcollection = CreateLineaSubcollection("Lineas", "CantidadLineas", "Lineas");
             subcollection.Aggregation = FirestoreAggregationType.Count;
 
             Assert.Equal(FirestoreAggregationType.Count, subcollection.Aggregation);
@@ -166,7 +183,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void Aggregation_CanHavePropertyNameForSum()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Lineas", "TotalLineas", "Lineas");
+            var subcollection = CreateLineaSubcollection("Lineas", "TotalLineas", "Lineas");
             subcollection.Aggregation = FirestoreAggregationType.Sum;
             subcollection.AggregationPropertyName = "Cantidad";
 
@@ -181,7 +198,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void NestedSubcollections_DefaultsToEmptyList()
         {
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
 
             Assert.Empty(subcollection.NestedSubcollections);
         }
@@ -189,8 +206,8 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         [Fact]
         public void NestedSubcollections_CanContainChildSubcollections()
         {
-            var pedidos = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
-            var lineas = new FirestoreSubcollectionProjection("Lineas", "Lineas", "Lineas");
+            var pedidos = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
+            var lineas = CreateLineaSubcollection("Lineas", "Lineas", "Lineas");
 
             pedidos.NestedSubcollections.Add(lineas);
 
@@ -206,7 +223,7 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         public void ComplexScenario_FilteredOrderedLimitedSubcollection()
         {
             // Simula: e.Pedidos.Where(p => p.Estado == Confirmado).OrderByDescending(p => p.Total).Take(2)
-            var subcollection = new FirestoreSubcollectionProjection("Pedidos", "TopPedidos", "Pedidos");
+            var subcollection = CreateSubcollection("Pedidos", "TopPedidos", "Pedidos");
 
             subcollection.Filters.Add(new FirestoreWhereClause(
                 "Estado",
@@ -226,13 +243,13 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
         public void ComplexScenario_NestedSubcollectionWithAggregation()
         {
             // Simula: e.Pedidos.Select(p => new { p.NumeroOrden, CantidadLineas = p.Lineas.Count() })
-            var pedidos = new FirestoreSubcollectionProjection("Pedidos", "Pedidos", "Pedidos");
+            var pedidos = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
             pedidos.Fields = new List<FirestoreProjectedField>
             {
                 new("NumeroOrden", "NumeroOrden", typeof(string))
             };
 
-            var lineas = new FirestoreSubcollectionProjection("Lineas", "CantidadLineas", "Lineas");
+            var lineas = CreateLineaSubcollection("Lineas", "CantidadLineas", "Lineas");
             lineas.Aggregation = FirestoreAggregationType.Count;
 
             pedidos.NestedSubcollections.Add(lineas);
@@ -240,6 +257,34 @@ namespace Fudie.Firestore.UnitTest.Query.Projections
             Assert.Single(pedidos.Fields);
             Assert.Single(pedidos.NestedSubcollections);
             Assert.Equal(FirestoreAggregationType.Count, pedidos.NestedSubcollections[0].Aggregation);
+        }
+
+        #endregion
+
+        #region IsCollection and TargetClrType
+
+        [Fact]
+        public void Constructor_SetsIsCollection()
+        {
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos", isCollection: true);
+
+            Assert.True(subcollection.IsCollection);
+        }
+
+        [Fact]
+        public void Constructor_SetsIsCollectionToFalse_ForReference()
+        {
+            var reference = CreateSubcollection("Categoria", "Categoria", "categorias", isCollection: false);
+
+            Assert.False(reference.IsCollection);
+        }
+
+        [Fact]
+        public void Constructor_SetsTargetClrType()
+        {
+            var subcollection = CreateSubcollection("Pedidos", "Pedidos", "Pedidos");
+
+            Assert.Equal(typeof(Pedido), subcollection.TargetClrType);
         }
 
         #endregion

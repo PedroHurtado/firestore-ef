@@ -1,5 +1,7 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
+using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,9 +26,22 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
     /// </summary>
     internal class ProjectionExtractionVisitor : ExpressionVisitor
     {
+        private readonly IFirestoreCollectionManager _collectionManager;
+        private readonly IEntityType? _entityType;
         private readonly FirestoreWhereTranslator _whereTranslator = new();
         private readonly FirestoreOrderByTranslator _orderByTranslator = new();
         private readonly FirestoreLimitTranslator _limitTranslator = new();
+
+        /// <summary>
+        /// Creates a new ProjectionExtractionVisitor with the required dependencies.
+        /// </summary>
+        /// <param name="collectionManager">Manager for resolving Firestore collection names.</param>
+        /// <param name="entityType">The source entity type for navigation resolution.</param>
+        public ProjectionExtractionVisitor(IFirestoreCollectionManager collectionManager, IEntityType? entityType = null)
+        {
+            _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
+            _entityType = entityType;
+        }
 
         /// <summary>
         /// Campos extraídos de la proyección.
@@ -362,14 +377,35 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         }
 
         /// <summary>
-        /// Creates a subcollection projection.
+        /// Creates a subcollection projection with navigation info resolved from entity type.
         /// </summary>
-        private static FirestoreSubcollectionProjection CreateSubcollectionProjection(
+        private FirestoreSubcollectionProjection CreateSubcollectionProjection(
             string navigationName,
             string resultName)
         {
-            // Collection name will be resolved later by the executor
-            return new FirestoreSubcollectionProjection(navigationName, resultName, navigationName);
+            // Try to get navigation info from entity type
+            var navigation = _entityType?.FindNavigation(navigationName);
+
+            Type targetClrType;
+            bool isCollection;
+            string collectionName;
+
+            if (navigation != null)
+            {
+                targetClrType = navigation.TargetEntityType.ClrType;
+                isCollection = navigation.IsCollection;
+                collectionName = _collectionManager.GetCollectionName(targetClrType);
+            }
+            else
+            {
+                // Fallback: use navigation name as collection name (will be resolved later)
+                // This happens for nested subcollections where we don't have the parent's entity type
+                targetClrType = typeof(object);
+                isCollection = true; // Assume collection since we're in subcollection context
+                collectionName = navigationName;
+            }
+
+            return new FirestoreSubcollectionProjection(navigationName, resultName, collectionName, isCollection, targetClrType);
         }
 
         /// <summary>
@@ -618,8 +654,12 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             if (selectorLambda == null)
                 return;
 
+            // For nested selects, try to get the target entity type
+            var navigation = _entityType?.FindNavigation(subcollection.NavigationName);
+            var nestedEntityType = navigation?.TargetEntityType;
+
             // Extract projected fields from the nested select
-            var nestedVisitor = new ProjectionExtractionVisitor();
+            var nestedVisitor = new ProjectionExtractionVisitor(_collectionManager, nestedEntityType);
             var nestedDefinition = nestedVisitor.Extract(selectorLambda);
 
             if (nestedDefinition?.Fields != null)
