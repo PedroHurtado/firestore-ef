@@ -1016,65 +1016,15 @@ Solo después de que TODOS los Translators estén funcionando.
 | INTEGRAR | [x] | Resolver usa AST metadata directamente (sin IModel) | `Query/Resolved/FirestoreAstResolver.cs` |
 | VERIFICAR | [x] | Todos los tests pasan | 1045 unit + 170 integration |
 
-**Arquitectura implementada:**
-
-El `FirestoreAstResolver` ahora solo depende de `IFirestoreQueryContext` (para `ParameterValues`):
-
-```csharp
-public class FirestoreAstResolver : IFirestoreAstResolver
-{
-    private readonly IFirestoreQueryContext _queryContext;
-
-    public FirestoreAstResolver(IFirestoreQueryContext queryContext) { ... }
-
-    public ResolvedFirestoreQuery Resolve(FirestoreQueryExpression ast) { ... }
-}
-```
-
-**Metadata en el AST:**
-
-Los Translators extraen y almacenan toda la metadata necesaria en el AST:
-- `CollectionName` - nombre de la colección
-- `TargetClrType` - tipo CLR de la entidad
-- `PrimaryKeyPropertyName` - nombre de la propiedad PK (para optimización de Id)
-
-**Helper para Translators:**
-
-```csharp
-public record NavigationMetadata(
-    string CollectionName,
-    bool IsCollection,
-    Type TargetClrType,
-    string? PrimaryKeyPropertyName);
-
-public static class NavigationMetadataHelper
-{
-    public static NavigationMetadata GetMetadata(
-        INavigation navigation,
-        IFirestoreCollectionManager collectionManager);
-
-    public static string? GetPrimaryKeyPropertyName(IEntityType entityType);
-}
-```
-
-**Detección de Id optimization:**
-
-El Resolver detecta optimización de Id desde `FilterResults` usando `PrimaryKeyPropertyName`:
-
-```csharp
-private string? DetectIdOptimization(
-    IReadOnlyList<FirestoreFilterResult> filterResults,
-    string? primaryKeyPropertyName)
-{
-    // Un solo filtro AND con igualdad en el PK → retorna el valor del Id
-    // Permite usar GetDocumentAsync en lugar de query
-}
-```
+**Qué hace:**
+- `FirestoreAstResolver` solo depende de `IFirestoreQueryContext` (para `ParameterValues`)
+- Usa metadata del AST directamente: `CollectionName`, `TargetClrType`, `PrimaryKeyPropertyName`
+- Detecta Id optimization desde `FilterResults` usando `PrimaryKeyPropertyName`
+- `NavigationMetadataHelper` extrae metadata de navegaciones en translators
 
 **Backward compatibility (Fase 4):**
-
-Se mantienen `IdValueExpression`/`IsIdOnlyQuery` en el AST para compatibilidad con `FirestoreQueryExecutor`.
-Serán eliminados en Fase 4 cuando el Executor use `ResolvedFirestoreQuery`.
+- Se mantienen `IdValueExpression`/`IsIdOnlyQuery` para compatibilidad con `FirestoreQueryExecutor`
+- Serán eliminados en Fase 4.3 cuando el Executor use `ResolvedFirestoreQuery`
 
 **Commit:** 7aa0f33
 
