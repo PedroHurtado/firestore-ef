@@ -39,6 +39,12 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         public Type TargetClrType { get; }
 
         /// <summary>
+        /// The name of the primary key property for the target entity.
+        /// Used by the Resolver to detect ID optimization.
+        /// </summary>
+        public string? PrimaryKeyPropertyName { get; }
+
+        /// <summary>
         /// Filters to apply to the subcollection query.
         /// Reuses FirestoreWhereClause for consistency with main query filters.
         /// </summary>
@@ -114,18 +120,21 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         /// <param name="collectionName">Name of the collection in Firestore.</param>
         /// <param name="isCollection">Whether this is a collection navigation (true) or reference navigation (false).</param>
         /// <param name="targetClrType">The CLR type of the target entity.</param>
+        /// <param name="primaryKeyPropertyName">The name of the primary key property for the target entity.</param>
         public FirestoreSubcollectionProjection(
             string navigationName,
             string resultName,
             string collectionName,
             bool isCollection,
-            Type targetClrType)
+            Type targetClrType,
+            string? primaryKeyPropertyName = null)
         {
             NavigationName = navigationName ?? throw new ArgumentNullException(nameof(navigationName));
             ResultName = resultName ?? throw new ArgumentNullException(nameof(resultName));
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
             IsCollection = isCollection;
             TargetClrType = targetClrType ?? throw new ArgumentNullException(nameof(targetClrType));
+            PrimaryKeyPropertyName = primaryKeyPropertyName;
             Filters = new List<FirestoreWhereClause>();
             OrderByClauses = new List<FirestoreOrderByClause>();
             NestedSubcollections = new List<FirestoreSubcollectionProjection>();

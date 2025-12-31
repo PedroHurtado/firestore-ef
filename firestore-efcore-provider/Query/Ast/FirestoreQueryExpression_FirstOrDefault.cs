@@ -19,6 +19,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// Feature: FirstOrDefault with Id optimization.
     /// When a query is only filtering by Id with ==, we can use GetDocumentAsync
     /// instead of running a full query (more efficient).
+    ///
+    /// Note: IdValueExpression/IsIdOnlyQuery are kept for backward compatibility with FirestoreQueryExecutor.
+    /// The Resolver also detects ID optimization from FilterResults using PrimaryKeyPropertyName.
     /// </summary>
     public partial class FirestoreQueryExpression
     {
@@ -27,11 +30,13 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// <summary>
         /// Si la query es solo por ID, contiene la expresión del ID.
         /// En este caso, se usará GetDocumentAsync en lugar de ExecuteQueryAsync.
+        /// Legacy: kept for backward compatibility with FirestoreQueryExecutor.
         /// </summary>
         public Expression? IdValueExpression { get; protected set; }
 
         /// <summary>
         /// Indica si esta query es solo por ID (sin otros filtros)
+        /// Legacy: kept for backward compatibility with FirestoreQueryExecutor.
         /// </summary>
         public bool IsIdOnlyQuery => IdValueExpression != null;
 
@@ -53,6 +58,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
         /// <summary>
         /// Establece la expresión del ID para queries por documento único.
+        /// Legacy: kept for backward compatibility with FirestoreQueryExecutor.
         /// </summary>
         public FirestoreQueryExpression WithIdValueExpression(Expression idExpression)
         {
@@ -73,6 +79,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// <summary>
         /// Limpia la expresión del ID y establece filtros iniciales.
         /// Usado para convertir una IdOnlyQuery a una query normal con filtros.
+        /// Legacy: kept for backward compatibility with FirestoreQueryExecutor.
         /// </summary>
         public FirestoreQueryExpression ClearIdValueExpressionWithFilters(IEnumerable<FirestoreWhereClause> initialFilters)
         {
@@ -186,7 +193,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             // Store the filter result for later processing
             ast.AddFilterResult(filterResult);
 
-            // Aplicar optimización
+            // Aplicar optimización (legacy for FirestoreQueryExecutor)
             ast.WithIdValueExpression(clause.ValueExpression);
             return source.UpdateQueryExpression(ast);
         }

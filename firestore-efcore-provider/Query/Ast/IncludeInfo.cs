@@ -46,6 +46,12 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public Type TargetClrType { get; }
 
+        /// <summary>
+        /// The name of the primary key property for the target entity.
+        /// Used by the Resolver to detect ID optimization.
+        /// </summary>
+        public string? PrimaryKeyPropertyName { get; }
+
         #endregion
 
         #region Filters (translated by FirestoreWhereTranslator)
@@ -121,12 +127,13 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// <summary>
         /// Creates an IncludeInfo with full navigation information.
         /// </summary>
-        public IncludeInfo(string navigationName, bool isCollection, string collectionName, Type targetClrType)
+        public IncludeInfo(string navigationName, bool isCollection, string collectionName, Type targetClrType, string? primaryKeyPropertyName = null)
         {
             NavigationName = navigationName ?? throw new ArgumentNullException(nameof(navigationName));
             IsCollection = isCollection;
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
             TargetClrType = targetClrType ?? throw new ArgumentNullException(nameof(targetClrType));
+            PrimaryKeyPropertyName = primaryKeyPropertyName;
         }
 
         #endregion

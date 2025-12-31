@@ -1,7 +1,5 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
-using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,10 +12,9 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     ///
     /// Responsibilities:
     /// - Evaluate all Expressions using IFirestoreQueryContext.ParameterValues
-    /// - Resolve navigations using IFirestoreQueryContext.Model
-    /// - Detect primary keys for Id optimization (GetDocumentAsync vs Query)
-    /// - Resolve Includes with navigation metadata
-    /// - Resolve Projections with subcollection info
+    /// - Detect primary keys for Id optimization (GetDocumentAsync vs Query) using PrimaryKeyPropertyName from AST
+    /// - Resolve Includes with navigation metadata from AST
+    /// - Resolve Projections with subcollection info from AST
     ///
     /// After resolution, the Executor becomes "dumb" - it just builds SDK calls.
     /// All smart logic (expression evaluation, Id optimization, PK detection) is done here.
@@ -25,14 +22,10 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     public class FirestoreAstResolver : IFirestoreAstResolver
     {
         private readonly IFirestoreQueryContext _queryContext;
-        private readonly IFirestoreCollectionManager _collectionManager;
 
-        public FirestoreAstResolver(
-            IFirestoreQueryContext queryContext,
-            IFirestoreCollectionManager collectionManager)
+        public FirestoreAstResolver(IFirestoreQueryContext queryContext)
         {
             _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
-            _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
         }
 
         /// <summary>
@@ -42,15 +35,11 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         {
             if (ast == null) throw new ArgumentNullException(nameof(ast));
 
-            var entityType = ast.EntityType;
-            var collectionPath = _collectionManager.GetCollectionName(entityType.ClrType);
+            // Use CollectionName from AST directly
+            var collectionPath = ast.CollectionName;
 
-            // Resolve DocumentId from IdValueExpression (Id optimization)
-            string? documentId = null;
-            if (ast.IdValueExpression != null)
-            {
-                documentId = EvaluateExpression<string>(ast.IdValueExpression);
-            }
+            // Detect Id optimization from FilterResults using PrimaryKeyPropertyName from AST
+            string? documentId = DetectIdOptimization(ast.FilterResults, ast.PrimaryKeyPropertyName);
 
             // Resolve filters
             var filterResults = ResolveFilterResults(ast.FilterResults);
@@ -72,19 +61,19 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                     ast.StartAfterCursor.OrderByValues);
             }
 
-            // Resolve Includes using IModel for navigation resolution
-            var includes = ResolveIncludes(ast.PendingIncludes, entityType);
+            // Resolve Includes using metadata from AST
+            var includes = ResolveIncludes(ast.PendingIncludes);
 
-            // Resolve Projection
+            // Resolve Projection using metadata from AST
             ResolvedProjectionDefinition? projection = null;
             if (ast.Projection != null)
             {
-                projection = ResolveProjection(ast.Projection, entityType);
+                projection = ResolveProjection(ast.Projection);
             }
 
             return new ResolvedFirestoreQuery(
                 CollectionPath: collectionPath,
-                EntityClrType: entityType.ClrType,
+                EntityClrType: ast.EntityType.ClrType,
                 DocumentId: documentId,
                 FilterResults: filterResults,
                 OrderByClauses: orderByClauses,
@@ -205,42 +194,27 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         #region Include Resolution
 
-        private IReadOnlyList<ResolvedInclude> ResolveIncludes(
-            IReadOnlyList<IncludeInfo> includes,
-            IEntityType parentEntityType)
+        private IReadOnlyList<ResolvedInclude> ResolveIncludes(IReadOnlyList<IncludeInfo> includes)
         {
             var result = new List<ResolvedInclude>();
 
             foreach (var include in includes)
             {
-                var resolved = ResolveInclude(include, parentEntityType, includes);
-                if (resolved != null)
-                {
-                    result.Add(resolved);
-                }
+                var resolved = ResolveInclude(include, includes);
+                result.Add(resolved);
             }
 
             return result;
         }
 
-        private ResolvedInclude? ResolveInclude(
-            IncludeInfo include,
-            IEntityType parentEntityType,
-            IReadOnlyList<IncludeInfo> allIncludes)
+        private ResolvedInclude ResolveInclude(IncludeInfo include, IReadOnlyList<IncludeInfo> allIncludes)
         {
-            var navigation = parentEntityType.FindNavigation(include.NavigationName);
-            if (navigation == null)
-            {
-                return null;
-            }
+            // Use metadata from AST directly
+            var collectionPath = include.CollectionName;
+            var targetClrType = include.TargetClrType;
 
-            var targetEntityType = navigation.TargetEntityType;
-
-            // Get collection name for subcollection (simple name, Executor builds full path at runtime)
-            var collectionPath = _collectionManager.GetCollectionName(targetEntityType.ClrType);
-
-            // Detect Id optimization from filters
-            string? documentId = DetectIdOptimization(include.FilterResults, targetEntityType);
+            // Detect Id optimization from filters using PrimaryKeyPropertyName from AST
+            string? documentId = DetectIdOptimization(include.FilterResults, include.PrimaryKeyPropertyName);
 
             // Resolve filters
             var filterResults = ResolveFilterResults(include.FilterResults);
@@ -253,19 +227,14 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             // Resolve Pagination
             var pagination = ResolvePagination(include.Pagination);
 
-            // Resolve nested includes (ThenInclude)
-            var nestedIncludes = allIncludes
-                .Where(inc => targetEntityType.FindNavigation(inc.NavigationName) != null &&
-                              inc.NavigationName != include.NavigationName)
-                .Select(inc => ResolveInclude(inc, targetEntityType, allIncludes))
-                .Where(inc => inc != null)
-                .Cast<ResolvedInclude>()
-                .ToList();
+            // Note: Nested includes (ThenInclude) would need to be tracked separately
+            // For now, we don't support nested includes in IncludeInfo
+            var nestedIncludes = new List<ResolvedInclude>();
 
             return new ResolvedInclude(
                 NavigationName: include.NavigationName,
                 IsCollection: include.IsCollection,
-                TargetEntityType: targetEntityType.ClrType,
+                TargetEntityType: targetClrType,
                 CollectionPath: collectionPath,
                 DocumentId: documentId,
                 FilterResults: filterResults,
@@ -274,56 +243,14 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 NestedIncludes: nestedIncludes);
         }
 
-        private string? DetectIdOptimization(
-            IReadOnlyList<FirestoreFilterResult> filterResults,
-            IEntityType entityType)
-        {
-            if (filterResults.Count != 1)
-                return null;
-
-            var filterResult = filterResults[0];
-
-            if (filterResult.OrGroup != null || filterResult.NestedOrGroups.Count > 0)
-                return null;
-
-            if (filterResult.AndClauses.Count != 1)
-                return null;
-
-            var clause = filterResult.AndClauses[0];
-
-            if (clause.Operator != FirestoreOperator.EqualTo)
-                return null;
-
-            var pkPropertyName = GetPrimaryKeyPropertyName(entityType);
-            if (pkPropertyName == null)
-                return null;
-
-            if (clause.PropertyName != pkPropertyName)
-                return null;
-
-            var value = EvaluateWhereClauseValue(clause);
-            return value?.ToString();
-        }
-
-        private string? GetPrimaryKeyPropertyName(IEntityType entityType)
-        {
-            var primaryKey = entityType.FindPrimaryKey();
-            if (primaryKey == null || primaryKey.Properties.Count != 1)
-                return null;
-
-            return primaryKey.Properties[0].Name;
-        }
-
         #endregion
 
         #region Projection Resolution
 
-        private ResolvedProjectionDefinition ResolveProjection(
-            FirestoreProjectionDefinition projection,
-            IEntityType entityType)
+        private ResolvedProjectionDefinition ResolveProjection(FirestoreProjectionDefinition projection)
         {
             var subcollections = projection.Subcollections
-                .Select(s => ResolveSubcollectionProjection(s, entityType))
+                .Select(ResolveSubcollectionProjection)
                 .ToList();
 
             return new ResolvedProjectionDefinition(
@@ -334,24 +261,14 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         }
 
         private ResolvedSubcollectionProjection ResolveSubcollectionProjection(
-            FirestoreSubcollectionProjection subcollection,
-            IEntityType parentEntityType)
+            FirestoreSubcollectionProjection subcollection)
         {
-            var navigation = parentEntityType.FindNavigation(subcollection.NavigationName);
-            var targetEntityType = navigation?.TargetEntityType;
-            var targetClrType = targetEntityType?.ClrType ?? typeof(object);
+            // Use metadata from AST directly
+            var collectionPath = subcollection.CollectionName;
+            var targetClrType = subcollection.TargetClrType;
 
-            // Get collection name (simple name, Executor builds full path at runtime)
-            string collectionPath = targetEntityType != null
-                ? _collectionManager.GetCollectionName(targetEntityType.ClrType)
-                : subcollection.CollectionName;
-
-            // Detect Id optimization
-            string? documentId = null;
-            if (targetEntityType != null)
-            {
-                documentId = DetectIdOptimizationFromClauses(subcollection.FilterResults, targetEntityType);
-            }
+            // Detect Id optimization using PrimaryKeyPropertyName from AST
+            string? documentId = DetectIdOptimization(subcollection.FilterResults, subcollection.PrimaryKeyPropertyName);
 
             // Resolve filters
             var filterResults = ResolveFilterResults(subcollection.FilterResults);
@@ -365,13 +282,9 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             var pagination = ResolvePagination(subcollection.Pagination);
 
             // Resolve nested subcollections
-            var nestedSubcollections = new List<ResolvedSubcollectionProjection>();
-            if (subcollection.NestedSubcollections.Count > 0 && targetEntityType != null)
-            {
-                nestedSubcollections = subcollection.NestedSubcollections
-                    .Select(ns => ResolveSubcollectionProjection(ns, targetEntityType))
-                    .ToList();
-            }
+            var nestedSubcollections = subcollection.NestedSubcollections
+                .Select(ResolveSubcollectionProjection)
+                .ToList();
 
             return new ResolvedSubcollectionProjection(
                 NavigationName: subcollection.NavigationName,
@@ -388,10 +301,21 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 NestedSubcollections: nestedSubcollections);
         }
 
-        private string? DetectIdOptimizationFromClauses(
-            List<FirestoreFilterResult> filterResults,
-            IEntityType entityType)
+        #endregion
+
+        #region ID Optimization Detection
+
+        /// <summary>
+        /// Detects if the FilterResults contain a single PK == value filter,
+        /// which allows using GetDocumentAsync instead of a query.
+        /// </summary>
+        private string? DetectIdOptimization(
+            IReadOnlyList<FirestoreFilterResult> filterResults,
+            string? primaryKeyPropertyName)
         {
+            if (primaryKeyPropertyName == null)
+                return null;
+
             if (filterResults.Count != 1)
                 return null;
 
@@ -408,11 +332,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             if (clause.Operator != FirestoreOperator.EqualTo)
                 return null;
 
-            var pkPropertyName = GetPrimaryKeyPropertyName(entityType);
-            if (pkPropertyName == null)
-                return null;
-
-            if (clause.PropertyName != pkPropertyName)
+            if (clause.PropertyName != primaryKeyPropertyName)
                 return null;
 
             var value = EvaluateWhereClauseValue(clause);

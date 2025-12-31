@@ -48,6 +48,12 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         public string CollectionName { get; protected set; }
 
         /// <summary>
+        /// Nombre de la propiedad que es la clave primaria (ej: "Id").
+        /// Se usa en el Resolver para detectar optimización de ID.
+        /// </summary>
+        public string? PrimaryKeyPropertyName { get; protected set; }
+
+        /// <summary>
         /// Lista de filtros WHERE aplicados a la query (AND implícito)
         /// </summary>
         private readonly List<FirestoreWhereClause> _filters = new();
@@ -189,10 +195,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// <summary>
         /// Constructor con solo los parámetros obligatorios
         /// </summary>
-        public FirestoreQueryExpression(IEntityType entityType, string collectionName)
+        public FirestoreQueryExpression(IEntityType entityType, string collectionName, string? primaryKeyPropertyName = null)
         {
             EntityType = entityType ?? throw new ArgumentNullException(nameof(entityType));
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
+            PrimaryKeyPropertyName = primaryKeyPropertyName;
         }
 
         #endregion

@@ -16,6 +16,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
     /// <summary>
     /// Feature: Where translation.
     /// Where applies filter clauses to the query.
+    ///
+    /// Note: IdValueExpression/IsIdOnlyQuery logic is kept for backward compatibility with FirestoreQueryExecutor.
+    /// The Resolver also detects ID optimization from FilterResults using PrimaryKeyPropertyName.
     /// </summary>
     public partial class FirestoreQueryExpression
     {
@@ -43,7 +46,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
                 return null;
             }
 
-            // Store the filter result for later processing
+            // Store the filter result for later processing by Resolver
             ast.AddFilterResult(filterResult);
 
             // Handle OR groups
@@ -70,6 +73,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
             // Check for ID-only queries (optimization: use GetDocumentAsync instead of query)
             // Only valid when there's a SINGLE Id == clause with NO other filters
+            // Legacy: kept for backward compatibility with FirestoreQueryExecutor
             if (clauses.Count == 1 && clauses[0].PropertyName == "Id")
             {
                 var whereClause = clauses[0];

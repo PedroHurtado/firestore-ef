@@ -1,9 +1,7 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -71,19 +69,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         [Fact]
         public void Constructor_Throws_On_Null_QueryContext()
         {
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-
             Assert.Throws<ArgumentNullException>(() =>
-                new FirestoreAstResolver(null!, collectionManagerMock.Object));
-        }
-
-        [Fact]
-        public void Constructor_Throws_On_Null_CollectionManager()
-        {
-            var queryContextMock = new Mock<IFirestoreQueryContext>();
-
-            Assert.Throws<ArgumentNullException>(() =>
-                new FirestoreAstResolver(queryContextMock.Object, null!));
+                new FirestoreAstResolver(null!));
         }
 
         #endregion
@@ -94,11 +81,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void Resolve_Throws_On_Null_Ast()
         {
             var queryContextMock = new Mock<IFirestoreQueryContext>();
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
 
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             Assert.Throws<ArgumentNullException>(() => resolver.Resolve(null!));
         }
@@ -113,14 +97,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
 
@@ -142,17 +119,14 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            // Use PrimaryKeyPropertyName so Resolver can detect ID optimization from FilterResults
+            var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
 
-            var ast = new FirestoreQueryExpression(entityType, "menus");
-            ast.WithIdValueExpression(Expression.Constant("menu-123"));
+            // Add a filter result with Id == "menu-123"
+            var whereClause = new FirestoreWhereClause("Id", FirestoreOperator.EqualTo, Expression.Constant("menu-123"));
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause));
 
             var result = resolver.Resolve(ast);
 
@@ -170,18 +144,15 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__menuId_0", "menu-456" } });
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            // Use PrimaryKeyPropertyName so Resolver can detect ID optimization from FilterResults
+            var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
 
-            var ast = new FirestoreQueryExpression(entityType, "menus");
+            // Add a filter result with Id == parameter
             var paramExpr = Expression.Parameter(typeof(string), "__menuId_0");
-            ast.WithIdValueExpression(paramExpr);
+            var whereClause = new FirestoreWhereClause("Id", FirestoreOperator.EqualTo, paramExpr);
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause));
 
             var result = resolver.Resolve(ast);
 
@@ -202,14 +173,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var whereClause = new FirestoreWhereClause(
                 "Name",
@@ -239,14 +203,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__name_0", "Parameterized Name" } });
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var paramExpr = Expression.Parameter(typeof(string), "__name_0");
             var whereClause = new FirestoreWhereClause(
@@ -278,14 +235,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithLimit(10);
@@ -305,14 +255,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__limit_0", 25 } });
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             var paramExpr = Expression.Parameter(typeof(int), "__limit_0");
@@ -333,14 +276,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithSkip(5);
@@ -364,14 +300,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.AddOrderBy(new FirestoreOrderByClause("Name", false));
@@ -400,17 +329,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Category)))
-                .Returns("categories");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
             ast.AddInclude("Categories", true, "categories", typeof(Category));
@@ -425,7 +344,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         }
 
         [Fact]
-        public void Resolve_NestedInclude_ResolvesNestedNavigations()
+        public void Resolve_Include_WithIdFilter_DetectsIdOptimization()
         {
             using var context = new TestDbContext();
             var menuEntityType = context.Model.FindEntityType(typeof(Menu))!;
@@ -434,39 +353,20 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Category)))
-                .Returns("categories");
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Item)))
-                .Returns("items");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
-            ast.AddInclude("Categories", true, "categories", typeof(Category));
-            ast.AddInclude("Items", true, "items", typeof(Item)); // This belongs to Category
+
+            // Add include with PrimaryKeyPropertyName and a filter on Id
+            var includeInfo = new IncludeInfo("Categories", true, "categories", typeof(Category), "Id");
+            var whereClause = new FirestoreWhereClause("Id", FirestoreOperator.EqualTo, Expression.Constant("cat-123"));
+            includeInfo.AddFilterResult(FirestoreFilterResult.FromClause(whereClause));
+            ast.AddInclude(includeInfo);
 
             var result = resolver.Resolve(ast);
 
-            // Should have Categories include with nested Items
             Assert.Single(result.Includes);
-            var categoriesInclude = result.Includes[0];
-            Assert.Equal("categories", categoriesInclude.CollectionPath);
-            Assert.Equal(typeof(Category), categoriesInclude.TargetEntityType);
-
-            // Nested Items include
-            Assert.Single(categoriesInclude.NestedIncludes);
-            var itemsInclude = categoriesInclude.NestedIncludes[0];
-            Assert.Equal("Items", itemsInclude.NavigationName);
-            Assert.Equal("items", itemsInclude.CollectionPath);
-            Assert.Equal(typeof(Item), itemsInclude.TargetEntityType);
+            Assert.Equal("cat-123", result.Includes[0].DocumentId);
         }
 
         #endregion
@@ -483,14 +383,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithCount();
@@ -511,14 +404,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Item)))
-                .Returns("items");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "items");
             ast.WithSum("Price", typeof(decimal));
@@ -545,14 +431,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithReturnDefault(true, typeof(Menu));
@@ -578,14 +457,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
-            collectionManagerMock
-                .Setup(x => x.GetCollectionName(typeof(Menu)))
-                .Returns("menus");
-
-            var resolver = new FirestoreAstResolver(
-                queryContextMock.Object,
-                collectionManagerMock.Object);
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
 
             var cursor = new FirestoreCursor("last-doc-123", new object?[] { "LastName", 42 });
 
@@ -597,6 +469,88 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             Assert.NotNull(result.StartAfterCursor);
             Assert.Equal("last-doc-123", result.StartAfterCursor.DocumentId);
             Assert.Equal(2, result.StartAfterCursor.OrderByValues!.Count);
+        }
+
+        #endregion
+
+        #region ID Optimization Detection Tests
+
+        [Fact]
+        public void Resolve_WithPrimaryKeyFilter_DetectsIdOptimization()
+        {
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Menu))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
+
+            // AST with PrimaryKeyPropertyName set
+            var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
+
+            // Add filter on primary key
+            var whereClause = new FirestoreWhereClause("Id", FirestoreOperator.EqualTo, Expression.Constant("menu-123"));
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause));
+
+            var result = resolver.Resolve(ast);
+
+            Assert.Equal("menu-123", result.DocumentId);
+            Assert.True(result.IsDocumentQuery);
+        }
+
+        [Fact]
+        public void Resolve_WithNonPrimaryKeyFilter_DoesNotDetectIdOptimization()
+        {
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Menu))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
+
+            // AST with PrimaryKeyPropertyName set
+            var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
+
+            // Add filter on non-primary key field
+            var whereClause = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, Expression.Constant("Test"));
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause));
+
+            var result = resolver.Resolve(ast);
+
+            Assert.Null(result.DocumentId);
+            Assert.False(result.IsDocumentQuery);
+        }
+
+        [Fact]
+        public void Resolve_WithMultipleFilters_DoesNotDetectIdOptimization()
+        {
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Menu))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = new FirestoreAstResolver(queryContextMock.Object);
+
+            // AST with PrimaryKeyPropertyName set
+            var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
+
+            // Add multiple filter results - should not trigger ID optimization
+            var whereClause1 = new FirestoreWhereClause("Id", FirestoreOperator.EqualTo, Expression.Constant("menu-123"));
+            var whereClause2 = new FirestoreWhereClause("Name", FirestoreOperator.EqualTo, Expression.Constant("Test"));
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause1));
+            ast.AddFilterResult(FirestoreFilterResult.FromClause(whereClause2));
+
+            var result = resolver.Resolve(ast);
+
+            // Multiple FilterResults means not a simple ID query
+            Assert.Null(result.DocumentId);
+            Assert.False(result.IsDocumentQuery);
         }
 
         #endregion
