@@ -1005,16 +1005,78 @@ Solo después de que TODOS los Translators estén funcionando.
 
 | Paso | Estado | Acción | Archivo |
 |------|--------|--------|---------|
-| TEST | [ ] | Tests de resolución de cada tipo de Expression | `Tests/Query/FirestoreAstResolverTests.cs` |
-| IMPL | [ ] | Implementar resolver | `Query/FirestoreAstResolver.cs` |
-| INTEGRAR | [ ] | Mover lógica de evaluación del Executor y DTOs | Varios |
-| VERIFICAR | [ ] | Todos los tests de integración pasan | `Tests/Query/*` |
+| TEST | [x] | Tests de resolución de cada tipo de Expression | `Tests/Query/Resolved/FirestoreAstResolverTests.cs` |
+| IMPL | [x] | Implementar resolver | `Query/Resolved/FirestoreAstResolver.cs` |
+| IMPL | [x] | Crear IFirestoreAstResolver interface | `Query/Resolved/IFirestoreAstResolver.cs` |
+| IMPL | [x] | Crear IFirestoreQueryContext interface | `Query/Resolved/IFirestoreQueryContext.cs` |
+| IMPL | [x] | Añadir PrimaryKeyPropertyName al AST | `Query/Ast/FirestoreQueryExpression.cs` |
+| IMPL | [x] | Añadir PrimaryKeyPropertyName a IncludeInfo | `Query/Ast/IncludeInfo.cs` |
+| IMPL | [x] | Añadir PrimaryKeyPropertyName a FirestoreSubcollectionProjection | `Query/Projections/FirestoreSubcollectionProjection.cs` |
+| IMPL | [x] | Crear NavigationMetadata record y NavigationMetadataHelper | `Query/Ast/NavigationMetadata.cs` |
+| INTEGRAR | [x] | Resolver usa AST metadata directamente (sin IModel) | `Query/Resolved/FirestoreAstResolver.cs` |
+| VERIFICAR | [x] | Todos los tests pasan | 1045 unit + 170 integration |
 
-**Qué mueve:**
-- `EvaluateIntExpression` del Executor
-- `EvaluateIdExpression` del Executor
-- `EvaluateValue` de `FirestoreWhereClause`
-- `CompileFilterPredicate` del Executor y Shaper
+**Arquitectura implementada:**
+
+El `FirestoreAstResolver` ahora solo depende de `IFirestoreQueryContext` (para `ParameterValues`):
+
+```csharp
+public class FirestoreAstResolver : IFirestoreAstResolver
+{
+    private readonly IFirestoreQueryContext _queryContext;
+
+    public FirestoreAstResolver(IFirestoreQueryContext queryContext) { ... }
+
+    public ResolvedFirestoreQuery Resolve(FirestoreQueryExpression ast) { ... }
+}
+```
+
+**Metadata en el AST:**
+
+Los Translators extraen y almacenan toda la metadata necesaria en el AST:
+- `CollectionName` - nombre de la colección
+- `TargetClrType` - tipo CLR de la entidad
+- `PrimaryKeyPropertyName` - nombre de la propiedad PK (para optimización de Id)
+
+**Helper para Translators:**
+
+```csharp
+public record NavigationMetadata(
+    string CollectionName,
+    bool IsCollection,
+    Type TargetClrType,
+    string? PrimaryKeyPropertyName);
+
+public static class NavigationMetadataHelper
+{
+    public static NavigationMetadata GetMetadata(
+        INavigation navigation,
+        IFirestoreCollectionManager collectionManager);
+
+    public static string? GetPrimaryKeyPropertyName(IEntityType entityType);
+}
+```
+
+**Detección de Id optimization:**
+
+El Resolver detecta optimización de Id desde `FilterResults` usando `PrimaryKeyPropertyName`:
+
+```csharp
+private string? DetectIdOptimization(
+    IReadOnlyList<FirestoreFilterResult> filterResults,
+    string? primaryKeyPropertyName)
+{
+    // Un solo filtro AND con igualdad en el PK → retorna el valor del Id
+    // Permite usar GetDocumentAsync en lugar de query
+}
+```
+
+**Backward compatibility (Fase 4):**
+
+Se mantienen `IdValueExpression`/`IsIdOnlyQuery` en el AST para compatibilidad con `FirestoreQueryExecutor`.
+Serán eliminados en Fase 4 cuando el Executor use `ResolvedFirestoreQuery`.
+
+**Commit:** 7aa0f33
 
 ---
 
@@ -1235,6 +1297,23 @@ Para un endpoint REST como `GET /menus/{menuId}/categories/{categoryId}/items/{i
 | VERIFICAR | [ ] | Todos los tests pasan | `Tests/Query/*` |
 
 **Commit:**
+
+---
+
+### 4.3 Limpieza post-Fase 4 (después de que Executor use ResolvedFirestoreQuery)
+
+Una vez que el Executor use `ResolvedFirestoreQuery` en lugar del AST directamente, eliminar:
+
+| Archivo | Qué eliminar |
+|---------|--------------|
+| `Query/Ast/FirestoreQueryExpression_FirstOrDefault.cs` | `IdValueExpression`, `IsIdOnlyQuery`, `WithIdValueExpression`, `ClearIdValueExpressionWithFilters` |
+| `Query/Ast/FirestoreQueryExpression_Where.cs` | Lógica legacy de `IsIdOnlyQuery` (líneas 55-120) |
+| `Query/Ast/FirestoreWhereClause.cs` | `EvaluateValue()` y `QueryContextParameterReplacer` embebido |
+
+**Notas:**
+- Estos campos/métodos se mantienen actualmente para backward compatibility con `FirestoreQueryExecutor`
+- El Resolver ya detecta Id optimization desde `FilterResults` usando `PrimaryKeyPropertyName`
+- Una vez que el Executor use `ResolvedFirestoreQuery.DocumentId`, la lógica legacy será redundante
 
 ---
 
