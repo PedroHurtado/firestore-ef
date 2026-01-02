@@ -920,11 +920,11 @@ public class FirestorePipelineOptions
 - [x] Extension methods para contexto
 - [x] `PipelineResultExtensions` (MaterializeAsync, ToStreaming)
 
-### Fase 2: Error Handling
-- [ ] `FirestorePipelineException` y derivadas
-- [ ] `FirestoreExceptionClassifier`
-- [ ] `ErrorHandlingHandler`
-- [ ] `FirestoreErrorHandlingOptions`
+### Fase 2: Error Handling ✅ (5af697b)
+- [x] `FirestorePipelineException` y derivadas
+- [x] `FirestoreExceptionClassifier`
+- [x] `ErrorHandlingHandler`
+- [x] `FirestoreErrorHandlingOptions`
 
 ### Fase 3: Handlers Core
 - [ ] `ResolverHandler`
