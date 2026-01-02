@@ -21,6 +21,9 @@ global using Microsoft.EntityFrameworkCore.ChangeTracking;
 global using Firestore.EntityFrameworkCore.Infrastructure;
 global using Firestore.EntityFrameworkCore.Storage;
 global using Firestore.EntityFrameworkCore.Query;
+global using Firestore.EntityFrameworkCore.Query.Ast;
+global using Firestore.EntityFrameworkCore.Query.Pipeline;
+global using Firestore.EntityFrameworkCore.Query.Resolved;
 global using Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 // Microsoft Extensions
