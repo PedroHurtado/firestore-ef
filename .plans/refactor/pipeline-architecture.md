@@ -944,20 +944,20 @@ public class FirestorePipelineOptions
   - Extiende QueryPipelineHandlerBase, solo aplica a QueryKind.Entity
   - Usa IStateManager directamente (no dbContext.Attach)
   - Identity resolution: previene instancias duplicadas
-- [x] `ProxyHandler` + `IProxyFactory` ✅ (ba55733)
-  - Extiende QueryPipelineHandlerBase, solo aplica a QueryKind.Entity
-  - IProxyFactory nullable: null = proxies deshabilitados
-  - Envuelve entidades en lazy-loading proxies cuando factory disponible
-  - Pasa sin modificar si entityType no encontrado en modelo
+- [x] `ProxyHandler` + `IProxyFactory` + `FirestoreLazyLoader` ✅ (46d4373)
+  - Fase 4.2 + Fase 6 combinadas: Proxy y Lazy Loading van de la mano
+  - IProxyFactory rediseñado: GetProxyType/CreateProxy (no wrapping)
+  - ProxyHandler pasa factory via metadata, no envuelve entidades
+  - ConvertHandler crea proxy ANTES de deserializar (DeserializeInto)
+  - FirestoreLazyLoader ejecuta sub-pipelines para cargar navigations
+  - SetLoaded/IsLoaded/Dispose para tracking de navigations cargadas
+  - Collections: WHERE FK == PK, References: WithIdValueExpression
 - [ ] `IncludeHandler` + `IIncludeLoader`
 
 ### Fase 5: Handlers Opcionales
 - [ ] `LogAstHandler`
 - [ ] `LogQueryHandler`
 - [ ] `CacheHandler`
-
-### Fase 6: Lazy Loading
-- [ ] `FirestoreLazyLoader : ILazyLoader`
 
 ### Fase 7: Integración
 - [ ] `FirestorePipelineServiceCollectionExtensions`
