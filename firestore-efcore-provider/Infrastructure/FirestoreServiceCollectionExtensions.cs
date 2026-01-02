@@ -12,6 +12,7 @@ using Firestore.EntityFrameworkCore.Query.Visitors;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Metadata;
 using Firestore.EntityFrameworkCore.Infrastructure.Internal;
+using Firestore.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Firestore.EntityFrameworkCore.Infrastructure

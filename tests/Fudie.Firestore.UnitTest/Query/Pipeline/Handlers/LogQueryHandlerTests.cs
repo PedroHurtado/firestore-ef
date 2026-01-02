@@ -1,3 +1,8 @@
+using Firestore.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
+
 namespace Fudie.Firestore.UnitTest.Query.Pipeline.Handlers;
 
 public class LogQueryHandlerTests
@@ -12,14 +17,14 @@ public class LogQueryHandlerTests
     }
 
     [Fact]
-    public void LogQueryHandler_Constructor_Accepts_Logger()
+    public void LogQueryHandler_Constructor_Accepts_DiagnosticsLogger()
     {
         var constructors = typeof(LogQueryHandler).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
         parameters.Should().HaveCount(1);
-        parameters[0].ParameterType.Should().Be(typeof(ILogger<LogQueryHandler>));
+        parameters[0].ParameterType.Should().Be(typeof(IDiagnosticsLogger<DbLoggerCategory.Query>));
     }
 
     #endregion
@@ -72,14 +77,10 @@ public class LogQueryHandlerTests
     #region Logging Tests
 
     [Fact]
-    public async Task HandleAsync_Logs_Query_At_Debug_Level()
+    public async Task HandleAsync_Logs_When_Query_Present()
     {
         // Arrange
-        var mockLogger = new Mock<ILogger<LogQueryHandler>>();
-        mockLogger
-            .Setup(l => l.IsEnabled(LogLevel.Debug))
-            .Returns(true);
-
+        var mockLogger = CreateMockDiagnosticsLogger(shouldLog: true);
         var handler = new LogQueryHandler(mockLogger.Object);
         var context = CreateContext(withResolvedQuery: true);
 
@@ -89,28 +90,17 @@ public class LogQueryHandlerTests
         // Act
         await handler.HandleAsync(context, next, CancellationToken.None);
 
-        // Assert
-        mockLogger.Verify(
-            l => l.Log(
-                LogLevel.Debug,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((o, t) => o.ToString()!.Contains("Executing Firestore query")),
-                It.IsAny<Exception?>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        // Assert - verify ShouldLog was called (logging was attempted)
+        mockLogger.Verify(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()), Times.AtLeastOnce);
     }
 
     [Fact]
-    public async Task HandleAsync_Does_Not_Log_When_Debug_Disabled()
+    public async Task HandleAsync_Does_Not_Log_When_Query_Absent()
     {
         // Arrange
-        var mockLogger = new Mock<ILogger<LogQueryHandler>>();
-        mockLogger
-            .Setup(l => l.IsEnabled(LogLevel.Debug))
-            .Returns(false);
-
+        var mockLogger = CreateMockDiagnosticsLogger(shouldLog: true);
         var handler = new LogQueryHandler(mockLogger.Object);
-        var context = CreateContext(withResolvedQuery: true);
+        var context = CreateContext(withResolvedQuery: false);
 
         PipelineDelegate next = (ctx, ct) =>
             Task.FromResult<PipelineResult>(new PipelineResult.Empty(ctx));
@@ -118,23 +108,46 @@ public class LogQueryHandlerTests
         // Act
         await handler.HandleAsync(context, next, CancellationToken.None);
 
-        // Assert
-        mockLogger.Verify(
-            l => l.Log(
-                LogLevel.Debug,
-                It.IsAny<EventId>(),
-                It.IsAny<It.IsAnyType>(),
-                It.IsAny<Exception?>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Never);
+        // Assert - logging should not be attempted when no query
+        mockLogger.Verify(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()), Times.Never);
     }
 
     #endregion
 
     private static LogQueryHandler CreateHandler()
     {
-        var logger = new Mock<ILogger<LogQueryHandler>>().Object;
+        var logger = CreateMockDiagnosticsLogger(shouldLog: false).Object;
         return new LogQueryHandler(logger);
+    }
+
+    private static Mock<IDiagnosticsLogger<DbLoggerCategory.Query>> CreateMockDiagnosticsLogger(bool shouldLog)
+    {
+        var mockLogger = new Mock<IDiagnosticsLogger<DbLoggerCategory.Query>>();
+        var mockLoggingOptions = new Mock<ILoggingOptions>();
+        var mockLoggerFactory = new Mock<ILoggerFactory>();
+        var mockInnerLogger = new Mock<ILogger>();
+
+        mockLoggerFactory
+            .Setup(f => f.CreateLogger(It.IsAny<string>()))
+            .Returns(mockInnerLogger.Object);
+
+        mockLogger
+            .Setup(l => l.Definitions)
+            .Returns(new FirestoreLoggingDefinitions());
+
+        mockLogger
+            .Setup(l => l.Options)
+            .Returns(mockLoggingOptions.Object);
+
+        mockLogger
+            .Setup(l => l.Logger)
+            .Returns(mockInnerLogger.Object);
+
+        mockLogger
+            .Setup(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()))
+            .Returns(shouldLog);
+
+        return mockLogger;
     }
 
     private static PipelineContext CreateContext(bool withResolvedQuery = true)

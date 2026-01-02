@@ -1,23 +1,32 @@
-using Microsoft.Extensions.Logging;
+using Firestore.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 
 /// <summary>
-/// Handler that logs the resolved Firestore query before execution.
+/// Handler that logs the resolved Firestore query using EF Core diagnostics.
 /// Allows developers to see what queries are being sent to Firestore.
 /// Should be placed after ResolverHandler and before ExecutionHandler.
 /// </summary>
+/// <remarks>
+/// Configure logging via DbContextOptionsBuilder:
+/// <code>
+/// optionsBuilder.ConfigureWarnings(w => w
+///     .Log((FirestoreEventId.QueryExecuting, LogLevel.Debug)));
+/// </code>
+/// </remarks>
 public class LogQueryHandler : IQueryPipelineHandler
 {
-    private readonly ILogger<LogQueryHandler> _logger;
+    private readonly IDiagnosticsLogger<DbLoggerCategory.Query> _logger;
 
     /// <summary>
     /// Creates a new log query handler.
     /// </summary>
-    /// <param name="logger">Logger for query logging.</param>
-    public LogQueryHandler(ILogger<LogQueryHandler> logger)
+    /// <param name="logger">EF Core diagnostics logger.</param>
+    public LogQueryHandler(IDiagnosticsLogger<DbLoggerCategory.Query> logger)
     {
         _logger = logger;
     }
@@ -30,11 +39,9 @@ public class LogQueryHandler : IQueryPipelineHandler
     {
         var resolved = context.ResolvedQuery;
 
-        if (resolved != null && _logger.IsEnabled(LogLevel.Debug))
+        if (resolved != null)
         {
-            _logger.LogDebug(
-                "Executing Firestore query: {Query}",
-                resolved.ToString());
+            _logger.QueryExecuting(resolved);
         }
 
         return await next(context, cancellationToken);
