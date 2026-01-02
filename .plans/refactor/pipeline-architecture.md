@@ -927,8 +927,12 @@ public class FirestorePipelineOptions
 - [x] `FirestoreErrorHandlingOptions`
 
 ### Fase 3: Handlers Core
-- [ ] `ResolverHandler`
-- [ ] `ExecutionHandler` + `IQueryBuilder`
+- [x] `ResolverHandler` ✅ (6571748)
+- [x] `ExecutionHandler` + `IQueryBuilder` ✅ (751316a)
+  - Min/Max ejecutan: `SELECT campo ORDER BY campo LIMIT 1`
+  - Min/Max retornan `Streaming` (no `Scalar`)
+  - ConvertHandler extrae el valor del campo y maneja secuencia vacía
+  - Secuencia vacía: nullable → null, non-nullable → exception (comportamiento EF Core)
 - [ ] `ConvertHandler` + `ITypeConverter`
 
 ### Fase 4: Handlers de Materialización
