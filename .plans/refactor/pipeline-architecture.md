@@ -908,16 +908,17 @@ public class FirestorePipelineOptions
 
 ## Plan de Implementación
 
-### Fase 1: Infraestructura del Pipeline
-- [ ] `PipelineResult` (con variantes Streaming/Materialized/Scalar/Empty)
-- [ ] `PipelineContext` (con QueryKind y Metadata)
-- [ ] `PipelineDelegate`
-- [ ] `IQueryPipelineHandler`
-- [ ] `QueryPipelineHandlerBase` (con skip por QueryKind)
-- [ ] `IQueryPipelineMediator`
-- [ ] `QueryPipelineMediator`
-- [ ] `PipelineMetadataKeys`
-- [ ] Extension methods para contexto
+### Fase 1: Infraestructura del Pipeline ✅ (59ec1c6)
+- [x] `PipelineResult` (con variantes Streaming/Materialized/Scalar/Empty)
+- [x] `PipelineContext` (con QueryKind y Metadata)
+- [x] `PipelineDelegate`
+- [x] `IQueryPipelineHandler`
+- [x] `QueryPipelineHandlerBase` (con skip por QueryKind)
+- [x] `IQueryPipelineMediator`
+- [x] `QueryPipelineMediator`
+- [x] `PipelineMetadataKeys`
+- [x] Extension methods para contexto
+- [x] `PipelineResultExtensions` (MaterializeAsync, ToStreaming)
 
 ### Fase 2: Error Handling
 - [ ] `FirestorePipelineException` y derivadas
