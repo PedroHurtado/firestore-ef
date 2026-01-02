@@ -962,7 +962,7 @@ public class FirestorePipelineOptions
 
 ### Fase 5: Handlers Opcionales
 - [ ] `LogAstHandler`
-- [x] `LogQueryHandler` ✅
+- [x] `LogQueryHandler` ✅ (1838b7c)
 - [ ] `CacheHandler` (pospuesto - requiere análisis de optimización)
 
 ### Fase 7: Integración
