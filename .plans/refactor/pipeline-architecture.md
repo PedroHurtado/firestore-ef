@@ -933,7 +933,11 @@ public class FirestorePipelineOptions
   - Min/Max retornan `Streaming` (no `Scalar`)
   - ConvertHandler extrae el valor del campo y maneja secuencia vacía
   - Secuencia vacía: nullable → null, non-nullable → exception (comportamiento EF Core)
-- [ ] `ConvertHandler` + `ITypeConverter`
+- [x] `ConvertHandler` + `ITypeConverter` + `IDocumentDeserializer` ✅ (800e96a)
+  - Scalar: convierte valores de agregación a tipos CLR
+  - Streaming entidades: deserializa DocumentSnapshots
+  - Min/Max: extrae valor del campo, maneja secuencia vacía
+  - Empty: nullable → null, non-nullable → InvalidOperationException
 
 ### Fase 4: Handlers de Materialización
 - [ ] `TrackingHandler` + `IEntityTracker`
