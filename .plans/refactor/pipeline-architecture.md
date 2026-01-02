@@ -940,7 +940,10 @@ public class FirestorePipelineOptions
   - Empty: nullable → null, non-nullable → InvalidOperationException
 
 ### Fase 4: Handlers de Materialización
-- [ ] `TrackingHandler` + `IEntityTracker`
+- [x] `TrackingHandler` ✅ (333da61)
+  - Extiende QueryPipelineHandlerBase, solo aplica a QueryKind.Entity
+  - Usa IStateManager directamente (no dbContext.Attach)
+  - Identity resolution: previene instancias duplicadas
 - [ ] `ProxyHandler` (orden corregido: después de tracking)
 - [ ] `IncludeHandler` + `IIncludeLoader`
 
