@@ -58,7 +58,13 @@ public class ConvertHandler : IQueryPipelineHandler
         // Entity queries: Streaming of DocumentSnapshots → Streaming of entities
         if (result is PipelineResult.Streaming streaming && context.EntityType != null)
         {
-            var entities = DeserializeDocuments(streaming.Items, context.EntityType);
+            // Check if proxy factory is available in metadata
+            var proxyFactory = context.GetMetadata(PipelineMetadataKeys.ProxyFactory);
+
+            var entities = proxyFactory != null
+                ? DeserializeDocumentsAsProxies(streaming.Items, context, proxyFactory)
+                : DeserializeDocuments(streaming.Items, context.EntityType);
+
             return new PipelineResult.Streaming(entities, context);
         }
 
@@ -68,6 +74,36 @@ public class ConvertHandler : IQueryPipelineHandler
     private static bool IsMinMaxAggregation(FirestoreAggregationType type)
     {
         return type == FirestoreAggregationType.Min || type == FirestoreAggregationType.Max;
+    }
+
+    private async IAsyncEnumerable<object> DeserializeDocumentsAsProxies(
+        IAsyncEnumerable<object> documents,
+        PipelineContext context,
+        IProxyFactory proxyFactory)
+    {
+        var model = context.QueryContext.Model;
+        var entityType = model.FindEntityType(context.EntityType!);
+
+        if (entityType == null)
+        {
+            // Fallback to normal deserialization if entity type not found
+            await foreach (var doc in documents)
+            {
+                yield return _deserializer.Deserialize((DocumentSnapshot)doc, context.EntityType!);
+            }
+            yield break;
+        }
+
+        await foreach (var doc in documents)
+        {
+            // 1. Create empty proxy instance
+            var proxy = proxyFactory.CreateProxy(entityType);
+
+            // 2. Deserialize INTO the proxy
+            _deserializer.DeserializeInto((DocumentSnapshot)doc, proxy);
+
+            yield return proxy;
+        }
     }
 
     private async Task<PipelineResult> ConvertMinMaxStreamingToScalarAsync(

@@ -34,4 +34,10 @@ public static class PipelineMetadataKeys
     /// Time taken to execute the query.
     /// </summary>
     public static readonly MetadataKey<TimeSpan> ExecutionTime = new("ExecutionTime");
+
+    /// <summary>
+    /// The proxy factory to use for creating entity instances.
+    /// When set, ConvertHandler will use this to create proxy instances instead of plain entities.
+    /// </summary>
+    public static readonly MetadataKey<IProxyFactory> ProxyFactory = new("ProxyFactory");
 }

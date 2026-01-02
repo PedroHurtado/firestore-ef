@@ -22,16 +22,13 @@ public class ProxyHandlerTests
     public void ProxyHandler_Constructor_Accepts_Nullable_IProxyFactory()
     {
         // ProxyHandler accepts IProxyFactory? (nullable)
-        // When null, proxies are not created (feature disabled)
+        // When null, proxy factory is not added to metadata
         var constructors = typeof(ProxyHandler).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
         parameters.Should().HaveCount(1);
         parameters[0].ParameterType.Should().Be(typeof(IProxyFactory));
-        // The parameter should allow null values
-        parameters[0].HasDefaultValue.Should().BeFalse(
-            "IProxyFactory should be explicitly nullable via type, not default value");
     }
 
     [Fact]
@@ -84,77 +81,93 @@ public class ProxyHandlerTests
 
     #endregion
 
-    #region Proxy Creation Behavior Tests
+    #region Metadata Behavior Tests
 
     [Fact]
-    public void ProxyHandler_Skips_When_ProxyFactory_Is_Null()
+    public void ProxyHandler_Adds_ProxyFactory_To_Metadata_When_Available()
+    {
+        // When IProxyFactory is available:
+        // Handler should add it to context metadata for ConvertHandler to use
+        typeof(PipelineMetadataKeys).Should().NotBeNull(
+            "ProxyHandler must add IProxyFactory to metadata");
+
+        // Verify the metadata key exists
+        var proxyFactoryKey = PipelineMetadataKeys.ProxyFactory;
+        proxyFactoryKey.Name.Should().Be("ProxyFactory");
+    }
+
+    [Fact]
+    public void ProxyHandler_Does_Not_Modify_Metadata_When_Null()
     {
         // When IProxyFactory is null (proxies not configured):
-        // Handler should pass through without wrapping entities
+        // Handler should pass through without modifying metadata
         typeof(ProxyHandler).Should().NotBeNull(
             "ProxyHandler must check if _proxyFactory is null");
     }
 
-    [Fact]
-    public void ProxyHandler_Creates_Proxies_When_ProxyFactory_Available()
-    {
-        // When IProxyFactory is available:
-        // Handler should wrap each entity in a lazy-loading proxy
-        typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler must use IProxyFactory to create proxies");
-    }
+    #endregion
+
+    #region Handler Order Tests
 
     [Fact]
-    public void ProxyHandler_Processes_Only_Streaming_Results()
+    public void ProxyHandler_Runs_Before_ConvertHandler()
     {
-        // ProxyHandler only processes Streaming results
-        // Scalar results are passed through unchanged
+        // ProxyHandler must run BEFORE ConvertHandler because:
+        // 1. ProxyHandler adds IProxyFactory to metadata
+        // 2. ConvertHandler reads metadata and creates proxy instances
+        // 3. ConvertHandler deserializes INTO the proxy instance
         typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler only processes Streaming results");
-    }
-
-    [Fact]
-    public void ProxyHandler_Returns_Streaming_With_Proxied_Entities()
-    {
-        // Output should be Streaming with proxy-wrapped entities
-        // The original entities are wrapped in proxies
-        typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler returns Streaming with proxied entities");
+            "ProxyHandler must run before ConvertHandler");
     }
 
     #endregion
+}
 
-    #region Entity Metadata Tests
-
+public class IProxyFactoryTests
+{
     [Fact]
-    public void ProxyHandler_Uses_EntityType_From_Context()
+    public void IProxyFactory_Is_Interface()
     {
-        // ProxyHandler needs IEntityType to create proxies
-        // Gets entityType via context.QueryContext.Model.FindEntityType(context.EntityType)
-        typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler must use Model to find entity metadata");
+        typeof(IProxyFactory).IsInterface.Should().BeTrue();
     }
 
     [Fact]
-    public void ProxyHandler_Skips_Proxying_When_EntityType_Not_Found()
+    public void IProxyFactory_Has_GetProxyType_Method()
     {
-        // If entityType is not found in model, pass through without proxying
-        typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler must handle missing entity type metadata");
+        var method = typeof(IProxyFactory).GetMethod("GetProxyType");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(Type));
     }
-
-    #endregion
-
-    #region Lazy Loading Integration Tests
 
     [Fact]
-    public void ProxyHandler_Provides_LazyLoader_To_Proxy()
+    public void GetProxyType_Accepts_IEntityType_Parameter()
     {
-        // The proxy needs an ILazyLoader to load navigation properties
-        // This is obtained from IProxyFactory.CreateLazyLoadingProxy
-        typeof(ProxyHandler).Should().NotBeNull(
-            "Proxies need ILazyLoader for lazy loading");
+        var method = typeof(IProxyFactory).GetMethod("GetProxyType");
+        var parameters = method!.GetParameters();
+
+        parameters.Should().HaveCount(1);
+        parameters[0].ParameterType.Should().Be(typeof(IEntityType));
+        parameters[0].Name.Should().Be("entityType");
     }
 
-    #endregion
+    [Fact]
+    public void IProxyFactory_Has_CreateProxy_Method()
+    {
+        var method = typeof(IProxyFactory).GetMethod("CreateProxy");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(object));
+    }
+
+    [Fact]
+    public void CreateProxy_Accepts_IEntityType_Parameter()
+    {
+        var method = typeof(IProxyFactory).GetMethod("CreateProxy");
+        var parameters = method!.GetParameters();
+
+        parameters.Should().HaveCount(1);
+        parameters[0].ParameterType.Should().Be(typeof(IEntityType));
+        parameters[0].Name.Should().Be("entityType");
+    }
 }

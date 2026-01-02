@@ -1,12 +1,12 @@
-using Microsoft.EntityFrameworkCore.Metadata;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 
 /// <summary>
-/// Handler that wraps entities in lazy-loading proxies.
+/// Handler that configures proxy creation for entity queries.
+/// Runs BEFORE ConvertHandler to set up proxy factory in metadata.
+/// ConvertHandler then uses the proxy factory to create proxy instances during deserialization.
 /// Only applies to Entity queries when proxy factory is available.
 /// </summary>
 public class ProxyHandler : QueryPipelineHandlerBase
@@ -34,47 +34,15 @@ public class ProxyHandler : QueryPipelineHandlerBase
         PipelineDelegate next,
         CancellationToken cancellationToken)
     {
-        var result = await next(context, cancellationToken);
-
         // Skip if proxy factory is not available (proxies not configured)
         if (_proxyFactory == null)
         {
-            return result;
+            return await next(context, cancellationToken);
         }
 
-        // Only process streaming results
-        if (result is not PipelineResult.Streaming streaming)
-        {
-            return result;
-        }
+        // Add proxy factory to metadata so ConvertHandler can use it
+        var newContext = context.WithMetadata(PipelineMetadataKeys.ProxyFactory, _proxyFactory);
 
-        // Wrap entities in proxies as they stream through
-        var proxied = CreateProxies(streaming.Items, context);
-        return new PipelineResult.Streaming(proxied, context);
-    }
-
-    private async IAsyncEnumerable<object> CreateProxies(
-        IAsyncEnumerable<object> entities,
-        PipelineContext context)
-    {
-        var model = context.QueryContext.Model;
-        var entityType = model.FindEntityType(context.EntityType!);
-
-        if (entityType == null)
-        {
-            // No entity type metadata, pass through without proxying
-            await foreach (var entity in entities)
-            {
-                yield return entity;
-            }
-            yield break;
-        }
-
-        await foreach (var entity in entities)
-        {
-            // Create lazy-loading proxy for the entity
-            var proxy = _proxyFactory!.CreateLazyLoadingProxy(entityType, entity);
-            yield return proxy;
-        }
+        return await next(newContext, cancellationToken);
     }
 }
