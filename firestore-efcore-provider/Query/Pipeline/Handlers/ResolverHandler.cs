@@ -27,8 +27,13 @@ public class ResolverHandler : IQueryPipelineHandler
         PipelineDelegate next,
         CancellationToken cancellationToken)
     {
-        var resolved = _resolver.Resolve(context.Ast);
+        // Skip if already resolved (sub-pipeline case)
+        if (context.ResolvedQuery != null)
+        {
+            return await next(context, cancellationToken);
+        }
 
+        var resolved = _resolver.Resolve(context.Ast);
         var newContext = context with { ResolvedQuery = resolved };
 
         return await next(newContext, cancellationToken);
