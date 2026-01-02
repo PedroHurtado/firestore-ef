@@ -962,7 +962,11 @@ public class FirestorePipelineOptions
 
 ### Fase 5: Handlers Opcionales
 - [ ] `LogAstHandler`
-- [x] `LogQueryHandler` ✅ (1838b7c)
+- [x] `LogQueryHandler` ✅ (aadcbaa)
+  - Integrado con sistema de diagnóstico de EF Core (IDiagnosticsLogger)
+  - FirestoreEventId para EventIds específicos de Firestore
+  - FirestoreLoggingDefinitions para cache de EventDefinitions
+  - Configurable via ConfigureWarnings
 - [ ] `CacheHandler` (pospuesto - requiere análisis de optimización)
 
 ### Fase 7: Integración
