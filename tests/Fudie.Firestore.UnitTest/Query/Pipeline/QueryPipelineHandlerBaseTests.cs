@@ -91,12 +91,8 @@ public class QueryPipelineHandlerBaseTests
         // Arrange
         var handler = new TestHandler(QueryKind.Entity);
         var context = CreateContext(QueryKind.Entity);
-        var nextCalled = false;
         PipelineDelegate next = (ctx, ct) =>
-        {
-            nextCalled = true;
-            return Task.FromResult<PipelineResult>(new PipelineResult.Empty(ctx));
-        };
+            Task.FromResult<PipelineResult>(new PipelineResult.Empty(ctx));
 
         // Act
         await handler.HandleAsync(context, next, CancellationToken.None);

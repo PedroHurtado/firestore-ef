@@ -944,7 +944,11 @@ public class FirestorePipelineOptions
   - Extiende QueryPipelineHandlerBase, solo aplica a QueryKind.Entity
   - Usa IStateManager directamente (no dbContext.Attach)
   - Identity resolution: previene instancias duplicadas
-- [ ] `ProxyHandler` (orden corregido: después de tracking)
+- [x] `ProxyHandler` + `IProxyFactory` ✅ (ba55733)
+  - Extiende QueryPipelineHandlerBase, solo aplica a QueryKind.Entity
+  - IProxyFactory nullable: null = proxies deshabilitados
+  - Envuelve entidades en lazy-loading proxies cuando factory disponible
+  - Pasa sin modificar si entityType no encontrado en modelo
 - [ ] `IncludeHandler` + `IIncludeLoader`
 
 ### Fase 5: Handlers Opcionales
