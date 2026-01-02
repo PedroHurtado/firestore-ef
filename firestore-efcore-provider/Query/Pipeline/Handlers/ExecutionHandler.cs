@@ -98,26 +98,18 @@ public class ExecutionHandler : IQueryPipelineHandler
         CancellationToken cancellationToken)
     {
         // Min/Max are NOT native Firestore aggregations.
-        // Min: OrderBy(asc) + Limit(1) → extract field value
-        // Max: OrderBy(desc) + Limit(1) → extract field value
+        // Executed as: SELECT field FROM collection ORDER BY field [ASC|DESC] LIMIT 1
         var query = _queryBuilder.Build(resolved);
 
         var orderedQuery = resolved.AggregationType == FirestoreAggregationType.Min
-            ? query.OrderBy(resolved.AggregationPropertyName!).Limit(1)
-            : query.OrderByDescending(resolved.AggregationPropertyName!).Limit(1);
+            ? query.Select(resolved.AggregationPropertyName!).OrderBy(resolved.AggregationPropertyName!).Limit(1)
+            : query.Select(resolved.AggregationPropertyName!).OrderByDescending(resolved.AggregationPropertyName!).Limit(1);
 
         var snapshot = await _client.ExecuteQueryAsync(orderedQuery, cancellationToken);
 
-        if (snapshot.Count == 0)
-        {
-            // Empty sequence - same behavior as LINQ
-            throw new System.InvalidOperationException("Sequence contains no elements");
-        }
-
-        var document = snapshot.Documents[0];
-        var value = document.GetValue<object>(resolved.AggregationPropertyName!);
-
-        return new PipelineResult.Scalar(value, context);
+        // Return Streaming - ConvertHandler will extract the field value and handle empty sequence
+        var items = DocumentsAsyncEnumerable(snapshot);
+        return new PipelineResult.Streaming(items, context);
     }
 
     private async Task<PipelineResult> ExecuteCollectionQueryAsync(
