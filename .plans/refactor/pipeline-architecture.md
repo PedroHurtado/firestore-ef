@@ -952,7 +952,13 @@ public class FirestorePipelineOptions
   - FirestoreLazyLoader ejecuta sub-pipelines para cargar navigations
   - SetLoaded/IsLoaded/Dispose para tracking de navigations cargadas
   - Collections: WHERE FK == PK, References: WithIdValueExpression
-- [ ] `IncludeHandler` + `IIncludeLoader`
+- [x] `IncludeHandler` + `IIncludeLoader` ✅ (dede9f6)
+  - IncludeHandler usa ResolvedInclude del ResolvedFirestoreQuery
+  - FirestoreIncludeLoader convierte ResolvedInclude → ResolvedFirestoreQuery + FK filter
+  - Ejecuta sub-pipeline via Mediator para tracking/proxying
+  - ResolverHandler skip cuando ya tiene ResolvedQuery
+  - Soporta nested includes (ThenInclude) recursivamente
+  - N+1 queries a Firestore (no filtrado en memoria)
 
 ### Fase 5: Handlers Opcionales
 - [ ] `LogAstHandler`
