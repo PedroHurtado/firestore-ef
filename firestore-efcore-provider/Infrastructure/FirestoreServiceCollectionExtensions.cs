@@ -9,6 +9,8 @@ using Firestore.EntityFrameworkCore.Storage;
 using Firestore.EntityFrameworkCore.Update;
 using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Visitors;
+using Firestore.EntityFrameworkCore.Query.Pipeline;
+using Firestore.EntityFrameworkCore.Query.Resolved;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Metadata;
 using Firestore.EntityFrameworkCore.Infrastructure.Internal;
@@ -59,6 +61,29 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                     .TryAddScoped<IFirestoreDocumentDeserializer, FirestoreDocumentDeserializer>()
                     .TryAddScoped<IFirestoreQueryExecutor, FirestoreQueryExecutor>()
                     .TryAddSingleton<IFirestoreCollectionManager, FirestoreCollectionManager>());
+
+            // Query Pipeline
+            serviceCollection.AddScoped<IQueryPipelineMediator, QueryPipelineMediator>();
+
+            // Pipeline Handlers (order matters - this is the execution order)
+            serviceCollection.AddScoped<IQueryPipelineHandler, ErrorHandlingHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ResolverHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, LogQueryHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ConvertHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, TrackingHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ProxyHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, IncludeHandler>();
+
+            // Pipeline Services
+            serviceCollection.AddScoped<IFirestoreAstResolver, FirestoreAstResolver>();
+            serviceCollection.AddScoped<IQueryBuilder, FirestoreQueryBuilder>();
+            serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
+            serviceCollection.AddScoped<IIncludeLoader, FirestoreIncludeLoader>();
+            serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
+
+            // Pipeline Options
+            serviceCollection.AddSingleton<FirestoreErrorHandlingOptions>();
 
             return serviceCollection;
         }
