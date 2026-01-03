@@ -970,11 +970,24 @@ public class FirestorePipelineOptions
 - [ ] `CacheHandler` (pospuesto - requiere análisis de optimización)
 
 ### Fase 7: Integración
-- [ ] `FirestorePipelineServiceCollectionExtensions`
+- [x] Registro DI del Pipeline ✅ (eed48fb)
+- [x] Eliminar `IDocumentDeserializer`, usar `IFirestoreDocumentDeserializer` ✅ (c9de7b0)
+- [x] `IQueryBuilder` + `FirestoreQueryBuilder` refactorizado ✅ (de8bee0)
 - [ ] `FirestorePipelineOptions`
 - [ ] Unificar Enumerables
 - [ ] Actualizar Shaper
 - [ ] Eliminar `FirestoreQueryExecutor`
+- [x] Tests `FirestoreTypeConverter` ✅ (73dd0b4)
+  - 33 tests: null handling, long→int, double→decimal, Timestamp→DateTime
+- [x] Tests componentes Pipeline faltantes ✅ (28a7d2c)
+  - PipelineContextExtensionsTests (16 tests)
+  - FirestoreIncludeLoaderTests (10 tests)
+  - IIncludeLoaderTests (7 tests)
+  - IProxyFactoryTests (8 tests)
+  - ITypeConverterTests (9 tests)
+  - IQueryBuilderTests (10 tests)
+  - FirestoreDeserializationExceptionTests (extraído a archivo propio)
+  - FirestoreQueryExecutionExceptionTests (extraído a archivo propio)
 
 ---
 
@@ -992,8 +1005,8 @@ Query/Pipeline/
 ├── PipelineMetadataKeys.cs
 ├── Exceptions/
 │   ├── FirestorePipelineException.cs
-│   ├── FirestoreQueryExecutionException.cs
-│   └── FirestoreDeserializationException.cs
+│   ├── FirestoreQueryExecutiDeserialonException.cs
+│   └── FirestoreizationException.cs
 └── Handlers/
     ├── ErrorHandlingHandler.cs
     ├── LogAstHandler.cs
@@ -1016,9 +1029,6 @@ Query/Services/
 ├── IIncludeLoader.cs
 ├── FirestoreIncludeLoader.cs
 └── FirestoreLazyLoader.cs
-
-Infrastructure/
-└── FirestorePipelineServiceCollectionExtensions.cs
 ```
 
 ---
