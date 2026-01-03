@@ -977,8 +977,11 @@ public class FirestorePipelineOptions
   - EnableAstLogging, EnableQueryLogging, EnableCaching
   - MaxRetries, RetryInitialDelay
   - 15 tests
-- [ ] Unificar Enumerables
-- [ ] Actualizar Shaper
+- [x] Unificar Enumerables y Actualizar Shaper ✅ (dc436c1)
+  - `FirestorePipelineQueryingEnumerable<T>` unificado (sin restricción class)
+  - Eliminados: `FirestoreQueryingEnumerable`, `FirestoreAggregationQueryingEnumerable`
+  - Shaper usa `IQueryPipelineMediator` en lugar de `IFirestoreQueryExecutor`
+  - 22 tests (16 Enumerable + 6 Shaper)
 - [ ] Eliminar `FirestoreQueryExecutor`
 - [x] Tests `FirestoreTypeConverter` ✅ (73dd0b4)
   - 33 tests: null handling, long→int, double→decimal, Timestamp→DateTime
