@@ -973,7 +973,10 @@ public class FirestorePipelineOptions
 - [x] Registro DI del Pipeline ✅ (eed48fb)
 - [x] Eliminar `IDocumentDeserializer`, usar `IFirestoreDocumentDeserializer` ✅ (c9de7b0)
 - [x] `IQueryBuilder` + `FirestoreQueryBuilder` refactorizado ✅ (de8bee0)
-- [ ] `FirestorePipelineOptions`
+- [x] `FirestorePipelineOptions` ✅ (cd46b1c)
+  - EnableAstLogging, EnableQueryLogging, EnableCaching
+  - MaxRetries, RetryInitialDelay
+  - 15 tests
 - [ ] Unificar Enumerables
 - [ ] Actualizar Shaper
 - [ ] Eliminar `FirestoreQueryExecutor`
