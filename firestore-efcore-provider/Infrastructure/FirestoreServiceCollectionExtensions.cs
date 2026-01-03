@@ -84,6 +84,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             // Pipeline Options
             serviceCollection.AddSingleton<FirestoreErrorHandlingOptions>();
+            serviceCollection.AddSingleton<FirestorePipelineOptions>();
 
             return serviceCollection;
         }
