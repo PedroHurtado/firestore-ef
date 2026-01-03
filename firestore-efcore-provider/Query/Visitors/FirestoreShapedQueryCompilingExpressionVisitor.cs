@@ -1,36 +1,35 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Ast;
+using Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Firestore.EntityFrameworkCore.Query.Visitors
 {
     /// <summary>
     /// Compiles shaped query expressions into executable Firestore queries.
-    /// Creates FirestoreQueryingEnumerable instances that delegate execution to IFirestoreQueryExecutor.
+    /// Creates FirestorePipelineQueryingEnumerable instances that execute through the pipeline.
     /// </summary>
     public class FirestoreShapedQueryCompilingExpressionVisitor : ShapedQueryCompilingExpressionVisitor
     {
         private readonly FirestoreQueryCompilationContext _firestoreContext;
-        private readonly IFirestoreQueryExecutor _queryExecutor;
+        private readonly IQueryPipelineMediator _mediator;
+
+        private static readonly MethodInfo _createPipelineContextMethod =
+            typeof(FirestoreShapedQueryCompilingExpressionVisitor)
+                .GetMethod(nameof(CreatePipelineContext), BindingFlags.NonPublic | BindingFlags.Static)!;
 
         public FirestoreShapedQueryCompilingExpressionVisitor(
             ShapedQueryCompilingExpressionVisitorDependencies dependencies,
             QueryCompilationContext queryCompilationContext,
-            IFirestoreQueryExecutor queryExecutor,
-            IFirestoreCollectionManager collectionManager)
+            IQueryPipelineMediator mediator)
             : base(dependencies, queryCompilationContext)
         {
-            // Direct cast - same pattern as Cosmos DB and other official providers
             _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
-            _queryExecutor = queryExecutor ?? throw new ArgumentNullException(nameof(queryExecutor));
-
-            // collectionManager kept for API compatibility but no longer used here
-            _ = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
+            _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         }
 
         protected override Expression VisitShapedQuery(ShapedQueryExpression shapedQueryExpression)
@@ -45,69 +44,72 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
                     new List<LambdaExpression>(complexTypeIncludes));
             }
 
-            // Handle aggregation queries differently
+            // Determine result type and query kind
+            Type resultType;
+            QueryKind queryKind;
+            Type? entityType;
+
             if (firestoreQueryExpression.IsAggregation)
             {
-                return CreateAggregationQueryExpression(firestoreQueryExpression);
+                resultType = firestoreQueryExpression.AggregationResultType ?? typeof(int);
+                queryKind = QueryKind.Aggregation;
+                entityType = firestoreQueryExpression.EntityType.ClrType;
+            }
+            else
+            {
+                resultType = firestoreQueryExpression.EntityType.ClrType;
+                queryKind = QueryKind.Entity;
+                entityType = resultType;
             }
 
-            var entityType = firestoreQueryExpression.EntityType.ClrType;
-
-            // Determine if we should track entities
             var isTracking = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
 
-            // FirestoreQueryingEnumerable delegates all execution, deserialization and navigation loading to Executor
-            var enumerableType = typeof(FirestoreQueryingEnumerable<>).MakeGenericType(entityType);
+            // Create FirestorePipelineQueryingEnumerable<T>
+            var enumerableType = typeof(FirestorePipelineQueryingEnumerable<>).MakeGenericType(resultType);
             var constructor = enumerableType.GetConstructor(new[]
             {
-                typeof(QueryContext),
-                typeof(FirestoreQueryExpression),
-                typeof(DbContext),
-                typeof(bool),
-                typeof(IFirestoreQueryExecutor)
+                typeof(IQueryPipelineMediator),
+                typeof(PipelineContext)
             })!;
 
-            // Get DbContext from QueryContext.Context
-            var dbContextExpression = Expression.Property(
+            // Build PipelineContext at runtime via helper method
+            var createContextMethod = _createPipelineContextMethod.MakeGenericMethod(resultType);
+            var contextExpression = Expression.Call(
+                createContextMethod,
+                Expression.Constant(firestoreQueryExpression),
                 QueryCompilationContext.QueryContextParameter,
-                nameof(QueryContext.Context));
+                Expression.Constant(isTracking),
+                Expression.Constant(queryKind),
+                Expression.Constant(entityType, typeof(Type)));
 
             var newExpression = Expression.New(
                 constructor,
-                QueryCompilationContext.QueryContextParameter,
-                Expression.Constant(firestoreQueryExpression),
-                dbContextExpression,
-                Expression.Constant(isTracking),
-                Expression.Constant(_queryExecutor));
+                Expression.Constant(_mediator),
+                contextExpression);
 
             return newExpression;
         }
 
         /// <summary>
-        /// Creates the expression for aggregation queries (Count, Sum, Average, Min, Max, Any).
+        /// Creates a PipelineContext at runtime from query parameters.
+        /// Called via reflection from the compiled expression.
         /// </summary>
-        private Expression CreateAggregationQueryExpression(FirestoreQueryExpression firestoreQueryExpression)
+        private static PipelineContext CreatePipelineContext<T>(
+            FirestoreQueryExpression ast,
+            QueryContext queryContext,
+            bool isTracking,
+            QueryKind kind,
+            Type? entityType)
         {
-            var resultType = firestoreQueryExpression.AggregationResultType ?? typeof(int);
-            var entityType = firestoreQueryExpression.EntityType.ClrType;
-
-            var enumerableType = typeof(FirestoreAggregationQueryingEnumerable<>).MakeGenericType(resultType);
-            var constructor = enumerableType.GetConstructor(new[]
+            return new PipelineContext
             {
-                typeof(QueryContext),
-                typeof(FirestoreQueryExpression),
-                typeof(Type),
-                typeof(IFirestoreQueryExecutor)
-            })!;
-
-            var newExpression = Expression.New(
-                constructor,
-                QueryCompilationContext.QueryContextParameter,
-                Expression.Constant(firestoreQueryExpression),
-                Expression.Constant(entityType),
-                Expression.Constant(_queryExecutor));
-
-            return newExpression;
+                Ast = ast,
+                QueryContext = (IFirestoreQueryContext)queryContext,
+                IsTracking = isTracking,
+                ResultType = typeof(T),
+                Kind = kind,
+                EntityType = entityType
+            };
         }
     }
 }
