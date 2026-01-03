@@ -178,4 +178,23 @@ public class IQueryBuilderTests
         parameters.Should().HaveCount(1);
         parameters[0].ParameterType.Should().Be(typeof(ResolvedFirestoreQuery));
     }
+
+    [Fact]
+    public void IQueryBuilder_Has_BuildAggregate_Method()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildAggregate");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(AggregateQuery));
+    }
+
+    [Fact]
+    public void BuildAggregate_Accepts_ResolvedFirestoreQuery_Parameter()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildAggregate");
+        var parameters = method!.GetParameters();
+
+        parameters.Should().HaveCount(1);
+        parameters[0].ParameterType.Should().Be(typeof(ResolvedFirestoreQuery));
+    }
 }
