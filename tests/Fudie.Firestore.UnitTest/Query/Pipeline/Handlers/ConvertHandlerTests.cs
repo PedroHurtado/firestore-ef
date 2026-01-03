@@ -19,14 +19,14 @@ public class ConvertHandlerTests
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
         parameters.Should().HaveCount(2);
-        parameters[0].ParameterType.Should().Be(typeof(IDocumentDeserializer));
+        parameters[0].ParameterType.Should().Be(typeof(IFirestoreDocumentDeserializer));
         parameters[1].ParameterType.Should().Be(typeof(ITypeConverter));
     }
 
     [Fact]
     public void ConvertHandler_Can_Be_Instantiated()
     {
-        var mockDeserializer = new Mock<IDocumentDeserializer>();
+        var mockDeserializer = new Mock<IFirestoreDocumentDeserializer>();
         var mockConverter = new Mock<ITypeConverter>();
 
         var handler = new ConvertHandler(mockDeserializer.Object, mockConverter.Object);
@@ -172,31 +172,3 @@ public class ITypeConverterTests
     }
 }
 
-public class IDocumentDeserializerTests
-{
-    [Fact]
-    public void IDocumentDeserializer_Is_Interface()
-    {
-        typeof(IDocumentDeserializer).IsInterface.Should().BeTrue();
-    }
-
-    [Fact]
-    public void IDocumentDeserializer_Has_Deserialize_Method()
-    {
-        var method = typeof(IDocumentDeserializer).GetMethod("Deserialize");
-
-        method.Should().NotBeNull();
-        method!.ReturnType.Should().Be(typeof(object));
-    }
-
-    [Fact]
-    public void Deserialize_Accepts_DocumentSnapshot_And_EntityType_Parameters()
-    {
-        var method = typeof(IDocumentDeserializer).GetMethod("Deserialize");
-        var parameters = method!.GetParameters();
-
-        parameters.Should().HaveCount(2);
-        parameters[0].ParameterType.Should().Be(typeof(Google.Cloud.Firestore.DocumentSnapshot));
-        parameters[1].ParameterType.Should().Be(typeof(Type));
-    }
-}

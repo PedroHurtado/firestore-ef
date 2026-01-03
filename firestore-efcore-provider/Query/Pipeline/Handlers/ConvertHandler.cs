@@ -1,9 +1,11 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using Google.Cloud.Firestore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,13 +13,13 @@ namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 
 /// <summary>
 /// Handler that converts Firestore results to CLR types.
-/// - Streaming of DocumentSnapshots → Streaming of entities (via IDocumentDeserializer)
+/// - Streaming of DocumentSnapshots → Streaming of entities (via IFirestoreDocumentDeserializer)
 /// - Scalar aggregation values → converted CLR types (via ITypeConverter)
 /// - Min/Max Streaming → Scalar with field value extraction and empty handling
 /// </summary>
 public class ConvertHandler : IQueryPipelineHandler
 {
-    private readonly IDocumentDeserializer _deserializer;
+    private readonly IFirestoreDocumentDeserializer _deserializer;
     private readonly ITypeConverter _typeConverter;
 
     /// <summary>
@@ -25,7 +27,7 @@ public class ConvertHandler : IQueryPipelineHandler
     /// </summary>
     /// <param name="deserializer">The document deserializer.</param>
     /// <param name="typeConverter">The type converter.</param>
-    public ConvertHandler(IDocumentDeserializer deserializer, ITypeConverter typeConverter)
+    public ConvertHandler(IFirestoreDocumentDeserializer deserializer, ITypeConverter typeConverter)
     {
         _deserializer = deserializer;
         _typeConverter = typeConverter;
@@ -89,10 +91,15 @@ public class ConvertHandler : IQueryPipelineHandler
             // Fallback to normal deserialization if entity type not found
             await foreach (var doc in documents)
             {
-                yield return _deserializer.Deserialize((DocumentSnapshot)doc, context.EntityType!);
+                yield return DeserializeEntity((DocumentSnapshot)doc, context.EntityType!);
             }
             yield break;
         }
+
+        // Get DeserializeIntoEntity<T> method for proxy population
+        var deserializeIntoMethod = typeof(IFirestoreDocumentDeserializer)
+            .GetMethod(nameof(IFirestoreDocumentDeserializer.DeserializeIntoEntity))!
+            .MakeGenericMethod(context.EntityType!);
 
         await foreach (var doc in documents)
         {
@@ -100,7 +107,7 @@ public class ConvertHandler : IQueryPipelineHandler
             var proxy = proxyFactory.CreateProxy(entityType);
 
             // 2. Deserialize INTO the proxy
-            _deserializer.DeserializeInto((DocumentSnapshot)doc, proxy);
+            deserializeIntoMethod.Invoke(_deserializer, new object[] { (DocumentSnapshot)doc, proxy });
 
             yield return proxy;
         }
@@ -155,7 +162,19 @@ public class ConvertHandler : IQueryPipelineHandler
     {
         await foreach (var doc in documents)
         {
-            yield return _deserializer.Deserialize((DocumentSnapshot)doc, entityType);
+            yield return DeserializeEntity((DocumentSnapshot)doc, entityType);
         }
+    }
+
+    /// <summary>
+    /// Deserializes a document to an entity using the generic DeserializeEntity method via reflection.
+    /// </summary>
+    private object DeserializeEntity(DocumentSnapshot document, Type entityType)
+    {
+        var method = typeof(IFirestoreDocumentDeserializer)
+            .GetMethod(nameof(IFirestoreDocumentDeserializer.DeserializeEntity), new[] { typeof(DocumentSnapshot) })!
+            .MakeGenericMethod(entityType);
+
+        return method.Invoke(_deserializer, new object[] { document })!;
     }
 }
