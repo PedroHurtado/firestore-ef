@@ -16,11 +16,12 @@ public class IFirestoreValueConverterTests
     {
         // Documents that ToFirestore converts CLR values to Firestore-compatible types
         // decimal → double, enum → string, DateTime → UTC
+        // Also accepts optional enumType for int-to-enum-string conversion
         var method = typeof(IFirestoreValueConverter).GetMethod("ToFirestore");
 
         method.Should().NotBeNull("IFirestoreValueConverter must have ToFirestore method");
         method!.ReturnType.Should().Be(typeof(object), "ToFirestore returns object");
-        method.GetParameters().Should().HaveCount(1, "ToFirestore takes a single value parameter");
+        method.GetParameters().Should().HaveCount(2, "ToFirestore takes value and optional enumType parameter");
     }
 
     [Fact]

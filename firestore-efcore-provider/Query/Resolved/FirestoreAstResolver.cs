@@ -1,6 +1,7 @@
 using Firestore.EntityFrameworkCore.Extensions;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
+using Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     ///
     /// Responsibilities:
     /// - Evaluate all Expressions using IFirestoreQueryContext.ParameterValues
+    /// - Convert CLR values to Firestore types using IFirestoreValueConverter
     /// - Detect primary keys for Id optimization (GetDocumentAsync vs Query) using PrimaryKeyPropertyName from AST
     /// - Resolve Includes with navigation metadata from AST
     /// - Resolve Projections with subcollection info from AST
@@ -24,6 +26,16 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     /// </summary>
     public class FirestoreAstResolver : IFirestoreAstResolver
     {
+        private readonly IFirestoreValueConverter _valueConverter;
+
+        /// <summary>
+        /// Creates a new AST resolver with the specified value converter.
+        /// </summary>
+        /// <param name="valueConverter">The value converter for CLR to Firestore type conversion.</param>
+        public FirestoreAstResolver(IFirestoreValueConverter valueConverter)
+        {
+            _valueConverter = valueConverter ?? throw new ArgumentNullException(nameof(valueConverter));
+        }
         /// <summary>
         /// Resolves the AST into a fully resolved query ready for execution.
         /// </summary>
@@ -157,11 +169,15 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 ValidateNullFilter(clause.PropertyName, entityType);
             }
 
+            // Convert CLR value to Firestore-compatible type
+            // (decimal → double, enum → string, DateTime → UTC)
+            // Pass EnumType for int-to-enum-string conversion when EF Core parameterizes enums
+            var convertedValue = _valueConverter.ToFirestore(value, clause.EnumType);
+
             return new ResolvedWhereClause(
                 clause.PropertyName,
                 clause.Operator,
-                value,
-                clause.EnumType);
+                convertedValue);
         }
 
         /// <summary>

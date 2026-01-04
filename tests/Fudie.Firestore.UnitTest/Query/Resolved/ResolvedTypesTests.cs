@@ -19,7 +19,6 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             Assert.Equal("Name", clause.PropertyName);
             Assert.Equal(FirestoreOperator.EqualTo, clause.Operator);
             Assert.Equal("John", clause.Value);
-            Assert.Null(clause.EnumType);
         }
 
         [Fact]
@@ -33,12 +32,13 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         }
 
         [Fact]
-        public void ResolvedWhereClause_CanBeCreated_WithEnumType()
+        public void ResolvedWhereClause_CanBeCreated_WithEnumValueAsString()
         {
-            var clause = new ResolvedWhereClause("Status", FirestoreOperator.EqualTo, 1, typeof(DayOfWeek));
+            // Enum values are pre-converted to strings by the Resolver
+            var clause = new ResolvedWhereClause("Status", FirestoreOperator.EqualTo, "Monday");
 
             Assert.Equal("Status", clause.PropertyName);
-            Assert.Equal(typeof(DayOfWeek), clause.EnumType);
+            Assert.Equal("Monday", clause.Value);
         }
 
         [Fact]

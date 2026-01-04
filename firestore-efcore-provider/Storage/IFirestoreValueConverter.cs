@@ -20,8 +20,11 @@ public interface IFirestoreValueConverter
     /// Used when building queries and serializing documents.
     /// </summary>
     /// <param name="value">The CLR value to convert.</param>
+    /// <param name="enumType">Optional enum type for int-to-enum-string conversion.
+    /// When EF Core parameterizes an enum value, it may pass an int instead of the enum.
+    /// Provide the enum type to convert the int to the enum name string.</param>
     /// <returns>The Firestore-compatible value.</returns>
-    object? ToFirestore(object? value);
+    object? ToFirestore(object? value, Type? enumType = null);
 
     /// <summary>
     /// Converts a Firestore value back to the target CLR type.

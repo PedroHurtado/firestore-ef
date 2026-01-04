@@ -11,7 +11,7 @@ namespace Firestore.EntityFrameworkCore.Storage;
 public class FirestoreValueConverter : IFirestoreValueConverter
 {
     /// <inheritdoc />
-    public object? ToFirestore(object? value)
+    public object? ToFirestore(object? value, Type? enumType = null)
     {
         if (value == null)
             return null;
@@ -21,13 +21,20 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (underlyingType != null)
             type = underlyingType;
 
+        // enum → string (handle both enum values and int values with enumType hint)
+        if (type.IsEnum)
+            return value.ToString();
+
+        // int → enum string (when EF Core passes int for parameterized enum)
+        if (enumType != null && IsNumericType(type))
+        {
+            var enumValue = Enum.ToObject(enumType, value);
+            return enumValue.ToString();
+        }
+
         // decimal → double (Firestore doesn't support decimal)
         if (value is decimal d)
             return (double)d;
-
-        // enum → string
-        if (type.IsEnum)
-            return value.ToString();
 
         // DateTime → UTC
         if (value is DateTime dt)
@@ -41,6 +48,13 @@ public class FirestoreValueConverter : IFirestoreValueConverter
 
         // Native types: int, long, double, string, bool - return unchanged
         return value;
+    }
+
+    private static bool IsNumericType(Type type)
+    {
+        return type == typeof(int) || type == typeof(long) || type == typeof(short) ||
+               type == typeof(byte) || type == typeof(uint) || type == typeof(ulong) ||
+               type == typeof(ushort) || type == typeof(sbyte);
     }
 
     /// <inheritdoc />

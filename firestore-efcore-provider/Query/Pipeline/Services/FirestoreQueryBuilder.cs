@@ -137,8 +137,8 @@ public class FirestoreQueryBuilder : IQueryBuilder
 
     private static Filter CreateFilter(ResolvedWhereClause clause)
     {
-        // Convert value to Firestore-compatible type
-        var value = ConvertValueForFirestore(clause.Value, clause.EnumType);
+        // Value is already converted by the Resolver (IFirestoreValueConverter)
+        var value = clause.Value;
 
         // Get field path - "Id" is special and maps to FieldPath.DocumentId
         var fieldPath = GetFieldPath(clause.PropertyName);
@@ -172,87 +172,6 @@ public class FirestoreQueryBuilder : IQueryBuilder
         // Split nested property paths: "Direccion.Ciudad" → ["Direccion", "Ciudad"]
         var segments = propertyName.Split('.');
         return new FieldPath(segments);
-    }
-
-    /// <summary>
-    /// Converts a CLR value to a Firestore-compatible type.
-    /// - decimal → double (Firestore doesn't support decimal)
-    /// - enum → string (Firestore stores as name string)
-    /// - DateTime → UTC DateTime
-    /// </summary>
-    private static object? ConvertValueForFirestore(object? value, Type? enumType)
-    {
-        if (value == null)
-            return null;
-
-        // Handle enum conversion (from int/enum to string)
-        if (enumType != null)
-        {
-            return ConvertToEnumString(value, enumType);
-        }
-
-        // Handle enum values directly
-        if (value is Enum e)
-        {
-            return e.ToString();
-        }
-
-        // decimal → double
-        if (value is decimal d)
-        {
-            return (double)d;
-        }
-
-        // DateTime → UTC
-        if (value is DateTime dt)
-        {
-            return dt.ToUniversalTime();
-        }
-
-        // Handle collections (IEnumerable) - convert elements recursively
-        if (value is IEnumerable enumerable && value is not string && value is not byte[])
-        {
-            return ConvertEnumerableForFirestore(enumerable);
-        }
-
-        return value;
-    }
-
-    private static string ConvertToEnumString(object value, Type enumType)
-    {
-        // If already the enum type, convert to string
-        if (value.GetType() == enumType)
-        {
-            return value.ToString()!;
-        }
-
-        // If it's a numeric value, convert to enum then to string
-        try
-        {
-            var enumValue = Enum.ToObject(enumType, value);
-            return enumValue.ToString()!;
-        }
-        catch
-        {
-            return value.ToString()!;
-        }
-    }
-
-    private static object[] ConvertEnumerableForFirestore(IEnumerable enumerable)
-    {
-        var list = new List<object>();
-        foreach (var item in enumerable)
-        {
-            if (item != null)
-            {
-                var converted = ConvertValueForFirestore(item, null);
-                if (converted != null)
-                {
-                    list.Add(converted);
-                }
-            }
-        }
-        return list.ToArray();
     }
 
     private static FirestoreQuery ApplyOrderBy(FirestoreQuery query, IReadOnlyList<ResolvedOrderByClause> orderByClauses)

@@ -1,6 +1,7 @@
 using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Resolved;
+using Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using System;
@@ -12,6 +13,9 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
 {
     public class FirestoreAstResolverTests
     {
+        private static FirestoreAstResolver CreateResolver()
+            => new FirestoreAstResolver(new FirestoreValueConverter());
+
         #region Test Entities
 
         public class Menu
@@ -70,7 +74,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
         public void Resolve_Throws_On_Null_Ast()
         {
             var queryContextMock = new Mock<IFirestoreQueryContext>();
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             Assert.Throws<ArgumentNullException>(() => resolver.Resolve(null!, queryContextMock.Object));
         }
@@ -81,7 +85,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             using var context = new TestDbContext();
             var entityType = context.Model.FindEntityType(typeof(Menu))!;
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
             var ast = new FirestoreQueryExpression(entityType, "menus");
 
             Assert.Throws<ArgumentNullException>(() => resolver.Resolve(ast, null!));
@@ -101,7 +105,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
 
@@ -123,7 +127,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // Use PrimaryKeyPropertyName so Resolver can detect ID optimization from FilterResults
             var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
@@ -148,7 +152,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__menuId_0", "menu-456" } });
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // Use PrimaryKeyPropertyName so Resolver can detect ID optimization from FilterResults
             var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
@@ -177,7 +181,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var whereClause = new FirestoreWhereClause(
                 "Name",
@@ -207,7 +211,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__name_0", "Parameterized Name" } });
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var paramExpr = Expression.Parameter(typeof(string), "__name_0");
             var whereClause = new FirestoreWhereClause(
@@ -239,7 +243,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithLimit(10);
@@ -259,7 +263,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?> { { "__limit_0", 25 } });
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             var paramExpr = Expression.Parameter(typeof(int), "__limit_0");
@@ -280,7 +284,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithSkip(5);
@@ -304,7 +308,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.AddOrderBy(new FirestoreOrderByClause("Name", false));
@@ -333,7 +337,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
             ast.AddInclude("Categories", true, "categories", typeof(Category));
@@ -357,7 +361,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(menuEntityType, "menus");
 
@@ -387,7 +391,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithCount();
@@ -408,7 +412,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "items");
             ast.WithSum("Price", typeof(decimal));
@@ -435,7 +439,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var ast = new FirestoreQueryExpression(entityType, "menus");
             ast.WithReturnDefault(true, typeof(Menu));
@@ -461,7 +465,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             var cursor = new FirestoreCursor("last-doc-123", new object?[] { "LastName", 42 });
 
@@ -489,7 +493,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // AST with PrimaryKeyPropertyName set
             var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
@@ -514,7 +518,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // AST with PrimaryKeyPropertyName set
             var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
@@ -539,7 +543,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             queryContextMock.Setup(x => x.ParameterValues)
                 .Returns(new Dictionary<string, object?>());
 
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // AST with PrimaryKeyPropertyName set
             var ast = new FirestoreQueryExpression(entityType, "menus", "Id");
@@ -568,7 +572,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             var entityType = context.Model.FindEntityType(typeof(Menu))!;
 
             // Single resolver instance
-            var resolver = new FirestoreAstResolver();
+            var resolver = CreateResolver();
 
             // First query with context1
             var queryContext1 = new Mock<IFirestoreQueryContext>();
@@ -594,6 +598,103 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             var result2 = resolver.Resolve(ast2, queryContext2.Object);
             Assert.Equal("menu-222", result2.DocumentId);
         }
+
+        #endregion
+
+        #region Value Conversion Tests
+
+        [Fact]
+        public void Resolve_DecimalFilter_ConvertsToDouble()
+        {
+            // Firestore doesn't support decimal, Resolver should convert to double
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Item))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = CreateResolver();
+
+            var whereClause = new FirestoreWhereClause(
+                "Price",
+                FirestoreOperator.GreaterThan,
+                Expression.Constant(99.99m)); // decimal value
+
+            var filterResult = FirestoreFilterResult.FromClause(whereClause);
+
+            var ast = new FirestoreQueryExpression(entityType, "items");
+            ast.AddFilterResult(filterResult);
+
+            var result = resolver.Resolve(ast, queryContextMock.Object);
+
+            // Value should be converted to double
+            Assert.IsType<double>(result.FilterResults[0].AndClauses[0].Value);
+            Assert.Equal(99.99d, result.FilterResults[0].AndClauses[0].Value);
+        }
+
+        [Fact]
+        public void Resolve_EnumFilter_ConvertsToString()
+        {
+            // Firestore stores enums as strings, Resolver should convert
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Menu))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = CreateResolver();
+
+            var whereClause = new FirestoreWhereClause(
+                "Status",
+                FirestoreOperator.EqualTo,
+                Expression.Constant(TestStatus.Active),
+                typeof(TestStatus)); // EnumType specified
+
+            var filterResult = FirestoreFilterResult.FromClause(whereClause);
+
+            var ast = new FirestoreQueryExpression(entityType, "menus");
+            ast.AddFilterResult(filterResult);
+
+            var result = resolver.Resolve(ast, queryContextMock.Object);
+
+            // Value should be converted to string
+            Assert.IsType<string>(result.FilterResults[0].AndClauses[0].Value);
+            Assert.Equal("Active", result.FilterResults[0].AndClauses[0].Value);
+        }
+
+        [Fact]
+        public void Resolve_DateTimeFilter_ConvertsToUtc()
+        {
+            using var context = new TestDbContext();
+            var entityType = context.Model.FindEntityType(typeof(Menu))!;
+
+            var queryContextMock = new Mock<IFirestoreQueryContext>();
+            queryContextMock.Setup(x => x.ParameterValues)
+                .Returns(new Dictionary<string, object?>());
+
+            var resolver = CreateResolver();
+
+            var localDateTime = new DateTime(2024, 6, 15, 10, 30, 0, DateTimeKind.Local);
+            var whereClause = new FirestoreWhereClause(
+                "CreatedAt",
+                FirestoreOperator.GreaterThan,
+                Expression.Constant(localDateTime));
+
+            var filterResult = FirestoreFilterResult.FromClause(whereClause);
+
+            var ast = new FirestoreQueryExpression(entityType, "menus");
+            ast.AddFilterResult(filterResult);
+
+            var result = resolver.Resolve(ast, queryContextMock.Object);
+
+            // Value should be converted to UTC
+            var resultValue = (DateTime)result.FilterResults[0].AndClauses[0].Value!;
+            Assert.Equal(DateTimeKind.Utc, resultValue.Kind);
+        }
+
+        public enum TestStatus { Pending, Active, Completed }
 
         #endregion
     }

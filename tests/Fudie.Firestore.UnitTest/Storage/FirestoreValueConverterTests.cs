@@ -129,6 +129,27 @@ public class FirestoreValueConverterTests
         array[1].Should().Be("Active");
     }
 
+    [Fact]
+    public void ToFirestore_IntWithEnumType_ReturnsEnumString()
+    {
+        // When EF Core parameterizes an enum, it may pass an int value
+        // The enumType hint allows conversion to the enum name string
+        var result = _converter.ToFirestore(1, typeof(TestStatus)); // 1 = Active
+
+        result.Should().BeOfType<string>();
+        result.Should().Be("Active");
+    }
+
+    [Fact]
+    public void ToFirestore_LongWithEnumType_ReturnsEnumString()
+    {
+        // Same for long values
+        var result = _converter.ToFirestore(2L, typeof(TestStatus)); // 2 = Completed
+
+        result.Should().BeOfType<string>();
+        result.Should().Be("Completed");
+    }
+
     #endregion
 
     #region FromFirestore Tests - Firestore to CLR

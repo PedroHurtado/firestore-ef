@@ -10,13 +10,13 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreWhereClause.
-    /// Contains the evaluated value instead of an Expression.
+    /// Contains the evaluated and converted value instead of an Expression.
+    /// Values are already converted to Firestore types (enum→string, decimal→double, etc.)
     /// </summary>
     public record ResolvedWhereClause(
         string PropertyName,
         FirestoreOperator Operator,
-        object? Value,
-        Type? EnumType = null)
+        object? Value)
     {
         public override string ToString()
         {

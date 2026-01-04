@@ -83,7 +83,8 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
 
             // Pipeline Services
-            serviceCollection.AddSingleton<IFirestoreAstResolver, FirestoreAstResolver>();
+            serviceCollection.AddSingleton<IFirestoreAstResolver>(sp =>
+                new FirestoreAstResolver(sp.GetRequiredService<IFirestoreValueConverter>()));
             serviceCollection.AddScoped<IQueryBuilder, FirestoreQueryBuilder>();
             serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
             serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
