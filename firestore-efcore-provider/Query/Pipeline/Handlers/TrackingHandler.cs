@@ -22,7 +22,7 @@ public class TrackingHandler : QueryPipelineHandlerBase
         PipelineDelegate next,
         CancellationToken cancellationToken)
     {
-        var result = await next(context, cancellationToken);
+        var result = await next(context, cancellationToken).ConfigureAwait(false);
 
         // Skip if tracking is disabled
         if (!context.IsTracking)
@@ -30,57 +30,48 @@ public class TrackingHandler : QueryPipelineHandlerBase
             return result;
         }
 
-        // Only process streaming results
-        if (result is not PipelineResult.Streaming streaming)
+        // Process Materialized results
+        if (result is PipelineResult.Materialized materialized)
         {
-            return result;
+            var tracked = TrackEntities(materialized.Items, context);
+            return new PipelineResult.Materialized(tracked, materialized.Context);
         }
 
-        // Track entities as they stream through
-        var tracked = TrackEntities(streaming.Items, context);
-        return new PipelineResult.Streaming(tracked, context);
+        return result;
     }
 
-    private static async IAsyncEnumerable<object> TrackEntities(
-        IAsyncEnumerable<object> entities,
+    private static IReadOnlyList<object> TrackEntities(
+        IReadOnlyList<object> entities,
         PipelineContext context)
     {
-        // Get StateManager from context at runtime (avoids circular DI)
         var stateManager = context.QueryContext.StateManager;
         var model = context.QueryContext.Model;
         var entityType = model.FindEntityType(context.EntityType!);
 
         if (entityType == null)
-        {
-            // No entity type metadata, pass through without tracking
-            await foreach (var entity in entities)
-            {
-                yield return entity;
-            }
-            yield break;
-        }
+            return entities;
 
         var key = entityType.FindPrimaryKey();
+        var result = new List<object>(entities.Count);
 
-        await foreach (var entity in entities)
+        foreach (var entity in entities)
         {
-            // Try identity resolution first - check if already tracked
+            // Try identity resolution first
             var trackedEntity = TryGetTrackedEntity(stateManager, entityType, key, entity);
 
             if (trackedEntity != null)
             {
-                // Return already tracked instance (identity resolution)
-                yield return trackedEntity;
+                result.Add(trackedEntity);
             }
             else
             {
-                // Track the new entity
                 var entry = stateManager.GetOrCreateEntry(entity, entityType);
                 entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
-
-                yield return entity;
+                result.Add(entity);
             }
         }
+
+        return result;
     }
 
     private static object? TryGetTrackedEntity(

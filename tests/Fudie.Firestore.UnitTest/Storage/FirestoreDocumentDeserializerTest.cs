@@ -602,14 +602,15 @@ public class FirestoreDocumentDeserializerTest
         // Arrange
         var interfaceType = typeof(IFirestoreDocumentDeserializer);
 
-        // Act - Hay dos sobrecargas de DeserializeEntity
+        // Act - Hay tres sobrecargas de DeserializeEntity
         var methods = interfaceType.GetMethods()
             .Where(m => m.Name == "DeserializeEntity")
             .ToArray();
 
-        // Assert - Verificar que existen las dos sobrecargas
-        Assert.Equal(2, methods.Length);
+        // Assert - Verificar que existen las tres sobrecargas
+        Assert.Equal(3, methods.Length);
         Assert.Contains(methods, m => m.GetParameters().Length == 1); // Solo DocumentSnapshot
+        Assert.Contains(methods, m => m.GetParameters().Length == 2); // DocumentSnapshot, relatedEntities
         Assert.Contains(methods, m => m.GetParameters().Length == 3); // DocumentSnapshot, DbContext, IServiceProvider
     }
 

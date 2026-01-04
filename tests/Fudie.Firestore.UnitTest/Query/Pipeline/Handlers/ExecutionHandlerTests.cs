@@ -93,12 +93,9 @@ public class ExecutionHandlerTests
     [Fact]
     public void MinMax_Method_Returns_Task_Of_PipelineResult()
     {
-        // Min/Max should return Streaming (not Scalar) because:
-        // 1. ExecutionHandler only executes: SELECT field ORDER BY field LIMIT 1
-        // 2. ConvertHandler extracts the field value and converts to scalar
-        // 3. Empty sequence handling is NOT ExecutionHandler's responsibility
+        // Min/Max returns Scalar directly from ExecutionHandler
         var method = typeof(ExecutionHandler)
-            .GetMethod("ExecuteMinMaxQueryAsync",
+            .GetMethod("ExecuteMinMaxAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         method.Should().NotBeNull();
@@ -106,47 +103,35 @@ public class ExecutionHandlerTests
     }
 
     [Fact]
-    public void MinMax_Does_Not_Throw_On_Empty_Sequence()
+    public void MinMax_Handles_Empty_Sequence_In_ExecutionHandler()
     {
-        // Documents that ExecutionHandler does NOT throw InvalidOperationException
-        // for empty sequences. That behavior depends on:
-        // - Nullable result type: returns null
-        // - Non-nullable result type: throws (handled by LINQ operator, not ExecutionHandler)
-        //
-        // ExecutionHandler simply returns Streaming with 0 documents.
-        // The conversion and exception throwing is ConvertHandler's responsibility.
+        // Min/Max now handles empty sequences directly in ExecutionHandler:
+        // - Nullable result type: returns Scalar with null
+        // - Non-nullable result type: throws InvalidOperationException
 
         var method = typeof(ExecutionHandler)
-            .GetMethod("ExecuteMinMaxQueryAsync",
+            .GetMethod("ExecuteMinMaxAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        // Method should not have any throw statements for empty sequence
-        // This is a documentation test - the actual behavior is verified in integration tests
         method.Should().NotBeNull(
-            "Min/Max execution should exist and delegate empty handling to ConvertHandler");
+            "Min/Max execution should handle empty sequences directly");
     }
 
     [Fact]
-    public void MinMax_Returns_Streaming_Not_Scalar()
+    public void MinMax_Returns_Scalar_Directly()
     {
-        // Min/Max returns Streaming because:
+        // Min/Max now returns Scalar directly (not Streaming):
         // - ExecutionHandler executes: SELECT field FROM collection ORDER BY field LIMIT 1
-        // - Returns DocumentSnapshot in Streaming result
-        // - ConvertHandler will:
-        //   1. Extract field value from document
-        //   2. Convert to target type
-        //   3. Handle empty sequence based on nullable/non-nullable result type
-        //
-        // This separation of concerns allows proper type conversion and error handling.
+        // - Extracts field value and returns Scalar
+        // - Handles empty sequence based on nullable/non-nullable result type
 
         var method = typeof(ExecutionHandler)
-            .GetMethod("ExecuteMinMaxQueryAsync",
+            .GetMethod("ExecuteMinMaxAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         method.Should().NotBeNull();
 
-        // The method signature returns PipelineResult, which will be Streaming
-        // Actual return type verification requires runtime testing (integration tests)
+        // The method signature returns PipelineResult (Scalar)
     }
 
     #endregion

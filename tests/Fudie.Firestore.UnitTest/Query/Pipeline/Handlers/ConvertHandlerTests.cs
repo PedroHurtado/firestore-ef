@@ -18,9 +18,10 @@ public class ConvertHandlerTests
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(2);
+        parameters.Should().HaveCount(3);
         parameters[0].ParameterType.Should().Be(typeof(IFirestoreDocumentDeserializer));
         parameters[1].ParameterType.Should().Be(typeof(ITypeConverter));
+        parameters[2].ParameterType.Should().Be(typeof(IFirestoreCollectionManager));
     }
 
     [Fact]
@@ -28,8 +29,9 @@ public class ConvertHandlerTests
     {
         var mockDeserializer = new Mock<IFirestoreDocumentDeserializer>();
         var mockConverter = new Mock<ITypeConverter>();
+        var mockCollectionManager = new Mock<IFirestoreCollectionManager>();
 
-        var handler = new ConvertHandler(mockDeserializer.Object, mockConverter.Object);
+        var handler = new ConvertHandler(mockDeserializer.Object, mockConverter.Object, mockCollectionManager.Object);
 
         handler.Should().NotBeNull();
     }
