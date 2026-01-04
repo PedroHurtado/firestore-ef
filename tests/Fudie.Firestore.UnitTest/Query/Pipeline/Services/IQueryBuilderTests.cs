@@ -121,8 +121,8 @@ public class IQueryBuilderTests
         // This follows Single Responsibility Principle.
 
         typeof(IQueryBuilder).GetMethods()
-            .Should().HaveCount(2,
-                "IQueryBuilder has Build and BuildAggregate methods");
+            .Should().HaveCount(3,
+                "IQueryBuilder has Build, BuildAggregate, and BuildInclude methods");
     }
 
     #endregion

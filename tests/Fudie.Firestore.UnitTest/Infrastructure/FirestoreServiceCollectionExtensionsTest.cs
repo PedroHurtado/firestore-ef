@@ -1,7 +1,6 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Query.Pipeline;
-using Firestore.EntityFrameworkCore.Query.Resolved;
 using Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
@@ -359,30 +358,14 @@ public class FirestoreServiceCollectionExtensionsTest
             .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
             .ToList();
 
-        // Should have 8 handlers total
-        Assert.Equal(8, handlerDescriptors.Count);
+        // Should have 7 handlers total (IncludeHandler removed - includes handled by ExecutionHandler)
+        Assert.Equal(7, handlerDescriptors.Count);
 
-        // ProxyHandler is registered with factory (5th handler - after Include)
-        var proxyDescriptor = handlerDescriptors[4]; // 0-indexed, 5th position
+        // ProxyHandler is registered with factory (4th handler - position 3, 0-indexed)
+        // Order: ErrorHandling(0) → Resolver(1) → Log(2) → Proxy(3) → Tracking(4) → Convert(5) → Execution(6)
+        var proxyDescriptor = handlerDescriptors[3];
         Assert.NotNull(proxyDescriptor.ImplementationFactory);
         Assert.Equal(ServiceLifetime.Scoped, proxyDescriptor.Lifetime);
-    }
-
-    [Fact]
-    public void AddEntityFrameworkFirestore_ShouldRegisterIncludeHandler()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-
-        // Act
-        services.AddEntityFrameworkFirestore();
-
-        // Assert
-        var descriptor = services.FirstOrDefault(d =>
-            d.ServiceType == typeof(IQueryPipelineHandler) &&
-            d.ImplementationType == typeof(IncludeHandler));
-        Assert.NotNull(descriptor);
-        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
     }
 
     [Fact]
@@ -395,27 +378,27 @@ public class FirestoreServiceCollectionExtensionsTest
         services.AddEntityFrameworkFirestore();
 
         // Assert - handlers must be registered in middleware order
-        // Order: ErrorHandling → Resolver → Log → Include → Proxy → Tracking → Convert → Execution
+        // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → Convert → Execution
         // Each handler calls next() and receives the result from subsequent handlers
-        // Result flows: Execution returns docs → Convert→entities → Tracking → Proxy → Include → return
+        // Result flows: Execution returns docs (+ includes) → Convert→entities → Tracking → Proxy → return
+        // Note: Includes are loaded by ExecutionHandler directly, not by a separate handler
         var handlerRegistrations = services
             .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
             .ToList();
 
-        // 8 handlers total
-        Assert.Equal(8, handlerRegistrations.Count);
+        // 7 handlers total (IncludeHandler removed - includes handled by ExecutionHandler)
+        Assert.Equal(7, handlerRegistrations.Count);
 
         // Verify specific handlers by position (0-indexed)
         Assert.Equal(typeof(ErrorHandlingHandler), handlerRegistrations[0].ImplementationType);
         Assert.Equal(typeof(ResolverHandler), handlerRegistrations[1].ImplementationType);
         Assert.Equal(typeof(LogQueryHandler), handlerRegistrations[2].ImplementationType);
-        Assert.Equal(typeof(IncludeHandler), handlerRegistrations[3].ImplementationType);
         // ProxyHandler is factory-registered, no ImplementationType
-        Assert.Null(handlerRegistrations[4].ImplementationType);
-        Assert.NotNull(handlerRegistrations[4].ImplementationFactory);
-        Assert.Equal(typeof(TrackingHandler), handlerRegistrations[5].ImplementationType);
-        Assert.Equal(typeof(ConvertHandler), handlerRegistrations[6].ImplementationType);
-        Assert.Equal(typeof(ExecutionHandler), handlerRegistrations[7].ImplementationType);
+        Assert.Null(handlerRegistrations[3].ImplementationType);
+        Assert.NotNull(handlerRegistrations[3].ImplementationFactory);
+        Assert.Equal(typeof(TrackingHandler), handlerRegistrations[4].ImplementationType);
+        Assert.Equal(typeof(ConvertHandler), handlerRegistrations[5].ImplementationType);
+        Assert.Equal(typeof(ExecutionHandler), handlerRegistrations[6].ImplementationType);
     }
 
     #endregion
@@ -469,23 +452,6 @@ public class FirestoreServiceCollectionExtensionsTest
             d.ServiceType == typeof(ITypeConverter));
         Assert.NotNull(descriptor);
         Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
-    }
-
-    [Fact]
-    public void AddEntityFrameworkFirestore_ShouldRegisterIncludeLoader()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-
-        // Act
-        services.AddEntityFrameworkFirestore();
-
-        // Assert
-        var descriptor = services.FirstOrDefault(d =>
-            d.ServiceType == typeof(IIncludeLoader));
-        Assert.NotNull(descriptor);
-        // Singleton - mediator/queryContext passed at runtime to avoid circular DI
-        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
     }
 
     [Fact]

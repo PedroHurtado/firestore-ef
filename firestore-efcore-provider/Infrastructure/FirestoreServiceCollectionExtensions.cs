@@ -67,13 +67,13 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
 
             // Pipeline Handlers (order matters - middleware pattern)
             // Handlers that modify context run first, then each calls next() and processes the result.
-            // Order: ErrorHandling → Resolver → Log → Include → Proxy → Tracking → Convert → Execution
-            // Result flows back: Execution returns docs → Convert converts to entities →
-            //                    Tracking tracks → Proxy wraps → Include loads navigations → return
+            // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → Convert → Execution
+            // Result flows back: Execution returns docs (+ includes) → Convert converts to entities →
+            //                    Tracking tracks → Proxy wraps → return
+            // Note: Includes are loaded by ExecutionHandler directly, not by a separate handler
             serviceCollection.AddScoped<IQueryPipelineHandler, ErrorHandlingHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, ResolverHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, LogQueryHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, IncludeHandler>();
             // ProxyHandler with optional IProxyFactory (null if proxies not configured)
             serviceCollection.AddScoped<IQueryPipelineHandler>(sp =>
                 new ProxyHandler(sp.GetService<IProxyFactory>()));
@@ -85,8 +85,6 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddSingleton<IFirestoreAstResolver, FirestoreAstResolver>();
             serviceCollection.AddScoped<IQueryBuilder, FirestoreQueryBuilder>();
             serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
-            // Singleton - mediator/queryContext passed at runtime to avoid circular DI
-            serviceCollection.AddSingleton<IIncludeLoader, FirestoreIncludeLoader>();
             serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
 
             // Pipeline Options

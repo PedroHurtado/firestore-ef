@@ -308,4 +308,26 @@ public class FirestoreQueryBuilder : IQueryBuilder
 
         return query;
     }
+
+    /// <inheritdoc />
+    public FirestoreQuery BuildInclude(string parentDocPath, ResolvedInclude include)
+    {
+        // Build the subcollection reference from parent document path
+        // parentDocPath: "Clientes/cli-001" → subcollection: "Clientes/cli-001/Pedidos"
+        var docRef = _clientWrapper.Database.Document(parentDocPath);
+        var subCollectionRef = docRef.Collection(include.CollectionPath);
+
+        FirestoreQuery query = subCollectionRef;
+
+        // Apply filters
+        query = ApplyFilters(query, include.FilterResults);
+
+        // Apply ordering
+        query = ApplyOrderBy(query, include.OrderByClauses);
+
+        // Apply pagination
+        query = ApplyPagination(query, include.Pagination);
+
+        return query;
+    }
 }

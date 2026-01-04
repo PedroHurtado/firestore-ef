@@ -12,6 +12,7 @@ namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 /// <summary>
 /// Handler that executes the resolved query against Firestore.
 /// Returns DocumentSnapshots as a streaming result for further processing.
+/// Also executes all resolved includes and stores snapshots in metadata.
 /// Delegates query building to IQueryBuilder.
 /// </summary>
 public class ExecutionHandler : IQueryPipelineHandler
@@ -76,8 +77,20 @@ public class ExecutionHandler : IQueryPipelineHandler
             return new PipelineResult.Empty(context);
         }
 
-        var items = SingleDocumentAsyncEnumerable(doc);
-        return new PipelineResult.Streaming(items, context);
+        // Load includes if present
+        var allSnapshots = new Dictionary<string, DocumentSnapshot>();
+        if (resolved.Includes.Count > 0)
+        {
+            allSnapshots[doc.Reference.Path] = doc;
+            await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+
+            var contextWithSnapshots = context.WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots);
+            var items = SingleDocumentAsyncEnumerable(doc);
+            return new PipelineResult.Streaming(items, contextWithSnapshots);
+        }
+
+        var simpleItems = SingleDocumentAsyncEnumerable(doc);
+        return new PipelineResult.Streaming(simpleItems, context);
     }
 
     private async Task<PipelineResult> ExecuteAggregationQueryAsync(
@@ -115,9 +128,120 @@ public class ExecutionHandler : IQueryPipelineHandler
         var query = _queryBuilder.Build(resolved);
         var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
 
-        var items = DocumentsAsyncEnumerable(snapshot);
-        return new PipelineResult.Streaming(items, context);
+        // Load includes if present
+        if (resolved.Includes.Count > 0)
+        {
+            var allSnapshots = new Dictionary<string, DocumentSnapshot>();
+
+            foreach (var doc in snapshot.Documents)
+            {
+                if (!doc.Exists) continue;
+                allSnapshots[doc.Reference.Path] = doc;
+                await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+            }
+
+            var contextWithSnapshots = context.WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots);
+            var items = DocumentsAsyncEnumerable(snapshot);
+            return new PipelineResult.Streaming(items, contextWithSnapshots);
+        }
+
+        var simpleItems = DocumentsAsyncEnumerable(snapshot);
+        return new PipelineResult.Streaming(simpleItems, context);
     }
+
+    #region Include Loading
+
+    /// <summary>
+    /// Recursively loads all includes for a parent document.
+    /// </summary>
+    private async Task LoadIncludesAsync(
+        DocumentSnapshot parentDoc,
+        IReadOnlyList<ResolvedInclude> includes,
+        Dictionary<string, DocumentSnapshot> allSnapshots,
+        CancellationToken cancellationToken)
+    {
+        foreach (var include in includes)
+        {
+            if (include.IsCollection)
+            {
+                await LoadSubCollectionIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
+            }
+            else
+            {
+                await LoadReferenceIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads a SubCollection include (e.g., Cliente.Pedidos).
+    /// Delegates query building to IQueryBuilder.
+    /// </summary>
+    private async Task LoadSubCollectionIncludeAsync(
+        DocumentSnapshot parentDoc,
+        ResolvedInclude include,
+        Dictionary<string, DocumentSnapshot> allSnapshots,
+        CancellationToken cancellationToken)
+    {
+        // Get parent document path (e.g., "Clientes/cli-001")
+        var parentDocPath = parentDoc.Reference.Path;
+
+        // Delegate query building to IQueryBuilder (it handles subcollection reference creation)
+        var query = _queryBuilder.BuildInclude(parentDocPath, include);
+        var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+        foreach (var doc in snapshot.Documents)
+        {
+            if (!doc.Exists) continue;
+            allSnapshots[doc.Reference.Path] = doc;
+
+            // Recursively load nested includes
+            if (include.NestedIncludes.Count > 0)
+            {
+                await LoadIncludesAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads a Reference include (FK - e.g., Pedido.Articulo).
+    /// Reads DocumentReference from the parent snapshot.
+    /// </summary>
+    private async Task LoadReferenceIncludeAsync(
+        DocumentSnapshot parentDoc,
+        ResolvedInclude include,
+        Dictionary<string, DocumentSnapshot> allSnapshots,
+        CancellationToken cancellationToken)
+    {
+        // Get the DocumentReference from the parent document
+        var data = parentDoc.ToDictionary();
+        if (!data.TryGetValue(include.NavigationName, out var value))
+            return;
+
+        if (value is not DocumentReference docRef)
+            return;
+
+        // Check if already loaded (avoid duplicates)
+        if (allSnapshots.ContainsKey(docRef.Path))
+            return;
+
+        // Load the referenced document via client wrapper
+        var referencedDoc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+        if (!referencedDoc.Exists)
+            return;
+
+        allSnapshots[referencedDoc.Reference.Path] = referencedDoc;
+
+        // Recursively load nested includes on the referenced entity
+        if (include.NestedIncludes.Count > 0)
+        {
+            await LoadIncludesAsync(referencedDoc, include.NestedIncludes, allSnapshots, cancellationToken);
+        }
+    }
+
+    #endregion
+
+    #region Aggregation Helpers
 
     private static object ExtractAggregationValue(AggregateQuerySnapshot snapshot, ResolvedFirestoreQuery resolved)
     {
@@ -146,6 +270,10 @@ public class ExecutionHandler : IQueryPipelineHandler
         return value.Value;
     }
 
+    #endregion
+
+    #region Async Enumerable Helpers
+
     private static async IAsyncEnumerable<object> SingleDocumentAsyncEnumerable(DocumentSnapshot doc)
     {
         yield return doc;
@@ -160,4 +288,6 @@ public class ExecutionHandler : IQueryPipelineHandler
         }
         await Task.CompletedTask;
     }
+
+    #endregion
 }

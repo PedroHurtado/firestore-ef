@@ -40,4 +40,11 @@ public static class PipelineMetadataKeys
     /// When set, ConvertHandler will use this to create proxy instances instead of plain entities.
     /// </summary>
     public static readonly MetadataKey<IProxyFactory> ProxyFactory = new("ProxyFactory");
+
+    /// <summary>
+    /// All document snapshots loaded by ExecutionHandler, including includes.
+    /// Key is the full document path (e.g., "Clientes/cli-001", "Clientes/cli-001/Pedidos/ped-001").
+    /// Used by ConvertHandler for bottom-up deserialization with includes.
+    /// </summary>
+    public static readonly MetadataKey<Dictionary<string, Google.Cloud.Firestore.DocumentSnapshot>> AllSnapshots = new("AllSnapshots");
 }

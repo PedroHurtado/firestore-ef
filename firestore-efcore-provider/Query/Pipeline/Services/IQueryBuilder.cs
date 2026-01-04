@@ -25,4 +25,13 @@ public interface IQueryBuilder
     /// <param name="resolvedQuery">The resolved query with aggregation type.</param>
     /// <returns>An AggregateQuery ready for execution.</returns>
     AggregateQuery BuildAggregate(ResolvedFirestoreQuery resolvedQuery);
+
+    /// <summary>
+    /// Builds a Firestore SDK Query for a subcollection include.
+    /// Applies filters, ordering, and pagination from the ResolvedInclude.
+    /// </summary>
+    /// <param name="parentDocPath">The full path of the parent document (e.g., "Clientes/cli-001").</param>
+    /// <param name="include">The resolved include with filters, ordering, and pagination.</param>
+    /// <returns>A Firestore SDK Query ready for execution.</returns>
+    FirestoreQuery BuildInclude(string parentDocPath, ResolvedInclude include);
 }
