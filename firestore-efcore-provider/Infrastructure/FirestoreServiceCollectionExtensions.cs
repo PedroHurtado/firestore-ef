@@ -60,7 +60,8 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
                     .TryAddSingleton<IFirestoreDocumentSerializer, FirestoreDocumentSerializer>()
                     .TryAddScoped<IFirestoreDocumentDeserializer, FirestoreDocumentDeserializer>()
                     .TryAddScoped<IFirestoreQueryExecutor, FirestoreQueryExecutor>()
-                    .TryAddSingleton<IFirestoreCollectionManager, FirestoreCollectionManager>());
+                    .TryAddSingleton<IFirestoreCollectionManager, FirestoreCollectionManager>()
+                    .TryAddSingleton<IFirestoreValueConverter, FirestoreValueConverter>());
 
             // Query Pipeline
             serviceCollection.AddScoped<IQueryPipelineMediator, QueryPipelineMediator>();

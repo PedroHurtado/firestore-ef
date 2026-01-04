@@ -487,5 +487,22 @@ public class FirestoreServiceCollectionExtensionsTest
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
     }
 
+    [Fact]
+    public void AddEntityFrameworkFirestore_ShouldRegisterFirestoreValueConverter()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        // Act
+        services.AddEntityFrameworkFirestore();
+
+        // Assert
+        var descriptor = services.FirstOrDefault(d =>
+            d.ServiceType == typeof(IFirestoreValueConverter));
+        Assert.NotNull(descriptor);
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+        Assert.Equal(typeof(FirestoreValueConverter), descriptor.ImplementationType);
+    }
+
     #endregion
 }
