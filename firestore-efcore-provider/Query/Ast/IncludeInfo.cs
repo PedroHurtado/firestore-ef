@@ -52,6 +52,13 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// </summary>
         public string? PrimaryKeyPropertyName { get; }
 
+        /// <summary>
+        /// The CLR type of the parent entity for ThenInclude chains.
+        /// Null for direct includes (Include), set for nested includes (ThenInclude).
+        /// Used by the Resolver to build the include hierarchy.
+        /// </summary>
+        public Type? ParentClrType { get; }
+
         #endregion
 
         #region Filters (translated by FirestoreWhereTranslator)
@@ -127,13 +134,14 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         /// <summary>
         /// Creates an IncludeInfo with full navigation information.
         /// </summary>
-        public IncludeInfo(string navigationName, bool isCollection, string collectionName, Type targetClrType, string? primaryKeyPropertyName = null)
+        public IncludeInfo(string navigationName, bool isCollection, string collectionName, Type targetClrType, string? primaryKeyPropertyName = null, Type? parentClrType = null)
         {
             NavigationName = navigationName ?? throw new ArgumentNullException(nameof(navigationName));
             IsCollection = isCollection;
             CollectionName = collectionName ?? throw new ArgumentNullException(nameof(collectionName));
             TargetClrType = targetClrType ?? throw new ArgumentNullException(nameof(targetClrType));
             PrimaryKeyPropertyName = primaryKeyPropertyName;
+            ParentClrType = parentClrType;
         }
 
         #endregion

@@ -53,4 +53,10 @@ public record PipelineContext
     /// The resolved query (populated by ResolverHandler).
     /// </summary>
     public ResolvedFirestoreQuery? ResolvedQuery { get; init; }
+
+    /// <summary>
+    /// The pipeline mediator for executing sub-queries.
+    /// Used by handlers like IncludeHandler to load related entities.
+    /// </summary>
+    public IQueryPipelineMediator? Mediator { get; init; }
 }

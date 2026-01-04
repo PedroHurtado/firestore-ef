@@ -65,21 +65,28 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
             // Query Pipeline
             serviceCollection.AddScoped<IQueryPipelineMediator, QueryPipelineMediator>();
 
-            // Pipeline Handlers (order matters - this is the execution order)
+            // Pipeline Handlers (order matters - middleware pattern)
+            // Handlers that modify context run first, then each calls next() and processes the result.
+            // Order: ErrorHandling → Resolver → Log → Include → Proxy → Tracking → Convert → Execution
+            // Result flows back: Execution returns docs → Convert converts to entities →
+            //                    Tracking tracks → Proxy wraps → Include loads navigations → return
             serviceCollection.AddScoped<IQueryPipelineHandler, ErrorHandlingHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, ResolverHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, LogQueryHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, ConvertHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, TrackingHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, ProxyHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, IncludeHandler>();
+            // ProxyHandler with optional IProxyFactory (null if proxies not configured)
+            serviceCollection.AddScoped<IQueryPipelineHandler>(sp =>
+                new ProxyHandler(sp.GetService<IProxyFactory>()));
+            serviceCollection.AddScoped<IQueryPipelineHandler, TrackingHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ConvertHandler>();
+            serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
 
             // Pipeline Services
-            serviceCollection.AddScoped<IFirestoreAstResolver, FirestoreAstResolver>();
+            serviceCollection.AddSingleton<IFirestoreAstResolver, FirestoreAstResolver>();
             serviceCollection.AddScoped<IQueryBuilder, FirestoreQueryBuilder>();
             serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
-            serviceCollection.AddScoped<IIncludeLoader, FirestoreIncludeLoader>();
+            // Singleton - mediator/queryContext passed at runtime to avoid circular DI
+            serviceCollection.AddSingleton<IIncludeLoader, FirestoreIncludeLoader>();
             serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
 
             // Pipeline Options

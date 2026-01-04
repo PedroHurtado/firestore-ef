@@ -1,5 +1,3 @@
-using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
-
 namespace Fudie.Firestore.UnitTest.Query.Pipeline.Handlers;
 
 public class TrackingHandlerTests
@@ -21,22 +19,21 @@ public class TrackingHandlerTests
     }
 
     [Fact]
-    public void TrackingHandler_Constructor_Accepts_IStateManager()
+    public void TrackingHandler_Has_Parameterless_Constructor()
     {
+        // TrackingHandler no longer requires IStateManager through DI
+        // It gets StateManager from QueryContext at runtime to avoid circular dependencies
         var constructors = typeof(TrackingHandler).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(1);
-        parameters[0].ParameterType.Should().Be(typeof(IStateManager));
+        parameters.Should().BeEmpty();
     }
 
     [Fact]
     public void TrackingHandler_Can_Be_Instantiated()
     {
-        var mockStateManager = new Mock<IStateManager>();
-
-        var handler = new TrackingHandler(mockStateManager.Object);
+        var handler = new TrackingHandler();
 
         handler.Should().NotBeNull();
     }
@@ -93,12 +90,12 @@ public class TrackingHandlerTests
     }
 
     [Fact]
-    public void TrackingHandler_Uses_IStateManager_For_Tracking()
+    public void TrackingHandler_Gets_StateManager_From_QueryContext()
     {
-        // TrackingHandler should use IStateManager to track entities
-        // instead of dbContext.Attach() which was the old pattern
+        // TrackingHandler gets IStateManager from QueryContext at runtime
+        // to avoid circular DI dependencies
         typeof(TrackingHandler).Should().NotBeNull(
-            "TrackingHandler must use IStateManager for entity tracking");
+            "TrackingHandler must get StateManager from QueryContext");
     }
 
     #endregion

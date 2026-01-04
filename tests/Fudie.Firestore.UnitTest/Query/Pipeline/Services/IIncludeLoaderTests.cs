@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Pipeline;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
@@ -58,21 +59,44 @@ public class IIncludeLoaderTests
     }
 
     [Fact]
+    public void LoadIncludeAsync_Has_Mediator_Parameter()
+    {
+        // Mediator is passed at runtime to avoid circular DI dependencies
+        var method = typeof(IIncludeLoader).GetMethod("LoadIncludeAsync");
+        var parameters = method!.GetParameters();
+
+        parameters[3].ParameterType.Should().Be(typeof(IQueryPipelineMediator));
+        parameters[3].Name.Should().Be("mediator");
+    }
+
+    [Fact]
+    public void LoadIncludeAsync_Has_QueryContext_Parameter()
+    {
+        // QueryContext is passed at runtime to avoid circular DI dependencies
+        var method = typeof(IIncludeLoader).GetMethod("LoadIncludeAsync");
+        var parameters = method!.GetParameters();
+
+        parameters[4].ParameterType.Should().Be(typeof(IFirestoreQueryContext));
+        parameters[4].Name.Should().Be("queryContext");
+    }
+
+    [Fact]
     public void LoadIncludeAsync_Has_CancellationToken_Parameter()
     {
         var method = typeof(IIncludeLoader).GetMethod("LoadIncludeAsync");
         var parameters = method!.GetParameters();
 
-        parameters[3].ParameterType.Should().Be(typeof(CancellationToken));
-        parameters[3].Name.Should().Be("cancellationToken");
+        parameters[5].ParameterType.Should().Be(typeof(CancellationToken));
+        parameters[5].Name.Should().Be("cancellationToken");
     }
 
     [Fact]
-    public void LoadIncludeAsync_Has_Four_Parameters()
+    public void LoadIncludeAsync_Has_Six_Parameters()
     {
+        // Additional parameters (mediator, queryContext) to avoid circular DI
         var method = typeof(IIncludeLoader).GetMethod("LoadIncludeAsync");
 
-        method!.GetParameters().Should().HaveCount(4);
+        method!.GetParameters().Should().HaveCount(6);
     }
 
     #endregion

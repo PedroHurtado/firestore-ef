@@ -1,9 +1,10 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query;
 using Firestore.EntityFrameworkCore.Query.Pipeline;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Moq;
-using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -12,6 +13,13 @@ namespace Fudie.Firestore.UnitTest.Query.Pipeline.Services;
 
 public class FirestoreIncludeLoaderTests
 {
+    private readonly Mock<IFirestoreCollectionManager> _mockCollectionManager;
+
+    public FirestoreIncludeLoaderTests()
+    {
+        _mockCollectionManager = new Mock<IFirestoreCollectionManager>();
+    }
+
     #region Class Structure Tests
 
     [Fact]
@@ -22,24 +30,21 @@ public class FirestoreIncludeLoaderTests
     }
 
     [Fact]
-    public void FirestoreIncludeLoader_Constructor_Accepts_Dependencies()
+    public void FirestoreIncludeLoader_Has_Constructor_With_CollectionManager()
     {
+        // FirestoreIncludeLoader requires IFirestoreCollectionManager for building paths
         var constructors = typeof(FirestoreIncludeLoader).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(2);
-        parameters[0].ParameterType.Should().Be(typeof(IQueryPipelineMediator));
-        parameters[1].ParameterType.Should().Be(typeof(IFirestoreQueryContext));
+        parameters.Should().HaveCount(1);
+        parameters[0].ParameterType.Should().Be(typeof(IFirestoreCollectionManager));
     }
 
     [Fact]
     public void FirestoreIncludeLoader_Can_Be_Instantiated()
     {
-        var mockMediator = new Mock<IQueryPipelineMediator>();
-        var mockQueryContext = new Mock<IFirestoreQueryContext>();
-
-        var loader = new FirestoreIncludeLoader(mockMediator.Object, mockQueryContext.Object);
+        var loader = new FirestoreIncludeLoader(_mockCollectionManager.Object);
 
         loader.Should().NotBeNull();
     }
@@ -57,15 +62,19 @@ public class FirestoreIncludeLoaderTests
         method!.ReturnType.Should().Be(typeof(Task));
 
         var parameters = method.GetParameters();
-        parameters.Should().HaveCount(4);
+        parameters.Should().HaveCount(6);
         parameters[0].ParameterType.Should().Be(typeof(object));
         parameters[0].Name.Should().Be("entity");
         parameters[1].ParameterType.Should().Be(typeof(IEntityType));
         parameters[1].Name.Should().Be("entityType");
         parameters[2].ParameterType.Should().Be(typeof(ResolvedInclude));
         parameters[2].Name.Should().Be("resolvedInclude");
-        parameters[3].ParameterType.Should().Be(typeof(CancellationToken));
-        parameters[3].Name.Should().Be("cancellationToken");
+        parameters[3].ParameterType.Should().Be(typeof(IQueryPipelineMediator));
+        parameters[3].Name.Should().Be("mediator");
+        parameters[4].ParameterType.Should().Be(typeof(IFirestoreQueryContext));
+        parameters[4].Name.Should().Be("queryContext");
+        parameters[5].ParameterType.Should().Be(typeof(CancellationToken));
+        parameters[5].Name.Should().Be("cancellationToken");
     }
 
     #endregion
@@ -73,30 +82,30 @@ public class FirestoreIncludeLoaderTests
     #region Behavior Documentation Tests
 
     [Fact]
-    public void LoadIncludeAsync_Uses_Mediator_For_SubPipeline()
+    public void LoadIncludeAsync_Receives_Mediator_As_Parameter()
     {
-        // Documents that FirestoreIncludeLoader uses IQueryPipelineMediator
-        // to execute sub-queries for loading related entities.
+        // Documents that FirestoreIncludeLoader receives IQueryPipelineMediator
+        // as parameter to avoid circular DI dependencies.
         // This ensures tracking and proxy creation for included entities.
 
-        typeof(FirestoreIncludeLoader)
-            .GetConstructors()[0]
-            .GetParameters()[0]
-            .ParameterType.Should().Be(typeof(IQueryPipelineMediator),
-                "IncludeLoader should use Mediator for sub-pipeline execution");
+        var method = typeof(FirestoreIncludeLoader).GetMethod("LoadIncludeAsync");
+        var parameters = method!.GetParameters();
+
+        parameters[3].ParameterType.Should().Be(typeof(IQueryPipelineMediator),
+            "IncludeLoader receives Mediator as parameter for sub-pipeline execution");
     }
 
     [Fact]
-    public void LoadIncludeAsync_Uses_QueryContext_For_SubPipeline()
+    public void LoadIncludeAsync_Receives_QueryContext_As_Parameter()
     {
-        // Documents that FirestoreIncludeLoader uses IFirestoreQueryContext
-        // when creating sub-pipeline contexts for includes.
+        // Documents that FirestoreIncludeLoader receives IFirestoreQueryContext
+        // as parameter when creating sub-pipeline contexts for includes.
 
-        typeof(FirestoreIncludeLoader)
-            .GetConstructors()[0]
-            .GetParameters()[1]
-            .ParameterType.Should().Be(typeof(IFirestoreQueryContext),
-                "IncludeLoader needs QueryContext for sub-pipeline");
+        var method = typeof(FirestoreIncludeLoader).GetMethod("LoadIncludeAsync");
+        var parameters = method!.GetParameters();
+
+        parameters[4].ParameterType.Should().Be(typeof(IFirestoreQueryContext),
+            "IncludeLoader receives QueryContext as parameter for sub-pipeline");
     }
 
     [Fact]

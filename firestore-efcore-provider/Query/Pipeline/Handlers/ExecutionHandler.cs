@@ -2,6 +2,7 @@ using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using Google.Cloud.Firestore;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -120,14 +121,29 @@ public class ExecutionHandler : IQueryPipelineHandler
 
     private static object ExtractAggregationValue(AggregateQuerySnapshot snapshot, ResolvedFirestoreQuery resolved)
     {
+        // Firestore returns aggregation results with specific aliases from AggregateField
+        // Use AggregateField.Sum/Average to get the correct alias for extraction
         return resolved.AggregationType switch
         {
             FirestoreAggregationType.Count => snapshot.Count ?? 0L,
             FirestoreAggregationType.Any => (snapshot.Count ?? 0L) > 0,
-            FirestoreAggregationType.Sum => snapshot.GetValue<double?>(resolved.AggregationPropertyName!) ?? 0.0,
-            FirestoreAggregationType.Average => snapshot.GetValue<double?>(resolved.AggregationPropertyName!) ?? 0.0,
+            FirestoreAggregationType.Sum => snapshot.GetValue<double?>(AggregateField.Sum(resolved.AggregationPropertyName!)) ?? 0.0,
+            FirestoreAggregationType.Average => ExtractAverageValue(snapshot, resolved.AggregationPropertyName!),
             _ => snapshot.Count ?? 0L
         };
+    }
+
+    private static object ExtractAverageValue(AggregateQuerySnapshot snapshot, string propertyName)
+    {
+        var value = snapshot.GetValue<double?>(AggregateField.Average(propertyName));
+
+        // Average on empty set returns null - throw InvalidOperationException like LINQ does
+        if (value == null)
+        {
+            throw new InvalidOperationException("Sequence contains no elements");
+        }
+
+        return value.Value;
     }
 
     private static async IAsyncEnumerable<object> SingleDocumentAsyncEnumerable(DocumentSnapshot doc)

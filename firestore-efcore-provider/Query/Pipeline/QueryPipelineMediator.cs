@@ -29,8 +29,13 @@ public class QueryPipelineMediator : IQueryPipelineMediator
         PipelineContext context,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        // Set mediator in context for sub-queries (e.g., Include)
+        var contextWithMediator = context.Mediator == null
+            ? context with { Mediator = this }
+            : context;
+
         var pipeline = BuildPipeline();
-        var result = await pipeline(context, cancellationToken);
+        var result = await pipeline(contextWithMediator, cancellationToken);
 
         await foreach (var item in UnwrapResult<T>(result, cancellationToken))
         {

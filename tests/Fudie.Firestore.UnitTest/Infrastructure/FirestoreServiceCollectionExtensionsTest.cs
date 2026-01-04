@@ -353,12 +353,19 @@ public class FirestoreServiceCollectionExtensionsTest
         // Act
         services.AddEntityFrameworkFirestore();
 
-        // Assert
-        var descriptor = services.FirstOrDefault(d =>
-            d.ServiceType == typeof(IQueryPipelineHandler) &&
-            d.ImplementationType == typeof(ProxyHandler));
-        Assert.NotNull(descriptor);
-        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
+        // Assert - ProxyHandler is registered with factory delegate (optional IProxyFactory)
+        // so ImplementationType is null, we check via ImplementationFactory
+        var handlerDescriptors = services
+            .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
+            .ToList();
+
+        // Should have 8 handlers total
+        Assert.Equal(8, handlerDescriptors.Count);
+
+        // ProxyHandler is registered with factory (5th handler - after Include)
+        var proxyDescriptor = handlerDescriptors[4]; // 0-indexed, 5th position
+        Assert.NotNull(proxyDescriptor.ImplementationFactory);
+        Assert.Equal(ServiceLifetime.Scoped, proxyDescriptor.Lifetime);
     }
 
     [Fact]
@@ -387,32 +394,28 @@ public class FirestoreServiceCollectionExtensionsTest
         // Act
         services.AddEntityFrameworkFirestore();
 
-        // Assert - handlers must be registered in pipeline order
+        // Assert - handlers must be registered in middleware order
+        // Order: ErrorHandling → Resolver → Log → Include → Proxy → Tracking → Convert → Execution
+        // Each handler calls next() and receives the result from subsequent handlers
+        // Result flows: Execution returns docs → Convert→entities → Tracking → Proxy → Include → return
         var handlerRegistrations = services
             .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
-            .Select(d => d.ImplementationType)
             .ToList();
 
-        var expectedOrder = new[]
-        {
-            typeof(ErrorHandlingHandler),
-            typeof(ResolverHandler),
-            typeof(LogQueryHandler),
-            typeof(ExecutionHandler),
-            typeof(ConvertHandler),
-            typeof(TrackingHandler),
-            typeof(ProxyHandler),
-            typeof(IncludeHandler)
-        };
+        // 8 handlers total
+        Assert.Equal(8, handlerRegistrations.Count);
 
-        // Verify order using index comparison
-        for (int i = 0; i < expectedOrder.Length - 1; i++)
-        {
-            var currentIndex = handlerRegistrations.IndexOf(expectedOrder[i]);
-            var nextIndex = handlerRegistrations.IndexOf(expectedOrder[i + 1]);
-            Assert.True(currentIndex < nextIndex,
-                $"{expectedOrder[i].Name} should be registered before {expectedOrder[i + 1].Name}");
-        }
+        // Verify specific handlers by position (0-indexed)
+        Assert.Equal(typeof(ErrorHandlingHandler), handlerRegistrations[0].ImplementationType);
+        Assert.Equal(typeof(ResolverHandler), handlerRegistrations[1].ImplementationType);
+        Assert.Equal(typeof(LogQueryHandler), handlerRegistrations[2].ImplementationType);
+        Assert.Equal(typeof(IncludeHandler), handlerRegistrations[3].ImplementationType);
+        // ProxyHandler is factory-registered, no ImplementationType
+        Assert.Null(handlerRegistrations[4].ImplementationType);
+        Assert.NotNull(handlerRegistrations[4].ImplementationFactory);
+        Assert.Equal(typeof(TrackingHandler), handlerRegistrations[5].ImplementationType);
+        Assert.Equal(typeof(ConvertHandler), handlerRegistrations[6].ImplementationType);
+        Assert.Equal(typeof(ExecutionHandler), handlerRegistrations[7].ImplementationType);
     }
 
     #endregion
@@ -432,7 +435,8 @@ public class FirestoreServiceCollectionExtensionsTest
         var descriptor = services.FirstOrDefault(d =>
             d.ServiceType == typeof(IFirestoreAstResolver));
         Assert.NotNull(descriptor);
-        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
+        // Singleton because context is passed per-request to Resolve method
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
     }
 
     [Fact]
@@ -480,7 +484,8 @@ public class FirestoreServiceCollectionExtensionsTest
         var descriptor = services.FirstOrDefault(d =>
             d.ServiceType == typeof(IIncludeLoader));
         Assert.NotNull(descriptor);
-        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
+        // Singleton - mediator/queryContext passed at runtime to avoid circular DI
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
     }
 
     [Fact]

@@ -707,7 +707,8 @@ namespace Firestore.EntityFrameworkCore.Storage
 
         /// <summary>
         /// Deserializa referencias a otras entidades.
-        /// Por ahora solo registra que existen, la carga lazy/eager requiere queries adicionales.
+        /// Extrae el ID del DocumentReference y lo almacena en la FK property.
+        /// La carga real se hace vía Include o Lazy Loading.
         /// </summary>
         private void DeserializeReferences(
             object entity,
@@ -730,14 +731,68 @@ namespace Firestore.EntityFrameworkCore.Storage
                 if (value is not DocumentReference docRef)
                     continue;
 
-                // TODO: Implementar carga de referencias
-                // Por ahora solo loggear que existe la referencia
                 _logger.LogTrace(
                     "Found reference {NavigationName} pointing to {DocumentPath}",
                     navigation.Name, docRef.Path);
 
-                // Opción futura: Marcar para lazy loading o cargar con Include
+                // Extract the document ID from the DocumentReference path
+                // Path format: "collection/documentId" or "parent/doc/collection/documentId"
+                var documentId = docRef.Id;
+
+                // Set the FK property value so Include can use it later
+                // The FK property is typically a shadow property like "CategoriaId"
+                var fkProperty = navigation.ForeignKey.Properties.FirstOrDefault();
+                if (fkProperty != null)
+                {
+                    SetForeignKeyValue(entity, fkProperty, documentId);
+                }
             }
+        }
+
+        /// <summary>
+        /// Sets the value of a FK property on an entity.
+        /// Handles both regular properties and shadow properties via backing fields.
+        /// </summary>
+        private static void SetForeignKeyValue(object entity, IProperty fkProperty, string? value)
+        {
+            if (value == null)
+                return;
+
+            // Try CLR property first
+            var propertyInfo = fkProperty.PropertyInfo;
+            if (propertyInfo?.SetMethod != null)
+            {
+                var convertedValue = ConvertFkValue(value, fkProperty.ClrType);
+                propertyInfo.SetValue(entity, convertedValue);
+                return;
+            }
+
+            // Try backing field
+            var fieldInfo = fkProperty.FieldInfo;
+            if (fieldInfo != null)
+            {
+                var convertedValue = ConvertFkValue(value, fkProperty.ClrType);
+                fieldInfo.SetValue(entity, convertedValue);
+                return;
+            }
+
+            // For shadow properties without backing field, we can't set directly
+            // The value will be available via the DocumentReference data
+            // This is handled in IncludeLoader by checking the data dictionary
+        }
+
+        private static object? ConvertFkValue(string value, Type targetType)
+        {
+            if (targetType == typeof(string))
+                return value;
+            if (targetType == typeof(int) && int.TryParse(value, out var intValue))
+                return intValue;
+            if (targetType == typeof(long) && long.TryParse(value, out var longValue))
+                return longValue;
+            if (targetType == typeof(Guid) && Guid.TryParse(value, out var guidValue))
+                return guidValue;
+
+            return value;
         }
 
         /// <summary>

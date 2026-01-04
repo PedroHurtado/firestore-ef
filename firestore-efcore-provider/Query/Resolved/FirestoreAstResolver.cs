@@ -1,5 +1,7 @@
+using Firestore.EntityFrameworkCore.Extensions;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
+using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,31 +20,38 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     ///
     /// After resolution, the Executor becomes "dumb" - it just builds SDK calls.
     /// All smart logic (expression evaluation, Id optimization, PK detection) is done here.
+    /// Registered as Singleton - context is passed per-request via Resolve method.
     /// </summary>
     public class FirestoreAstResolver : IFirestoreAstResolver
     {
-        private readonly IFirestoreQueryContext _queryContext;
-
-        public FirestoreAstResolver(IFirestoreQueryContext queryContext)
-        {
-            _queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
-        }
-
         /// <summary>
         /// Resolves the AST into a fully resolved query ready for execution.
         /// </summary>
-        public ResolvedFirestoreQuery Resolve(FirestoreQueryExpression ast)
+        /// <param name="ast">The AST to resolve</param>
+        /// <param name="queryContext">The query context containing parameter values</param>
+        public ResolvedFirestoreQuery Resolve(FirestoreQueryExpression ast, IFirestoreQueryContext queryContext)
         {
             if (ast == null) throw new ArgumentNullException(nameof(ast));
+            if (queryContext == null) throw new ArgumentNullException(nameof(queryContext));
 
             // Use CollectionName from AST directly
             var collectionPath = ast.CollectionName;
 
-            // Detect Id optimization from FilterResults using PrimaryKeyPropertyName from AST
-            string? documentId = DetectIdOptimization(ast.FilterResults, ast.PrimaryKeyPropertyName);
+            // Detect Id optimization:
+            // 1. First check IsIdOnlyQuery/IdValueExpression (used by FindAsync)
+            // 2. Then check FilterResults with PrimaryKeyPropertyName
+            string? documentId = null;
+            if (ast.IsIdOnlyQuery && ast.IdValueExpression != null)
+            {
+                documentId = EvaluateIdValueExpression(ast.IdValueExpression, queryContext);
+            }
+            else
+            {
+                documentId = DetectIdOptimization(ast.FilterResults, ast.PrimaryKeyPropertyName, queryContext);
+            }
 
-            // Resolve filters
-            var filterResults = ResolveFilterResults(ast.FilterResults);
+            // Resolve filters (pass EntityType for null validation)
+            var filterResults = ResolveFilterResults(ast.FilterResults, queryContext, ast.EntityType);
 
             // Resolve OrderBy (already pure, but map to resolved types)
             var orderByClauses = ast.OrderByClauses
@@ -50,7 +59,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 .ToList();
 
             // Resolve Pagination
-            var pagination = ResolvePagination(ast.Pagination);
+            var pagination = ResolvePagination(ast.Pagination, queryContext);
 
             // Resolve Cursor (already pure)
             ResolvedCursor? cursor = null;
@@ -62,13 +71,13 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             }
 
             // Resolve Includes using metadata from AST
-            var includes = ResolveIncludes(ast.PendingIncludes);
+            var includes = ResolveIncludes(ast.PendingIncludes, queryContext);
 
             // Resolve Projection using metadata from AST
             ResolvedProjectionDefinition? projection = null;
             if (ast.Projection != null)
             {
-                projection = ResolveProjection(ast.Projection);
+                projection = ResolveProjection(ast.Projection, queryContext);
             }
 
             return new ResolvedFirestoreQuery(
@@ -91,45 +100,63 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         #region Filter Resolution
 
         private IReadOnlyList<ResolvedFilterResult> ResolveFilterResults(
-            IReadOnlyList<FirestoreFilterResult> filterResults)
+            IReadOnlyList<FirestoreFilterResult> filterResults,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType = null)
         {
-            return filterResults.Select(ResolveFilterResult).ToList();
+            return filterResults.Select(fr => ResolveFilterResult(fr, queryContext, entityType)).ToList();
         }
 
-        private ResolvedFilterResult ResolveFilterResult(FirestoreFilterResult filterResult)
+        private ResolvedFilterResult ResolveFilterResult(
+            FirestoreFilterResult filterResult,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType = null)
         {
             var andClauses = filterResult.AndClauses
-                .Select(ResolveWhereClause)
+                .Select(c => ResolveWhereClause(c, queryContext, entityType))
                 .ToList();
 
             ResolvedOrFilterGroup? orGroup = null;
             if (filterResult.OrGroup != null)
             {
-                orGroup = ResolveOrFilterGroup(filterResult.OrGroup);
+                orGroup = ResolveOrFilterGroup(filterResult.OrGroup, queryContext, entityType);
             }
 
             IReadOnlyList<ResolvedOrFilterGroup>? nestedOrGroups = null;
             if (filterResult.NestedOrGroups.Count > 0)
             {
                 nestedOrGroups = filterResult.NestedOrGroups
-                    .Select(ResolveOrFilterGroup)
+                    .Select(g => ResolveOrFilterGroup(g, queryContext, entityType))
                     .ToList();
             }
 
             return new ResolvedFilterResult(andClauses, orGroup, nestedOrGroups);
         }
 
-        private ResolvedOrFilterGroup ResolveOrFilterGroup(FirestoreOrFilterGroup orGroup)
+        private ResolvedOrFilterGroup ResolveOrFilterGroup(
+            FirestoreOrFilterGroup orGroup,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType = null)
         {
             var clauses = orGroup.Clauses
-                .Select(ResolveWhereClause)
+                .Select(c => ResolveWhereClause(c, queryContext, entityType))
                 .ToList();
             return new ResolvedOrFilterGroup(clauses);
         }
 
-        private ResolvedWhereClause ResolveWhereClause(FirestoreWhereClause clause)
+        private ResolvedWhereClause ResolveWhereClause(
+            FirestoreWhereClause clause,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType = null)
         {
-            var value = EvaluateWhereClauseValue(clause);
+            var value = EvaluateWhereClauseValue(clause, queryContext);
+
+            // Validate null filter - requires PersistNullValues configured
+            if (value == null && entityType != null)
+            {
+                ValidateNullFilter(clause.PropertyName, entityType);
+            }
+
             return new ResolvedWhereClause(
                 clause.PropertyName,
                 clause.Operator,
@@ -137,7 +164,40 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 clause.EnumType);
         }
 
-        private object? EvaluateWhereClauseValue(FirestoreWhereClause clause)
+        /// <summary>
+        /// Validates that a null filter is allowed for the property.
+        /// Throws NotSupportedException if property doesn't have PersistNullValues configured.
+        /// </summary>
+        private static void ValidateNullFilter(string propertyName, IEntityType entityType)
+        {
+            // Skip validation for Id property - it's the document ID and handled separately
+            // Also, if we get null for Id, it's likely a parameter evaluation issue, not an actual null filter
+            if (propertyName == "Id")
+                return;
+
+            // Get property from model - support nested properties
+            var propertyPath = propertyName.Split('.');
+            var property = entityType.FindProperty(propertyPath[0]);
+
+            if (property == null)
+            {
+                // If we don't find the property, it might be a nested property of ComplexType
+                // In this case, allow the query (no way to validate ComplexTypes yet)
+                return;
+            }
+
+            if (!property.IsPersistNullValuesEnabled())
+            {
+                throw new NotSupportedException(
+                    $"Filtering by null on property '{propertyName}' is not supported. " +
+                    "Firestore does not store null values by default. " +
+                    "Configure the property with .PersistNullValues() in OnModelCreating if you need this functionality.");
+            }
+        }
+
+        private object? EvaluateWhereClauseValue(
+            FirestoreWhereClause clause,
+            IFirestoreQueryContext queryContext)
         {
             var expression = clause.ValueExpression;
 
@@ -146,9 +206,16 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 return constant.Value;
             }
 
+            // Handle StartsWithUpperBoundExpression - compute prefix + \uffff
+            if (expression is StartsWithUpperBoundExpression startsWithUpperBound)
+            {
+                var prefixValue = EvaluateExpression<string>(startsWithUpperBound.PrefixExpression, queryContext);
+                return StartsWithUpperBoundExpression.ComputeUpperBound(prefixValue ?? "");
+            }
+
             try
             {
-                var replacer = new QueryContextParameterReplacer(_queryContext);
+                var replacer = new QueryContextParameterReplacer(queryContext);
                 var replacedExpression = replacer.Visit(expression);
 
                 var lambda = Expression.Lambda<Func<object>>(
@@ -167,24 +234,26 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         #region Pagination Resolution
 
-        private ResolvedPaginationInfo ResolvePagination(FirestorePaginationInfo pagination)
+        private ResolvedPaginationInfo ResolvePagination(
+            FirestorePaginationInfo pagination,
+            IFirestoreQueryContext queryContext)
         {
             int? limit = pagination.Limit;
             if (limit == null && pagination.LimitExpression != null)
             {
-                limit = EvaluateExpression<int>(pagination.LimitExpression);
+                limit = EvaluateExpression<int>(pagination.LimitExpression, queryContext);
             }
 
             int? limitToLast = pagination.LimitToLast;
             if (limitToLast == null && pagination.LimitToLastExpression != null)
             {
-                limitToLast = EvaluateExpression<int>(pagination.LimitToLastExpression);
+                limitToLast = EvaluateExpression<int>(pagination.LimitToLastExpression, queryContext);
             }
 
             int? skip = pagination.Skip;
             if (skip == null && pagination.SkipExpression != null)
             {
-                skip = EvaluateExpression<int>(pagination.SkipExpression);
+                skip = EvaluateExpression<int>(pagination.SkipExpression, queryContext);
             }
 
             return new ResolvedPaginationInfo(limit, limitToLast, skip);
@@ -194,30 +263,60 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         #region Include Resolution
 
-        private IReadOnlyList<ResolvedInclude> ResolveIncludes(IReadOnlyList<IncludeInfo> includes)
+        private IReadOnlyList<ResolvedInclude> ResolveIncludes(
+            IReadOnlyList<IncludeInfo> includes,
+            IFirestoreQueryContext queryContext)
+        {
+            // Build hierarchy from flat list using ParentClrType
+            return BuildIncludeHierarchy(includes, queryContext, parentType: null);
+        }
+
+        /// <summary>
+        /// Builds include hierarchy by finding includes that belong to a parent type.
+        /// Root includes have ParentClrType == null.
+        /// ThenIncludes have ParentClrType == parent's TargetClrType.
+        /// </summary>
+        private IReadOnlyList<ResolvedInclude> BuildIncludeHierarchy(
+            IReadOnlyList<IncludeInfo> allIncludes,
+            IFirestoreQueryContext queryContext,
+            Type? parentType)
         {
             var result = new List<ResolvedInclude>();
 
-            foreach (var include in includes)
+            // Find includes that belong to this level (matching parent type)
+            var levelIncludes = allIncludes
+                .Where(i => i.ParentClrType == parentType)
+                .ToList();
+
+            foreach (var include in levelIncludes)
             {
-                var resolved = ResolveInclude(include, includes);
+                // Recursively resolve nested includes (ThenInclude)
+                var nestedIncludes = BuildIncludeHierarchy(
+                    allIncludes,
+                    queryContext,
+                    parentType: include.TargetClrType);
+
+                var resolved = ResolveInclude(include, queryContext, nestedIncludes);
                 result.Add(resolved);
             }
 
             return result;
         }
 
-        private ResolvedInclude ResolveInclude(IncludeInfo include, IReadOnlyList<IncludeInfo> allIncludes)
+        private ResolvedInclude ResolveInclude(
+            IncludeInfo include,
+            IFirestoreQueryContext queryContext,
+            IReadOnlyList<ResolvedInclude> nestedIncludes)
         {
             // Use metadata from AST directly
             var collectionPath = include.CollectionName;
             var targetClrType = include.TargetClrType;
 
             // Detect Id optimization from filters using PrimaryKeyPropertyName from AST
-            string? documentId = DetectIdOptimization(include.FilterResults, include.PrimaryKeyPropertyName);
+            string? documentId = DetectIdOptimization(include.FilterResults, include.PrimaryKeyPropertyName, queryContext);
 
             // Resolve filters
-            var filterResults = ResolveFilterResults(include.FilterResults);
+            var filterResults = ResolveFilterResults(include.FilterResults, queryContext);
 
             // Resolve OrderBy
             var orderByClauses = include.OrderByClauses
@@ -225,11 +324,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 .ToList();
 
             // Resolve Pagination
-            var pagination = ResolvePagination(include.Pagination);
-
-            // Note: Nested includes (ThenInclude) would need to be tracked separately
-            // For now, we don't support nested includes in IncludeInfo
-            var nestedIncludes = new List<ResolvedInclude>();
+            var pagination = ResolvePagination(include.Pagination, queryContext);
 
             return new ResolvedInclude(
                 NavigationName: include.NavigationName,
@@ -247,10 +342,12 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         #region Projection Resolution
 
-        private ResolvedProjectionDefinition ResolveProjection(FirestoreProjectionDefinition projection)
+        private ResolvedProjectionDefinition ResolveProjection(
+            FirestoreProjectionDefinition projection,
+            IFirestoreQueryContext queryContext)
         {
             var subcollections = projection.Subcollections
-                .Select(ResolveSubcollectionProjection)
+                .Select(s => ResolveSubcollectionProjection(s, queryContext))
                 .ToList();
 
             return new ResolvedProjectionDefinition(
@@ -261,17 +358,18 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         }
 
         private ResolvedSubcollectionProjection ResolveSubcollectionProjection(
-            FirestoreSubcollectionProjection subcollection)
+            FirestoreSubcollectionProjection subcollection,
+            IFirestoreQueryContext queryContext)
         {
             // Use metadata from AST directly
             var collectionPath = subcollection.CollectionName;
             var targetClrType = subcollection.TargetClrType;
 
             // Detect Id optimization using PrimaryKeyPropertyName from AST
-            string? documentId = DetectIdOptimization(subcollection.FilterResults, subcollection.PrimaryKeyPropertyName);
+            string? documentId = DetectIdOptimization(subcollection.FilterResults, subcollection.PrimaryKeyPropertyName, queryContext);
 
             // Resolve filters
-            var filterResults = ResolveFilterResults(subcollection.FilterResults);
+            var filterResults = ResolveFilterResults(subcollection.FilterResults, queryContext);
 
             // Resolve OrderBy
             var orderByClauses = subcollection.OrderByClauses
@@ -279,11 +377,11 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 .ToList();
 
             // Resolve Pagination
-            var pagination = ResolvePagination(subcollection.Pagination);
+            var pagination = ResolvePagination(subcollection.Pagination, queryContext);
 
             // Resolve nested subcollections
             var nestedSubcollections = subcollection.NestedSubcollections
-                .Select(ResolveSubcollectionProjection)
+                .Select(s => ResolveSubcollectionProjection(s, queryContext))
                 .ToList();
 
             return new ResolvedSubcollectionProjection(
@@ -311,7 +409,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         /// </summary>
         private string? DetectIdOptimization(
             IReadOnlyList<FirestoreFilterResult> filterResults,
-            string? primaryKeyPropertyName)
+            string? primaryKeyPropertyName,
+            IFirestoreQueryContext queryContext)
         {
             if (primaryKeyPropertyName == null)
                 return null;
@@ -335,7 +434,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             if (clause.PropertyName != primaryKeyPropertyName)
                 return null;
 
-            var value = EvaluateWhereClauseValue(clause);
+            var value = EvaluateWhereClauseValue(clause, queryContext);
             return value?.ToString();
         }
 
@@ -343,7 +442,39 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         #region Expression Evaluation
 
-        private T? EvaluateExpression<T>(Expression expression)
+        /// <summary>
+        /// Evaluates IdValueExpression from AST (used by FindAsync).
+        /// Uses the underlying QueryContext to handle EF Core parameterized expressions.
+        /// </summary>
+        private string? EvaluateIdValueExpression(Expression idExpression, IFirestoreQueryContext queryContext)
+        {
+            if (idExpression is ConstantExpression constant)
+            {
+                return constant.Value?.ToString();
+            }
+
+            try
+            {
+                // Use QueryContextExpressionReplacer which handles:
+                // 1. QueryContext parameter replacement (for expressions like queryContext.ParameterValues[...])
+                // 2. Named parameters from ParameterValues
+                var replacer = new QueryContextExpressionReplacer(queryContext.AsQueryContext);
+                var replacedExpression = replacer.Visit(idExpression);
+
+                var lambda = Expression.Lambda<Func<object>>(
+                    Expression.Convert(replacedExpression, typeof(object)));
+
+                var compiled = lambda.Compile();
+                var result = compiled();
+                return result?.ToString();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private T? EvaluateExpression<T>(Expression expression, IFirestoreQueryContext queryContext)
         {
             if (expression is ConstantExpression constant)
             {
@@ -352,7 +483,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
             try
             {
-                var replacer = new QueryContextParameterReplacer(_queryContext);
+                var replacer = new QueryContextParameterReplacer(queryContext);
                 var replacedExpression = replacer.Visit(expression);
 
                 var lambda = Expression.Lambda<Func<T>>(
@@ -381,6 +512,60 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
             protected override Expression VisitParameter(ParameterExpression node)
             {
+                if (node.Name != null && _queryContext.ParameterValues.TryGetValue(node.Name, out var parameterValue))
+                {
+                    return Expression.Constant(parameterValue, node.Type);
+                }
+
+                return base.VisitParameter(node);
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                // Handle closure captures (field access on constant objects)
+                if (node.Expression is ConstantExpression constantExpr && constantExpr.Value != null)
+                {
+                    var member = node.Member;
+                    object? value = member switch
+                    {
+                        System.Reflection.FieldInfo field => field.GetValue(constantExpr.Value),
+                        System.Reflection.PropertyInfo prop => prop.GetValue(constantExpr.Value),
+                        _ => null
+                    };
+
+                    if (value != null)
+                    {
+                        return Expression.Constant(value, node.Type);
+                    }
+                }
+
+                return base.VisitMember(node);
+            }
+        }
+
+        /// <summary>
+        /// Visitor that replaces QueryContext parameter references with the actual QueryContext instance.
+        /// Handles expressions generated by EF Core that reference queryContext.ParameterValues[...].
+        /// </summary>
+        private class QueryContextExpressionReplacer : ExpressionVisitor
+        {
+            private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
+
+            public QueryContextExpressionReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
+            {
+                _queryContext = queryContext;
+            }
+
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                // Replace the queryContext parameter with the actual QueryContext
+                if (node.Name == "queryContext" &&
+                    node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
+                {
+                    return Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
+                }
+
+                // Replace named parameters from ParameterValues
                 if (node.Name != null && _queryContext.ParameterValues.TryGetValue(node.Name, out var parameterValue))
                 {
                     return Expression.Constant(parameterValue, node.Type);

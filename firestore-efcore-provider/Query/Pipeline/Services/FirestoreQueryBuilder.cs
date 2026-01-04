@@ -137,20 +137,122 @@ public class FirestoreQueryBuilder : IQueryBuilder
 
     private static Filter CreateFilter(ResolvedWhereClause clause)
     {
+        // Convert value to Firestore-compatible type
+        var value = ConvertValueForFirestore(clause.Value, clause.EnumType);
+
+        // Get field path - "Id" is special and maps to FieldPath.DocumentId
+        var fieldPath = GetFieldPath(clause.PropertyName);
+
         return clause.Operator switch
         {
-            FirestoreOperator.EqualTo => Filter.EqualTo(clause.PropertyName, clause.Value),
-            FirestoreOperator.NotEqualTo => Filter.NotEqualTo(clause.PropertyName, clause.Value),
-            FirestoreOperator.LessThan => Filter.LessThan(clause.PropertyName, clause.Value),
-            FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(clause.PropertyName, clause.Value),
-            FirestoreOperator.GreaterThan => Filter.GreaterThan(clause.PropertyName, clause.Value),
-            FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(clause.PropertyName, clause.Value),
-            FirestoreOperator.ArrayContains => Filter.ArrayContains(clause.PropertyName, clause.Value),
-            FirestoreOperator.ArrayContainsAny => Filter.ArrayContainsAny(clause.PropertyName, (IEnumerable)clause.Value!),
-            FirestoreOperator.In => Filter.InArray(clause.PropertyName, (IEnumerable)clause.Value!),
-            FirestoreOperator.NotIn => Filter.NotInArray(clause.PropertyName, (IEnumerable)clause.Value!),
+            FirestoreOperator.EqualTo => Filter.EqualTo(fieldPath, value),
+            FirestoreOperator.NotEqualTo => Filter.NotEqualTo(fieldPath, value),
+            FirestoreOperator.LessThan => Filter.LessThan(fieldPath, value),
+            FirestoreOperator.LessThanOrEqualTo => Filter.LessThanOrEqualTo(fieldPath, value),
+            FirestoreOperator.GreaterThan => Filter.GreaterThan(fieldPath, value),
+            FirestoreOperator.GreaterThanOrEqualTo => Filter.GreaterThanOrEqualTo(fieldPath, value),
+            FirestoreOperator.ArrayContains => Filter.ArrayContains(fieldPath, value),
+            FirestoreOperator.ArrayContainsAny => Filter.ArrayContainsAny(fieldPath, (IEnumerable)value!),
+            FirestoreOperator.In => Filter.InArray(fieldPath, (IEnumerable)value!),
+            FirestoreOperator.NotIn => Filter.NotInArray(fieldPath, (IEnumerable)value!),
             _ => throw new NotSupportedException($"Operator {clause.Operator} is not supported")
         };
+    }
+
+    /// <summary>
+    /// Gets the appropriate FieldPath for a property name.
+    /// Returns FieldPath.DocumentId for "Id" property, otherwise a regular FieldPath.
+    /// Supports nested properties like "Direccion.Ciudad" → FieldPath("Direccion", "Ciudad")
+    /// </summary>
+    private static FieldPath GetFieldPath(string propertyName)
+    {
+        if (propertyName == "Id")
+            return FieldPath.DocumentId;
+
+        // Split nested property paths: "Direccion.Ciudad" → ["Direccion", "Ciudad"]
+        var segments = propertyName.Split('.');
+        return new FieldPath(segments);
+    }
+
+    /// <summary>
+    /// Converts a CLR value to a Firestore-compatible type.
+    /// - decimal → double (Firestore doesn't support decimal)
+    /// - enum → string (Firestore stores as name string)
+    /// - DateTime → UTC DateTime
+    /// </summary>
+    private static object? ConvertValueForFirestore(object? value, Type? enumType)
+    {
+        if (value == null)
+            return null;
+
+        // Handle enum conversion (from int/enum to string)
+        if (enumType != null)
+        {
+            return ConvertToEnumString(value, enumType);
+        }
+
+        // Handle enum values directly
+        if (value is Enum e)
+        {
+            return e.ToString();
+        }
+
+        // decimal → double
+        if (value is decimal d)
+        {
+            return (double)d;
+        }
+
+        // DateTime → UTC
+        if (value is DateTime dt)
+        {
+            return dt.ToUniversalTime();
+        }
+
+        // Handle collections (IEnumerable) - convert elements recursively
+        if (value is IEnumerable enumerable && value is not string && value is not byte[])
+        {
+            return ConvertEnumerableForFirestore(enumerable);
+        }
+
+        return value;
+    }
+
+    private static string ConvertToEnumString(object value, Type enumType)
+    {
+        // If already the enum type, convert to string
+        if (value.GetType() == enumType)
+        {
+            return value.ToString()!;
+        }
+
+        // If it's a numeric value, convert to enum then to string
+        try
+        {
+            var enumValue = Enum.ToObject(enumType, value);
+            return enumValue.ToString()!;
+        }
+        catch
+        {
+            return value.ToString()!;
+        }
+    }
+
+    private static object[] ConvertEnumerableForFirestore(IEnumerable enumerable)
+    {
+        var list = new List<object>();
+        foreach (var item in enumerable)
+        {
+            if (item != null)
+            {
+                var converted = ConvertValueForFirestore(item, null);
+                if (converted != null)
+                {
+                    list.Add(converted);
+                }
+            }
+        }
+        return list.ToArray();
     }
 
     private static FirestoreQuery ApplyOrderBy(FirestoreQuery query, IReadOnlyList<ResolvedOrderByClause> orderByClauses)

@@ -51,6 +51,12 @@ public class IncludeHandler : QueryPipelineHandlerBase
             return result;
         }
 
+        // Skip if no mediator (needed for sub-queries)
+        if (context.Mediator == null)
+        {
+            return result;
+        }
+
         // Only process streaming results
         if (result is not PipelineResult.Streaming streaming)
         {
@@ -74,6 +80,8 @@ public class IncludeHandler : QueryPipelineHandlerBase
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var model = context.QueryContext.Model;
+        var mediator = context.Mediator!;
+        var queryContext = context.QueryContext;
 
         await foreach (var entity in entities.WithCancellation(cancellationToken))
         {
@@ -91,6 +99,8 @@ public class IncludeHandler : QueryPipelineHandlerBase
                         entity,
                         entityType,
                         include,
+                        mediator,
+                        queryContext,
                         cancellationToken);
                 }
             }

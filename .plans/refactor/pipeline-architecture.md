@@ -994,6 +994,51 @@ public class FirestorePipelineOptions
   - IQueryBuilderTests (10 tests)
   - FirestoreDeserializationExceptionTests (extraído a archivo propio)
   - FirestoreQueryExecutionExceptionTests (extraído a archivo propio)
+- [x] Fixes de DI y orden de handlers (session 2026-01-03)
+  - `IFirestoreQueryContext.AsQueryContext` para evaluación de expresiones EF Core
+  - `FirestoreAstResolver` ahora recibe `IFirestoreQueryContext` via parámetro (no DI)
+  - `TrackingHandler` obtiene `IStateManager` de `context.QueryContext.StateManager`
+  - `FirestoreIncludeLoader` recibe mediator/queryContext via parámetros
+  - `ProxyHandler` con factory delegate para `IProxyFactory?` opcional
+  - Orden de handlers corregido para patrón middleware
+  - `FirestoreQueryBuilder.ConvertValueForFirestore` para decimal/enum
+
+### Fase 7.1: Fixes de DI y Circular Dependencies
+
+**Problema 1: IFirestoreQueryContext no está en DI**
+- `IFirestoreQueryContext` es per-request, creado por `QueryContextFactory`
+- Solución: `IFirestoreAstResolver.Resolve(ast, queryContext)` - pasar como parámetro
+- Registro: Singleton (stateless)
+
+**Problema 2: Circular dependency TrackingHandler → IStateManager**
+- `IDatabase → ... → TrackingHandler → IStateManager → StateManagerDependencies → IDatabase`
+- Solución: `IFirestoreQueryContext.StateManager` property
+- `TrackingHandler` obtiene StateManager del context en runtime
+
+**Problema 3: ProxyHandler con IProxyFactory opcional**
+- `IProxyFactory` solo existe cuando proxies están configurados
+- Solución: Factory delegate en DI: `sp => new ProxyHandler(sp.GetService<IProxyFactory>())`
+
+**Problema 4: Circular dependency IncludeLoader → Mediator**
+- `IQueryPipelineMediator → IncludeHandler → IIncludeLoader → IQueryPipelineMediator`
+- Solución: `IIncludeLoader.LoadIncludeAsync(..., mediator, queryContext)`
+- `PipelineContext.Mediator` se setea en `QueryPipelineMediator.ExecuteAsync`
+- Registro: Singleton (stateless)
+
+**Orden correcto de handlers (middleware pattern):**
+```
+Registro DI:           Ejecución real (resultado fluye hacia atrás):
+1. ErrorHandling       ErrorHandling llama next() →
+2. Resolver            Resolver resuelve AST, llama next() →
+3. Log                 Log logea, llama next() →
+4. Include             Include llama next() → procesa resultado ←
+5. Proxy               Proxy llama next() → procesa resultado ←
+6. Tracking            Tracking llama next() → procesa resultado ←
+7. Convert             Convert llama next() → procesa resultado ←
+8. Execution           Execution ejecuta query, retorna ←
+```
+
+Resultado: `Execution` retorna `Streaming<DocumentSnapshot>` → `Convert` convierte a entidades → `Tracking` trackea → `Proxy` genera proxies → `Include` carga navegaciones.
 
 ---
 

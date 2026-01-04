@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using Microsoft.EntityFrameworkCore.Metadata;
-using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,20 +9,10 @@ namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 /// <summary>
 /// Handler that tracks entities via IStateManager.
 /// Only applies to Entity queries when tracking is enabled.
+/// Gets IStateManager from QueryContext at runtime to avoid circular DI dependencies.
 /// </summary>
 public class TrackingHandler : QueryPipelineHandlerBase
 {
-    private readonly IStateManager _stateManager;
-
-    /// <summary>
-    /// Creates a new tracking handler.
-    /// </summary>
-    /// <param name="stateManager">The EF Core state manager for entity tracking.</param>
-    public TrackingHandler(IStateManager stateManager)
-    {
-        _stateManager = stateManager;
-    }
-
     /// <inheritdoc />
     protected override QueryKind[] ApplicableKinds => new[] { QueryKind.Entity };
 
@@ -52,10 +41,12 @@ public class TrackingHandler : QueryPipelineHandlerBase
         return new PipelineResult.Streaming(tracked, context);
     }
 
-    private async IAsyncEnumerable<object> TrackEntities(
+    private static async IAsyncEnumerable<object> TrackEntities(
         IAsyncEnumerable<object> entities,
         PipelineContext context)
     {
+        // Get StateManager from context at runtime (avoids circular DI)
+        var stateManager = context.QueryContext.StateManager;
         var model = context.QueryContext.Model;
         var entityType = model.FindEntityType(context.EntityType!);
 
@@ -74,7 +65,7 @@ public class TrackingHandler : QueryPipelineHandlerBase
         await foreach (var entity in entities)
         {
             // Try identity resolution first - check if already tracked
-            var trackedEntity = TryGetTrackedEntity(entityType, key, entity);
+            var trackedEntity = TryGetTrackedEntity(stateManager, entityType, key, entity);
 
             if (trackedEntity != null)
             {
@@ -84,7 +75,7 @@ public class TrackingHandler : QueryPipelineHandlerBase
             else
             {
                 // Track the new entity
-                var entry = _stateManager.GetOrCreateEntry(entity, entityType);
+                var entry = stateManager.GetOrCreateEntry(entity, entityType);
                 entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
 
                 yield return entity;
@@ -92,7 +83,11 @@ public class TrackingHandler : QueryPipelineHandlerBase
         }
     }
 
-    private object? TryGetTrackedEntity(IEntityType entityType, IKey? key, object entity)
+    private static object? TryGetTrackedEntity(
+        IStateManager stateManager,
+        IEntityType entityType,
+        IKey? key,
+        object entity)
     {
         if (key == null || key.Properties.Count == 0)
         {
@@ -108,7 +103,7 @@ public class TrackingHandler : QueryPipelineHandlerBase
         }
 
         // Look up in state manager
-        var existingEntry = _stateManager.TryGetEntry(key, keyValues);
+        var existingEntry = stateManager.TryGetEntry(key, keyValues);
         return existingEntry?.Entity;
     }
 }

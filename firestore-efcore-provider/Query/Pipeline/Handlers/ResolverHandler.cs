@@ -33,7 +33,7 @@ public class ResolverHandler : IQueryPipelineHandler
             return await next(context, cancellationToken);
         }
 
-        var resolved = _resolver.Resolve(context.Ast);
+        var resolved = _resolver.Resolve(context.Ast, context.QueryContext);
         var newContext = context with { ResolvedQuery = resolved };
 
         return await next(newContext, cancellationToken);

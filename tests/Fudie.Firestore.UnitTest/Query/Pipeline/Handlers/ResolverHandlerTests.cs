@@ -33,7 +33,7 @@ public class ResolverHandlerTests
         var mockResolver = new Mock<IFirestoreAstResolver>();
         var resolvedQuery = CreateResolvedQuery();
         mockResolver
-            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>()))
+            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>(), It.IsAny<IFirestoreQueryContext>()))
             .Returns(resolvedQuery);
 
         var handler = new ResolverHandler(mockResolver.Object);
@@ -60,7 +60,7 @@ public class ResolverHandlerTests
         // Arrange
         var mockResolver = new Mock<IFirestoreAstResolver>();
         mockResolver
-            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>()))
+            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>(), It.IsAny<IFirestoreQueryContext>()))
             .Returns(CreateResolvedQuery());
 
         var handler = new ResolverHandler(mockResolver.Object);
@@ -81,12 +81,12 @@ public class ResolverHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_Passes_Ast_To_Resolver()
+    public async Task HandleAsync_Passes_Ast_And_QueryContext_To_Resolver()
     {
         // Arrange
         var mockResolver = new Mock<IFirestoreAstResolver>();
         mockResolver
-            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>()))
+            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>(), It.IsAny<IFirestoreQueryContext>()))
             .Returns(CreateResolvedQuery());
 
         var handler = new ResolverHandler(mockResolver.Object);
@@ -100,7 +100,7 @@ public class ResolverHandlerTests
         await handler.HandleAsync(context, next, CancellationToken.None);
 
         // Assert
-        mockResolver.Verify(r => r.Resolve(ast), Times.Once);
+        mockResolver.Verify(r => r.Resolve(ast, context.QueryContext), Times.Once);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class ResolverHandlerTests
         // Arrange
         var mockResolver = new Mock<IFirestoreAstResolver>();
         mockResolver
-            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>()))
+            .Setup(r => r.Resolve(It.IsAny<FirestoreQueryExpression>(), It.IsAny<IFirestoreQueryContext>()))
             .Returns(CreateResolvedQuery());
 
         var handler = new ResolverHandler(mockResolver.Object);

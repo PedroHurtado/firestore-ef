@@ -19,6 +19,11 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         private readonly FirestoreOrderByTranslator _orderByTranslator = new();
         private readonly FirestoreLimitTranslator _limitTranslator = new();
 
+        // Stack to track the current navigation context for ThenInclude detection
+        // When visiting NavigationExpression of an include, we push the target type
+        // so nested includes know their parent
+        private readonly Stack<System.Type> _navigationContextStack = new();
+
         public List<IReadOnlyNavigation> DetectedNavigations { get; } = new();
 
         /// <summary>
@@ -43,22 +48,53 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     var targetClrType = navigation.TargetEntityType.ClrType;
                     var collectionName = _collectionManager.GetCollectionName(targetClrType);
 
+                    // For ThenInclude chains, the parent type is tracked via the context stack
+                    // When we're inside a NavigationExpression of a parent include, the stack
+                    // contains the target type of that parent navigation
+                    // Example: For .Include(c => c.Pedidos).ThenInclude(p => p.Lineas)
+                    //   - "Pedidos" is visited first, stack is empty -> ParentClrType = null
+                    //   - We push Pedido to stack and visit NavigationExpression
+                    //   - "Lineas" is found inside NavigationExpression, stack has Pedido -> ParentClrType = Pedido
+                    System.Type? parentClrType = _navigationContextStack.Count > 0
+                        ? _navigationContextStack.Peek()
+                        : null;
+
                     // Crear IncludeInfo con información completa
                     var includeInfo = new IncludeInfo(
                         navigation.Name,
                         navigation.IsCollection,
                         collectionName,
-                        targetClrType);
+                        targetClrType,
+                        primaryKeyPropertyName: null,
+                        parentClrType: parentClrType);
 
                     // Extraer operaciones del NavigationExpression
                     ExtractOperationsFromNavigationExpression(includeExpression.NavigationExpression, includeInfo);
 
                     DetectedIncludes.Add(includeInfo);
-                }
 
-                // Visitar EntityExpression y NavigationExpression para ThenInclude anidados
-                Visit(includeExpression.EntityExpression);
-                Visit(includeExpression.NavigationExpression);
+                    // Push this navigation's target type before visiting NavigationExpression
+                    // This way, any ThenInclude inside will know their parent
+                    _navigationContextStack.Push(targetClrType);
+                    try
+                    {
+                        // Visitar NavigationExpression - contains ThenIncludes for this navigation
+                        Visit(includeExpression.NavigationExpression);
+                    }
+                    finally
+                    {
+                        _navigationContextStack.Pop();
+                    }
+
+                    // Visitar EntityExpression - this goes up the chain to parent includes
+                    Visit(includeExpression.EntityExpression);
+                }
+                else
+                {
+                    // Visit children even if no navigation
+                    Visit(includeExpression.EntityExpression);
+                    Visit(includeExpression.NavigationExpression);
+                }
 
                 return node;
             }
