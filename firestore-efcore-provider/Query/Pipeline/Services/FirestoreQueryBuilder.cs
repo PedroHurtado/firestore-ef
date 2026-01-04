@@ -232,8 +232,11 @@ public class FirestoreQueryBuilder : IQueryBuilder
     public FirestoreQuery BuildInclude(string parentDocPath, ResolvedInclude include)
     {
         // Build the subcollection reference from parent document path
-        // parentDocPath: "Clientes/cli-001" → subcollection: "Clientes/cli-001/Pedidos"
-        var docRef = _clientWrapper.Database.Document(parentDocPath);
+        // parentDocPath may be full: "projects/{project}/databases/{db}/documents/Clientes/cli-001"
+        // or relative: "Clientes/cli-001"
+        // Convert to relative for Database.Document()
+        var relativePath = ExtractRelativePath(parentDocPath);
+        var docRef = _clientWrapper.Database.Document(relativePath);
         var subCollectionRef = docRef.Collection(include.CollectionPath);
 
         FirestoreQuery query = subCollectionRef;
@@ -248,5 +251,17 @@ public class FirestoreQueryBuilder : IQueryBuilder
         query = ApplyPagination(query, include.Pagination);
 
         return query;
+    }
+
+    /// <summary>
+    /// Extracts the relative path from a full Firestore document path.
+    /// Converts "projects/{project}/databases/{db}/documents/Collection/DocId" to "Collection/DocId".
+    /// If already a relative path, returns it as-is.
+    /// </summary>
+    private static string ExtractRelativePath(string fullPath)
+    {
+        const string documentsMarker = "/documents/";
+        var index = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
+        return index >= 0 ? fullPath.Substring(index + documentsMarker.Length) : fullPath;
     }
 }

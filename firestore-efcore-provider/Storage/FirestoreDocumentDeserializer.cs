@@ -47,7 +47,37 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         public T DeserializeEntity<T>(DocumentSnapshot document) where T : class
         {
-            return DeserializeEntity<T>(document, null, null);
+            return DeserializeEntity<T>(document, new Dictionary<string, object>());
+        }
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado,
+        /// usando entidades relacionadas ya deserializadas para navegaciones (FK y SubCollections).
+        /// </summary>
+        public T DeserializeEntity<T>(DocumentSnapshot document, IReadOnlyDictionary<string, object> relatedEntities) where T : class
+        {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            if (!document.Exists)
+                throw new InvalidOperationException($"Document does not exist: {document.Reference.Path}");
+
+            var entityType = _model.FindEntityType(typeof(T));
+            if (entityType == null)
+                throw new InvalidOperationException($"Entity type {typeof(T).Name} not found in model");
+
+            var data = document.ToDictionary();
+
+            // Crear entidad usando el constructor apropiado (con entidades relacionadas si las necesita)
+            var entity = CreateEntityInstance<T>(document.Id, data, entityType, relatedEntities);
+
+            // Poblar propiedades que no fueron seteadas por el constructor (pasando relatedEntities para ComplexTypes)
+            DeserializeIntoEntityWithRelated(document, entity, relatedEntities);
+
+            // Asignar navegaciones desde entidades relacionadas
+            AssignNavigations(entity, document, entityType, relatedEntities);
+
+            return entity;
         }
 
         /// <summary>
@@ -93,6 +123,19 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private T CreateEntityInstance<T>(string documentId, IDictionary<string, object> data, IEntityType entityType) where T : class
         {
+            return CreateEntityInstance<T>(documentId, data, entityType, new Dictionary<string, object>());
+        }
+
+        /// <summary>
+        /// Crea una instancia de la entidad usando el constructor apropiado,
+        /// incluyendo entidades relacionadas para parámetros de navegación.
+        /// </summary>
+        private T CreateEntityInstance<T>(
+            string documentId,
+            IDictionary<string, object> data,
+            IEntityType entityType,
+            IReadOnlyDictionary<string, object> relatedEntities) where T : class
+        {
             var type = typeof(T);
             var constructors = type.GetConstructors();
 
@@ -104,7 +147,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
 
             // Si no hay constructor sin parámetros, buscar el mejor constructor con parámetros
-            var constructor = SelectBestConstructor(constructors, data, entityType);
+            var constructor = SelectBestConstructor(constructors, data, entityType, relatedEntities);
             if (constructor == null)
             {
                 throw new InvalidOperationException(
@@ -112,8 +155,8 @@ namespace Firestore.EntityFrameworkCore.Storage
                     "Ensure it has a parameterless constructor or a constructor with parameters matching property names.");
             }
 
-            // Preparar argumentos para el constructor
-            var args = PrepareConstructorArguments(constructor, documentId, data, entityType);
+            // Preparar argumentos para el constructor (incluyendo navegaciones)
+            var args = PrepareConstructorArguments(constructor, documentId, data, entityType, relatedEntities);
             return (T)constructor.Invoke(args);
         }
 
@@ -126,7 +169,25 @@ namespace Firestore.EntityFrameworkCore.Storage
             IDictionary<string, object> data,
             IEntityType entityType)
         {
+            return SelectBestConstructor(constructors, data, entityType, new Dictionary<string, object>());
+        }
+
+        /// <summary>
+        /// Selecciona el mejor constructor basado en los parámetros disponibles,
+        /// incluyendo navegaciones de entidades relacionadas.
+        /// </summary>
+        private static ConstructorInfo? SelectBestConstructor(
+            ConstructorInfo[] constructors,
+            IDictionary<string, object> data,
+            IEntityType entityType,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
             var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
+
+            // Obtener nombres de navegaciones disponibles
+            var navigationNames = entityType.GetNavigations()
+                .Select(n => n.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // Filtrar constructores cuyos parámetros coincidan con propiedades
             var validConstructors = new List<(ConstructorInfo constructor, int matchCount)>();
@@ -142,8 +203,9 @@ namespace Firestore.EntityFrameworkCore.Storage
                     // Verificar si el parámetro coincide con una propiedad (case-insensitive)
                     var matchesKey = param.Name?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false;
                     var matchesData = data.Keys.Any(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+                    var matchesNavigation = param.Name != null && navigationNames.Contains(param.Name);
 
-                    if (matchesKey || matchesData)
+                    if (matchesKey || matchesData || matchesNavigation)
                     {
                         matchCount++;
                     }
@@ -176,6 +238,20 @@ namespace Firestore.EntityFrameworkCore.Storage
             IDictionary<string, object> data,
             IEntityType entityType)
         {
+            return PrepareConstructorArguments(constructor, documentId, data, entityType, new Dictionary<string, object>());
+        }
+
+        /// <summary>
+        /// Prepara los argumentos para invocar el constructor,
+        /// incluyendo entidades relacionadas para parámetros de navegación.
+        /// </summary>
+        private object?[] PrepareConstructorArguments(
+            ConstructorInfo constructor,
+            string documentId,
+            IDictionary<string, object> data,
+            IEntityType entityType,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
             var parameters = constructor.GetParameters();
             var args = new object?[parameters.Length];
             var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
@@ -189,6 +265,16 @@ namespace Firestore.EntityFrameworkCore.Storage
                 if (paramName?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false)
                 {
                     args[i] = ConvertToParameterType(documentId, param.ParameterType);
+                    continue;
+                }
+
+                // ¿Es una navegación? Buscar en relatedEntities
+                var navigation = entityType.GetNavigations()
+                    .FirstOrDefault(n => n.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
+
+                if (navigation != null)
+                {
+                    args[i] = FindRelatedEntity(navigation, data, relatedEntities);
                     continue;
                 }
 
@@ -219,6 +305,36 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
 
             return args;
+        }
+
+        /// <summary>
+        /// Busca la entidad relacionada para una navegación en el diccionario de entidades.
+        /// Para FK: busca por el path del DocumentReference.
+        /// Para SubCollections: busca entidades hijas por path padre.
+        /// </summary>
+        private static object? FindRelatedEntity(
+            IReadOnlyNavigation navigation,
+            IDictionary<string, object> data,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
+            // Para FK (DocumentReference)
+            if (!navigation.IsCollection)
+            {
+                // Buscar el DocumentReference en los datos
+                if (data.TryGetValue(navigation.Name, out var refValue) && refValue is DocumentReference docRef)
+                {
+                    // Buscar la entidad por su path
+                    if (relatedEntities.TryGetValue(docRef.Path, out var entity))
+                    {
+                        return entity;
+                    }
+                }
+                return null;
+            }
+
+            // Para SubCollections: las colecciones se asignan después via AssignNavigations
+            // porque necesitamos crear la colección del tipo correcto
+            return null;
         }
 
         /// <summary>
@@ -260,6 +376,18 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         public T DeserializeIntoEntity<T>(DocumentSnapshot document, T entity) where T : class
         {
+            return DeserializeIntoEntityWithRelated(document, entity, null);
+        }
+
+        /// <summary>
+        /// Deserializa un DocumentSnapshot en una instancia de entidad existente,
+        /// pasando entidades relacionadas para ComplexTypes con References.
+        /// </summary>
+        private T DeserializeIntoEntityWithRelated<T>(
+            DocumentSnapshot document,
+            T entity,
+            IReadOnlyDictionary<string, object>? relatedEntities) where T : class
+        {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -281,8 +409,8 @@ namespace Firestore.EntityFrameworkCore.Storage
             // 2. Deserializar propiedades simples
             DeserializeProperties(entity, data, entityType);
 
-            // 3. Deserializar Complex Properties (Value Objects)
-            DeserializeComplexProperties(entity, data, entityType);
+            // 3. Deserializar Complex Properties (Value Objects) - con relatedEntities si disponible
+            DeserializeComplexProperties(entity, data, entityType, relatedEntities);
 
             // 4. Deserializar referencias a otras entidades
             // Por ahora solo registrar que existen, carga lazy/eager requiere queries adicionales
@@ -506,7 +634,8 @@ namespace Firestore.EntityFrameworkCore.Storage
         private void DeserializeComplexProperties(
             object entity,
             IDictionary<string, object> data,
-            ITypeBase typeBase)
+            ITypeBase typeBase,
+            IReadOnlyDictionary<string, object>? relatedEntities = null)
         {
             foreach (var complexProperty in typeBase.GetComplexProperties())
             {
@@ -538,13 +667,13 @@ namespace Firestore.EntityFrameworkCore.Storage
                     // Complex Type simple (map en Firestore)
                     if (value is IDictionary<string, object> map)
                     {
-                        var complexObject = DeserializeComplexType(map, complexProperty);
+                        var complexObject = DeserializeComplexType(map, complexProperty, relatedEntities);
                         complexProperty.PropertyInfo?.SetValue(entity, complexObject);
                     }
                     // Colección de Complex Types (array de maps)
                     else if (value is IEnumerable<object> enumerable)
                     {
-                        var list = DeserializeComplexTypeCollection(enumerable, complexProperty);
+                        var list = DeserializeComplexTypeCollection(enumerable, complexProperty, relatedEntities);
                         complexProperty.PropertyInfo?.SetValue(entity, list);
                     }
                 }
@@ -628,7 +757,8 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private object DeserializeComplexType(
             IDictionary<string, object> data,
-            IComplexProperty complexProperty)
+            IComplexProperty complexProperty,
+            IReadOnlyDictionary<string, object>? relatedEntities = null)
         {
             var complexType = complexProperty.ComplexType;
             var instance = Activator.CreateInstance(complexType.ClrType);
@@ -642,22 +772,23 @@ namespace Firestore.EntityFrameworkCore.Storage
             DeserializeProperties(instance, data, complexType);
 
             // Deserializar Complex Properties anidados (recursivo)
-            DeserializeComplexProperties(instance, data, complexType);
+            DeserializeComplexProperties(instance, data, complexType, relatedEntities);
 
             // Deserializar referencias a entidades dentro del ComplexType
-            DeserializeNestedEntityReferences(instance, data, complexProperty);
+            DeserializeNestedEntityReferences(instance, data, complexProperty, relatedEntities);
 
             return instance;
         }
 
         /// <summary>
         /// Deserializa referencias a entidades dentro de un ComplexType.
-        /// Por ahora solo loggea. Requiere Include o Lazy Loading para cargar.
+        /// Si relatedEntities tiene la entidad, la asigna directamente.
         /// </summary>
         private void DeserializeNestedEntityReferences(
             object instance,
             IDictionary<string, object> data,
-            IComplexProperty complexProperty)
+            IComplexProperty complexProperty,
+            IReadOnlyDictionary<string, object>? relatedEntities)
         {
             // Obtener lista de propiedades marcadas como Reference
             var nestedRefs = complexProperty.FindAnnotation("Firestore:NestedReferences")?.Value as List<string>;
@@ -678,7 +809,18 @@ namespace Firestore.EntityFrameworkCore.Storage
                     "Found nested reference {PropertyName} in ComplexType {ComplexTypeName} pointing to {DocumentPath}",
                     refPropertyName, clrType.Name, docRef.Path);
 
-                // TODO: Implementar con Include o Lazy Loading
+                // Si tenemos relatedEntities, buscar y asignar la entidad referenciada
+                if (relatedEntities != null && relatedEntities.TryGetValue(docRef.Path, out var relatedEntity))
+                {
+                    var propertyInfo = clrType.GetProperty(refPropertyName);
+                    if (propertyInfo != null && propertyInfo.CanWrite)
+                    {
+                        propertyInfo.SetValue(instance, relatedEntity);
+                        _logger.LogTrace(
+                            "Assigned related entity to {PropertyName} in ComplexType {ComplexTypeName}",
+                            refPropertyName, clrType.Name);
+                    }
+                }
             }
         }
 
@@ -687,7 +829,8 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private object DeserializeComplexTypeCollection(
             IEnumerable<object> collection,
-            IComplexProperty complexProperty)
+            IComplexProperty complexProperty,
+            IReadOnlyDictionary<string, object>? relatedEntities = null)
         {
             var complexType = complexProperty.ComplexType;
             var listType = typeof(List<>).MakeGenericType(complexType.ClrType);
@@ -697,7 +840,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             {
                 if (item is IDictionary<string, object> map)
                 {
-                    var complexObject = DeserializeComplexType(map, complexProperty);
+                    var complexObject = DeserializeComplexType(map, complexProperty, relatedEntities);
                     list.Add(complexObject);
                 }
             }
@@ -1007,6 +1150,123 @@ namespace Firestore.EntityFrameworkCore.Storage
                 // If proxy creation fails for any reason, fall back to normal entity
                 return null;
             }
+        }
+
+        #endregion
+
+        #region Navigation Assignment
+
+        /// <summary>
+        /// Asigna navegaciones (FK y SubCollections) a las propiedades de la entidad
+        /// usando el diccionario de entidades ya deserializadas.
+        /// </summary>
+        private void AssignNavigations(
+            object entity,
+            DocumentSnapshot document,
+            IEntityType entityType,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
+            if (relatedEntities.Count == 0)
+                return;
+
+            var data = document.ToDictionary();
+            var documentPath = document.Reference.Path;
+
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                if (navigation.IsCollection)
+                {
+                    // SubCollection: buscar entidades hijas cuyo path empiece con documentPath/collectionName
+                    // Siempre intentar asignar - la propiedad puede tener una colección vacía inicializada
+                    AssignSubCollection(entity, navigation, documentPath, relatedEntities);
+                }
+                else
+                {
+                    // FK: solo asignar si no fue asignada en el constructor
+                    var currentValue = navigation.PropertyInfo?.GetValue(entity);
+                    if (currentValue != null)
+                        continue;
+
+                    // FK: buscar por DocumentReference
+                    AssignReference(entity, navigation, data, relatedEntities);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asigna una navegación de referencia (FK) desde el diccionario de entidades.
+        /// </summary>
+        private static void AssignReference(
+            object entity,
+            IReadOnlyNavigation navigation,
+            IDictionary<string, object> data,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
+            if (navigation.PropertyInfo == null)
+                return;
+
+            // Buscar el DocumentReference en los datos
+            if (!data.TryGetValue(navigation.Name, out var refValue))
+                return;
+
+            if (refValue is not DocumentReference docRef)
+                return;
+
+            // Buscar la entidad por su path
+            if (relatedEntities.TryGetValue(docRef.Path, out var relatedEntity))
+            {
+                navigation.PropertyInfo.SetValue(entity, relatedEntity);
+            }
+        }
+
+        /// <summary>
+        /// Asigna una SubCollection desde el diccionario de entidades.
+        /// Busca entidades cuyo path coincida con documentPath/collectionName/docId (hijos directos).
+        /// </summary>
+        private void AssignSubCollection(
+            object entity,
+            IReadOnlyNavigation navigation,
+            string parentDocPath,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
+            if (navigation.PropertyInfo == null)
+                return;
+
+            // Obtener el nombre de la subcolección
+            var collectionName = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
+            var subCollectionPrefix = $"{parentDocPath}/{collectionName}/";
+
+            // Calcular la profundidad esperada de los hijos directos
+            // parentDocPath tiene N segmentos, los hijos directos tienen N+2 segmentos
+            var parentDepth = parentDocPath.Count(c => c == '/') + 1; // segments = slashes + 1
+            var expectedChildDepth = parentDepth + 2; // +collectionName +docId
+
+            // Buscar solo entidades hijas directas (no nietas)
+            var childEntities = relatedEntities
+                .Where(kv =>
+                {
+                    if (!kv.Key.StartsWith(subCollectionPrefix, StringComparison.Ordinal))
+                        return false;
+
+                    // Verificar que es un hijo directo (no un descendiente más profundo)
+                    var keyDepth = kv.Key.Count(c => c == '/') + 1;
+                    return keyDepth == expectedChildDepth;
+                })
+                .Select(kv => kv.Value)
+                .ToList();
+
+            if (childEntities.Count == 0)
+                return;
+
+            // Crear la colección del tipo apropiado
+            var collection = CreateEmptyCollection(navigation);
+
+            foreach (var child in childEntities)
+            {
+                AddToCollection(collection, child);
+            }
+
+            navigation.PropertyInfo.SetValue(entity, collection);
         }
 
         #endregion

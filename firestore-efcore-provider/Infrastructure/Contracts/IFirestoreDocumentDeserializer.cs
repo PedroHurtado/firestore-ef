@@ -24,6 +24,20 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         T DeserializeEntity<T>(DocumentSnapshot document) where T : class;
 
         /// <summary>
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado,
+        /// usando entidades relacionadas ya deserializadas para navegaciones (FK y SubCollections).
+        /// </summary>
+        /// <param name="document">El documento de Firestore a deserializar</param>
+        /// <param name="relatedEntities">
+        /// Diccionario de entidades ya deserializadas, indexadas por path de documento.
+        /// Se usa para:
+        /// - Inyectar FK en constructores que las requieran
+        /// - Asignar navegaciones a propiedades
+        /// - Asignar SubCollections a propiedades de colección
+        /// </param>
+        T DeserializeEntity<T>(DocumentSnapshot document, IReadOnlyDictionary<string, object> relatedEntities) where T : class;
+
+        /// <summary>
         /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
         /// Si se proporciona DbContext y lazy loading está habilitado, crea un proxy.
         /// </summary>
