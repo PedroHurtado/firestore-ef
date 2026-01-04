@@ -1,6 +1,7 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Query.Pipeline;
+using Firestore.EntityFrameworkCore.Query.Resolved;
 using Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
@@ -502,6 +503,23 @@ public class FirestoreServiceCollectionExtensionsTest
         Assert.NotNull(descriptor);
         Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
         Assert.Equal(typeof(FirestoreValueConverter), descriptor.ImplementationType);
+    }
+
+    [Fact]
+    public void AddEntityFrameworkFirestore_ShouldRegisterExpressionEvaluator()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        // Act
+        services.AddEntityFrameworkFirestore();
+
+        // Assert
+        var descriptor = services.FirstOrDefault(d =>
+            d.ServiceType == typeof(IExpressionEvaluator));
+        Assert.NotNull(descriptor);
+        Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+        Assert.Equal(typeof(ExpressionEvaluator), descriptor.ImplementationType);
     }
 
     #endregion

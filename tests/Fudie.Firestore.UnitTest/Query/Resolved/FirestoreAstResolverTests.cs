@@ -14,7 +14,7 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
     public class FirestoreAstResolverTests
     {
         private static FirestoreAstResolver CreateResolver()
-            => new FirestoreAstResolver(new FirestoreValueConverter());
+            => new FirestoreAstResolver(new FirestoreValueConverter(), new ExpressionEvaluator());
 
         #region Test Entities
 

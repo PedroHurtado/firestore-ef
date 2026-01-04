@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Linq.Expressions;
 
 namespace Firestore.EntityFrameworkCore.Query.Resolved
 {
@@ -14,27 +13,29 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     /// Resolves a FirestoreQueryExpression (AST) into a ResolvedFirestoreQuery.
     ///
     /// Responsibilities:
-    /// - Evaluate all Expressions using IFirestoreQueryContext.ParameterValues
+    /// - Orchestrate resolution of AST components
     /// - Convert CLR values to Firestore types using IFirestoreValueConverter
-    /// - Detect primary keys for Id optimization (GetDocumentAsync vs Query) using PrimaryKeyPropertyName from AST
-    /// - Resolve Includes with navigation metadata from AST
-    /// - Resolve Projections with subcollection info from AST
+    /// - Detect primary keys for Id optimization (GetDocumentAsync vs Query)
+    /// - Resolve Includes, Projections, and Pagination
     ///
+    /// Delegates expression evaluation to IExpressionEvaluator.
     /// After resolution, the Executor becomes "dumb" - it just builds SDK calls.
-    /// All smart logic (expression evaluation, Id optimization, PK detection) is done here.
     /// Registered as Singleton - context is passed per-request via Resolve method.
     /// </summary>
     public class FirestoreAstResolver : IFirestoreAstResolver
     {
         private readonly IFirestoreValueConverter _valueConverter;
+        private readonly IExpressionEvaluator _expressionEvaluator;
 
         /// <summary>
-        /// Creates a new AST resolver with the specified value converter.
+        /// Creates a new AST resolver with the specified dependencies.
         /// </summary>
         /// <param name="valueConverter">The value converter for CLR to Firestore type conversion.</param>
-        public FirestoreAstResolver(IFirestoreValueConverter valueConverter)
+        /// <param name="expressionEvaluator">The expression evaluator for LINQ expression resolution.</param>
+        public FirestoreAstResolver(IFirestoreValueConverter valueConverter, IExpressionEvaluator expressionEvaluator)
         {
             _valueConverter = valueConverter ?? throw new ArgumentNullException(nameof(valueConverter));
+            _expressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
         }
         /// <summary>
         /// Resolves the AST into a fully resolved query ready for execution.
@@ -55,7 +56,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             string? documentId = null;
             if (ast.IsIdOnlyQuery && ast.IdValueExpression != null)
             {
-                documentId = EvaluateIdValueExpression(ast.IdValueExpression, queryContext);
+                documentId = _expressionEvaluator.EvaluateIdExpression(ast.IdValueExpression, queryContext);
             }
             else
             {
@@ -161,7 +162,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             IFirestoreQueryContext queryContext,
             IEntityType? entityType = null)
         {
-            var value = EvaluateWhereClauseValue(clause, queryContext);
+            var value = _expressionEvaluator.EvaluateWhereClause(clause, queryContext);
 
             // Validate null filter - requires PersistNullValues configured
             if (value == null && entityType != null)
@@ -211,41 +212,6 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             }
         }
 
-        private object? EvaluateWhereClauseValue(
-            FirestoreWhereClause clause,
-            IFirestoreQueryContext queryContext)
-        {
-            var expression = clause.ValueExpression;
-
-            if (expression is ConstantExpression constant)
-            {
-                return constant.Value;
-            }
-
-            // Handle StartsWithUpperBoundExpression - compute prefix + \uffff
-            if (expression is StartsWithUpperBoundExpression startsWithUpperBound)
-            {
-                var prefixValue = EvaluateExpression<string>(startsWithUpperBound.PrefixExpression, queryContext);
-                return StartsWithUpperBoundExpression.ComputeUpperBound(prefixValue ?? "");
-            }
-
-            try
-            {
-                var replacer = new QueryContextParameterReplacer(queryContext);
-                var replacedExpression = replacer.Visit(expression);
-
-                var lambda = Expression.Lambda<Func<object>>(
-                    Expression.Convert(replacedExpression, typeof(object)));
-
-                var compiled = lambda.Compile();
-                return compiled();
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         #endregion
 
         #region Pagination Resolution
@@ -257,19 +223,19 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             int? limit = pagination.Limit;
             if (limit == null && pagination.LimitExpression != null)
             {
-                limit = EvaluateExpression<int>(pagination.LimitExpression, queryContext);
+                limit = _expressionEvaluator.Evaluate<int>(pagination.LimitExpression, queryContext);
             }
 
             int? limitToLast = pagination.LimitToLast;
             if (limitToLast == null && pagination.LimitToLastExpression != null)
             {
-                limitToLast = EvaluateExpression<int>(pagination.LimitToLastExpression, queryContext);
+                limitToLast = _expressionEvaluator.Evaluate<int>(pagination.LimitToLastExpression, queryContext);
             }
 
             int? skip = pagination.Skip;
             if (skip == null && pagination.SkipExpression != null)
             {
-                skip = EvaluateExpression<int>(pagination.SkipExpression, queryContext);
+                skip = _expressionEvaluator.Evaluate<int>(pagination.SkipExpression, queryContext);
             }
 
             return new ResolvedPaginationInfo(limit, limitToLast, skip);
@@ -450,167 +416,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             if (clause.PropertyName != primaryKeyPropertyName)
                 return null;
 
-            var value = EvaluateWhereClauseValue(clause, queryContext);
+            var value = _expressionEvaluator.EvaluateWhereClause(clause, queryContext);
             return value?.ToString();
-        }
-
-        #endregion
-
-        #region Expression Evaluation
-
-        /// <summary>
-        /// Evaluates IdValueExpression from AST (used by FindAsync).
-        /// Uses the underlying QueryContext to handle EF Core parameterized expressions.
-        /// </summary>
-        private string? EvaluateIdValueExpression(Expression idExpression, IFirestoreQueryContext queryContext)
-        {
-            if (idExpression is ConstantExpression constant)
-            {
-                return constant.Value?.ToString();
-            }
-
-            try
-            {
-                // Use QueryContextExpressionReplacer which handles:
-                // 1. QueryContext parameter replacement (for expressions like queryContext.ParameterValues[...])
-                // 2. Named parameters from ParameterValues
-                var replacer = new QueryContextExpressionReplacer(queryContext.AsQueryContext);
-                var replacedExpression = replacer.Visit(idExpression);
-
-                var lambda = Expression.Lambda<Func<object>>(
-                    Expression.Convert(replacedExpression, typeof(object)));
-
-                var compiled = lambda.Compile();
-                var result = compiled();
-                return result?.ToString();
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private T? EvaluateExpression<T>(Expression expression, IFirestoreQueryContext queryContext)
-        {
-            if (expression is ConstantExpression constant)
-            {
-                return (T?)constant.Value;
-            }
-
-            try
-            {
-                var replacer = new QueryContextParameterReplacer(queryContext);
-                var replacedExpression = replacer.Visit(expression);
-
-                var lambda = Expression.Lambda<Func<T>>(
-                    Expression.Convert(replacedExpression, typeof(T)));
-
-                var compiled = lambda.Compile();
-                return compiled();
-            }
-            catch
-            {
-                return default;
-            }
-        }
-
-        /// <summary>
-        /// Visitor that replaces QueryContext parameter references with the actual values.
-        /// </summary>
-        private class QueryContextParameterReplacer : ExpressionVisitor
-        {
-            private readonly IFirestoreQueryContext _queryContext;
-
-            public QueryContextParameterReplacer(IFirestoreQueryContext queryContext)
-            {
-                _queryContext = queryContext;
-            }
-
-            protected override Expression VisitParameter(ParameterExpression node)
-            {
-                if (node.Name != null && _queryContext.ParameterValues.TryGetValue(node.Name, out var parameterValue))
-                {
-                    return Expression.Constant(parameterValue, node.Type);
-                }
-
-                return base.VisitParameter(node);
-            }
-
-            protected override Expression VisitMember(MemberExpression node)
-            {
-                // Handle closure captures (field access on constant objects)
-                if (node.Expression is ConstantExpression constantExpr && constantExpr.Value != null)
-                {
-                    var member = node.Member;
-                    object? value = member switch
-                    {
-                        System.Reflection.FieldInfo field => field.GetValue(constantExpr.Value),
-                        System.Reflection.PropertyInfo prop => prop.GetValue(constantExpr.Value),
-                        _ => null
-                    };
-
-                    if (value != null)
-                    {
-                        return Expression.Constant(value, node.Type);
-                    }
-                }
-
-                return base.VisitMember(node);
-            }
-        }
-
-        /// <summary>
-        /// Visitor that replaces QueryContext parameter references with the actual QueryContext instance.
-        /// Handles expressions generated by EF Core that reference queryContext.ParameterValues[...].
-        /// </summary>
-        private class QueryContextExpressionReplacer : ExpressionVisitor
-        {
-            private readonly Microsoft.EntityFrameworkCore.Query.QueryContext _queryContext;
-
-            public QueryContextExpressionReplacer(Microsoft.EntityFrameworkCore.Query.QueryContext queryContext)
-            {
-                _queryContext = queryContext;
-            }
-
-            protected override Expression VisitParameter(ParameterExpression node)
-            {
-                // Replace the queryContext parameter with the actual QueryContext
-                if (node.Name == "queryContext" &&
-                    node.Type == typeof(Microsoft.EntityFrameworkCore.Query.QueryContext))
-                {
-                    return Expression.Constant(_queryContext, typeof(Microsoft.EntityFrameworkCore.Query.QueryContext));
-                }
-
-                // Replace named parameters from ParameterValues
-                if (node.Name != null && _queryContext.ParameterValues.TryGetValue(node.Name, out var parameterValue))
-                {
-                    return Expression.Constant(parameterValue, node.Type);
-                }
-
-                return base.VisitParameter(node);
-            }
-
-            protected override Expression VisitMember(MemberExpression node)
-            {
-                // Handle closure captures (field access on constant objects)
-                if (node.Expression is ConstantExpression constantExpr && constantExpr.Value != null)
-                {
-                    var member = node.Member;
-                    object? value = member switch
-                    {
-                        System.Reflection.FieldInfo field => field.GetValue(constantExpr.Value),
-                        System.Reflection.PropertyInfo prop => prop.GetValue(constantExpr.Value),
-                        _ => null
-                    };
-
-                    if (value != null)
-                    {
-                        return Expression.Constant(value, node.Type);
-                    }
-                }
-
-                return base.VisitMember(node);
-            }
         }
 
         #endregion
