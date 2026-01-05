@@ -27,13 +27,11 @@ public class TrackingHandler : QueryPipelineHandlerBase
     {
         var result = await next(context, cancellationToken).ConfigureAwait(false);
 
-        // Skip if tracking is disabled
         if (!context.IsTracking)
         {
             return result;
         }
 
-        // Process Materialized results
         if (result is PipelineResult.Materialized materialized)
         {
             var tracked = TrackEntities(materialized.Items, context);
@@ -60,11 +58,12 @@ public class TrackingHandler : QueryPipelineHandlerBase
 
         foreach (var entity in entities)
         {
-            // Try identity resolution first
             var trackedEntity = TryGetTrackedEntity(stateManager, entityType, key, entity);
 
             if (trackedEntity != null)
             {
+                // Copiar navegaciones del entity fresco al trackeado
+                CopyNavigations(entity, trackedEntity, entityType, includes);
                 result.Add(trackedEntity);
             }
             else
@@ -74,12 +73,44 @@ public class TrackingHandler : QueryPipelineHandlerBase
                 result.Add(entity);
             }
 
-            // Track related entities from Includes
-            var entityToTrack = trackedEntity ?? entity;
-            TrackRelatedEntities(entityToTrack, entityType, includes, stateManager, model);
+            // Siempre usar entity (tiene los datos frescos) para trackear relacionadas
+            TrackRelatedEntities(entity, entityType, includes, stateManager, model);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Copies navigation properties from a freshly loaded entity to an already tracked entity.
+    /// Only copies if the target navigation is null (doesn't overwrite existing values).
+    /// </summary>
+    private static void CopyNavigations(
+        object source,
+        object target,
+        IEntityType entityType,
+        IReadOnlyList<ResolvedInclude> includes)
+    {
+        foreach (var include in includes)
+        {
+            var navigation = entityType.FindNavigation(include.NavigationName);
+            if (navigation == null)
+                continue;
+
+            var sourceValue = navigation.GetGetter().GetClrValue(source);
+            if (sourceValue == null)
+                continue;
+
+            // Solo copiar si el target no tiene valor
+            var targetValue = navigation.GetGetter().GetClrValue(target);
+            if (targetValue != null)
+                continue;
+
+            var setter = navigation.PropertyInfo?.SetMethod;
+            if (setter != null)
+            {
+                setter.Invoke(target, new[] { sourceValue });
+            }
+        }
     }
 
     /// <summary>
@@ -114,7 +145,6 @@ public class TrackingHandler : QueryPipelineHandlerBase
 
                     TrackSingleEntity(relatedEntity, relatedEntityType, relatedKey, stateManager);
 
-                    // Recursively track nested includes
                     if (include.NestedIncludes.Count > 0)
                     {
                         TrackRelatedEntities(relatedEntity, relatedEntityType, include.NestedIncludes, stateManager, model);
@@ -125,7 +155,6 @@ public class TrackingHandler : QueryPipelineHandlerBase
             {
                 TrackSingleEntity(navigationValue, relatedEntityType, relatedKey, stateManager);
 
-                // Recursively track nested includes
                 if (include.NestedIncludes.Count > 0)
                 {
                     TrackRelatedEntities(navigationValue, relatedEntityType, include.NestedIncludes, stateManager, model);
@@ -143,7 +172,6 @@ public class TrackingHandler : QueryPipelineHandlerBase
         IKey? key,
         IStateManager stateManager)
     {
-        // Check if already tracked
         var existingEntry = TryGetTrackedEntity(stateManager, entityType, key, entity);
         if (existingEntry != null)
             return;
@@ -163,7 +191,6 @@ public class TrackingHandler : QueryPipelineHandlerBase
             return null;
         }
 
-        // Get key values from the entity
         var keyValues = new object?[key.Properties.Count];
         for (var i = 0; i < key.Properties.Count; i++)
         {
@@ -171,7 +198,6 @@ public class TrackingHandler : QueryPipelineHandlerBase
             keyValues[i] = property.GetGetter().GetClrValue(entity);
         }
 
-        // Look up in state manager
         var existingEntry = stateManager.TryGetEntry(key, keyValues);
         return existingEntry?.Entity;
     }
