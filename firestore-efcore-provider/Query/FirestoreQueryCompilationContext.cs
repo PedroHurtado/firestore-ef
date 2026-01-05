@@ -1,6 +1,6 @@
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Query;
 using System.Collections.Generic;
-using System.Linq.Expressions;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -18,7 +18,7 @@ namespace Firestore.EntityFrameworkCore.Query
     /// </summary>
     public class FirestoreQueryCompilationContext : QueryCompilationContext
     {
-        private readonly List<LambdaExpression> _complexTypeIncludes = new();
+        private readonly List<IncludeInfo> _complexTypeIncludes = new();
 
         public FirestoreQueryCompilationContext(
             QueryCompilationContextDependencies dependencies,
@@ -27,18 +27,18 @@ namespace Firestore.EntityFrameworkCore.Query
         }
 
         /// <summary>
-        /// Include expressions that target properties inside ComplexTypes.
-        /// These are extracted before EF Core processes them and used during deserialization.
+        /// IncludeInfo for properties inside ComplexTypes.
+        /// These are extracted and translated before EF Core processes them.
         /// </summary>
-        public IReadOnlyList<LambdaExpression> ComplexTypeIncludes => _complexTypeIncludes;
+        public IReadOnlyList<IncludeInfo> ComplexTypeIncludes => _complexTypeIncludes;
 
         /// <summary>
-        /// Adds a ComplexType include expression for later processing.
-        /// Called by ComplexTypeIncludeExtractorVisitor.
+        /// Adds a ComplexType include for later processing.
+        /// Called by ComplexTypeIncludeTranslator.
         /// </summary>
-        internal void AddComplexTypeInclude(LambdaExpression includeExpression)
+        internal void AddComplexTypeInclude(IncludeInfo includeInfo)
         {
-            _complexTypeIncludes.Add(includeExpression);
+            _complexTypeIncludes.Add(includeInfo);
         }
     }
 }

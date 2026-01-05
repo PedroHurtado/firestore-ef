@@ -39,5 +39,20 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
             return source.UpdateQueryExpression(ast);
         }
+
+        /// <summary>
+        /// Adds ComplexType Includes from the compilation context to the AST.
+        /// Called from FirestoreShapedQueryCompilingExpressionVisitor.VisitShapedQuery.
+        /// </summary>
+        public static void AddComplexTypeIncludes(
+            FirestoreQueryExpression ast,
+            QueryCompilationContext queryCompilationContext)
+        {
+            var firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
+            foreach (var complexTypeInclude in firestoreContext.ComplexTypeIncludes)
+            {
+                ast.AddInclude(complexTypeInclude);
+            }
+        }
     }
 }

@@ -3,7 +3,6 @@ using Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
-using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -15,7 +14,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
     /// </summary>
     public class FirestoreShapedQueryCompilingExpressionVisitor : ShapedQueryCompilingExpressionVisitor
     {
-        private readonly FirestoreQueryCompilationContext _firestoreContext;
         private readonly IQueryPipelineMediator _mediator;
 
         private static readonly MethodInfo _createPipelineContextMethod =
@@ -28,7 +26,6 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             IQueryPipelineMediator mediator)
             : base(dependencies, queryCompilationContext)
         {
-            _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
             _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         }
 
@@ -36,13 +33,8 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         {
             var firestoreQueryExpression = (FirestoreQueryExpression)shapedQueryExpression.QueryExpression;
 
-            // Copy ComplexType Includes from FirestoreQueryCompilationContext to FirestoreQueryExpression
-            var complexTypeIncludes = _firestoreContext.ComplexTypeIncludes;
-            if (complexTypeIncludes.Count > 0)
-            {
-                firestoreQueryExpression = firestoreQueryExpression.WithComplexTypeIncludes(
-                    new List<LambdaExpression>(complexTypeIncludes));
-            }
+            // Add ComplexType Includes to the AST
+            FirestoreQueryExpression.AddComplexTypeIncludes(firestoreQueryExpression, QueryCompilationContext);
 
             // Determine result type and query kind
             Type resultType;

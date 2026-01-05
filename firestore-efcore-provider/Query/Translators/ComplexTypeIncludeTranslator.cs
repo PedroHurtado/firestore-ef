@@ -1,29 +1,38 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Firestore.EntityFrameworkCore.Query
+namespace Firestore.EntityFrameworkCore.Query.Translators
 {
     /// <summary>
-    /// Visitor that extracts Include expressions targeting ComplexType properties
-    /// and removes them from the expression tree to prevent EF Core from rejecting them.
-    /// The extracted includes are stored in FirestoreQueryCompilationContext for later processing.
+    /// Translator that extracts Include expressions targeting ComplexType properties,
+    /// converts them to IncludeInfo, and removes them from the expression tree
+    /// to prevent EF Core from rejecting them.
     /// </summary>
     /// <remarks>
-    /// Uses direct cast to FirestoreQueryCompilationContext - same pattern used by
-    /// official EF Core providers (Cosmos DB, SQL Server, etc.)
+    /// Pattern: e => e.ComplexTypeProperty.NavigationProperty
+    /// Example: e => e.DireccionPrincipal.SucursalCercana
+    ///
+    /// The translator:
+    /// 1. Detects if an Include targets a property inside a ComplexType
+    /// 2. Converts it to IncludeInfo with the full path (e.g., "DireccionPrincipal.SucursalCercana")
+    /// 3. Stores the IncludeInfo in FirestoreQueryCompilationContext
+    /// 4. Removes the Include from the expression tree so EF Core doesn't reject it
     /// </remarks>
-    internal class ComplexTypeIncludeExtractorVisitor : ExpressionVisitor
+    internal class ComplexTypeIncludeTranslator : ExpressionVisitor
     {
         private readonly FirestoreQueryCompilationContext _firestoreContext;
+        private readonly IFirestoreCollectionManager _collectionManager;
 
-        public ComplexTypeIncludeExtractorVisitor(QueryCompilationContext queryCompilationContext)
+        public ComplexTypeIncludeTranslator(
+            QueryCompilationContext queryCompilationContext,
+            IFirestoreCollectionManager collectionManager)
         {
-            // Direct cast - same pattern as Cosmos DB and other official providers
             _firestoreContext = (FirestoreQueryCompilationContext)queryCompilationContext;
+            _collectionManager = collectionManager;
         }
 
         protected override Expression VisitMethodCall(MethodCallExpression node)
@@ -33,7 +42,6 @@ namespace Firestore.EntityFrameworkCore.Query
                 node.Method.DeclaringType == typeof(Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions))
             {
                 // Get the lambda expression (second argument)
-                // It can be UnaryExpression (Quote) or directly LambdaExpression
                 LambdaExpression? lambda = null;
                 if (node.Arguments.Count >= 2)
                 {
@@ -49,11 +57,14 @@ namespace Firestore.EntityFrameworkCore.Query
 
                 if (lambda != null && IsComplexTypeInclude(lambda.Body))
                 {
-                    // Extract and store the include path for later processing
-                    StoreComplexTypeInclude(lambda);
+                    // Convert to IncludeInfo and store
+                    var includeInfo = TranslateToIncludeInfo(lambda);
+                    if (includeInfo != null)
+                    {
+                        _firestoreContext.AddComplexTypeInclude(includeInfo);
+                    }
 
-                    // Return just the source (first argument) without the Include
-                    // This effectively removes the Include from the expression tree
+                    // Remove the Include from the expression tree
                     return Visit(node.Arguments[0]);
                 }
             }
@@ -63,22 +74,17 @@ namespace Firestore.EntityFrameworkCore.Query
 
         /// <summary>
         /// Determines if the Include expression targets a property inside a ComplexType.
-        /// Pattern: e => e.ComplexTypeProperty.NavigationProperty
         /// </summary>
         private bool IsComplexTypeInclude(Expression expression)
         {
-            // We're looking for a member access chain like: e.ComplexType.Navigation
             if (expression is MemberExpression memberExpr)
             {
-                // Check if there's a chain (e.ComplexType.Something)
                 if (memberExpr.Expression is MemberExpression parentMemberExpr)
                 {
-                    // Check if the parent is accessing a ComplexType property
                     var parentProperty = parentMemberExpr.Member as PropertyInfo;
                     if (parentProperty != null)
                     {
                         var rootType = GetRootEntityType(parentMemberExpr);
-                        // Check if this property's type is configured as ComplexType in the model
                         var entityType = _firestoreContext.Model.FindEntityType(rootType);
 
                         if (entityType != null)
@@ -94,6 +100,39 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Converts a ComplexType Include lambda to IncludeInfo.
+        /// </summary>
+        private IncludeInfo? TranslateToIncludeInfo(LambdaExpression includeExpression)
+        {
+            // Pattern: e => e.DireccionPrincipal.SucursalCercana
+            if (includeExpression.Body is not MemberExpression navigationMember)
+                return null;
+
+            // Get the navigation property (e.g., SucursalCercana)
+            var targetClrType = navigationMember.Type;
+
+            // Get the ComplexType property (e.g., DireccionPrincipal)
+            if (navigationMember.Expression is not MemberExpression complexTypeMember)
+                return null;
+
+            var complexTypePropertyName = complexTypeMember.Member.Name;
+            var navigationPropertyName = navigationMember.Member.Name;
+
+            // Build the full path for document data lookup
+            var fullNavigationPath = $"{complexTypePropertyName}.{navigationPropertyName}";
+
+            // Get collection name for the target type
+            var collectionName = _collectionManager.GetCollectionName(targetClrType);
+
+            // References in ComplexTypes are always single (not collection)
+            return new IncludeInfo(
+                navigationName: fullNavigationPath,
+                isCollection: false,
+                collectionName: collectionName,
+                targetClrType: targetClrType);
         }
 
         /// <summary>
@@ -113,14 +152,6 @@ namespace Firestore.EntityFrameworkCore.Query
             }
 
             return current?.Type ?? typeof(object);
-        }
-
-        /// <summary>
-        /// Stores the ComplexType include information for later processing during deserialization.
-        /// </summary>
-        private void StoreComplexTypeInclude(LambdaExpression includeExpression)
-        {
-            _firestoreContext.AddComplexTypeInclude(includeExpression);
         }
     }
 }

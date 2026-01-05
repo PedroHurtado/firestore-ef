@@ -197,6 +197,7 @@ public class ExecutionHandler : IQueryPipelineHandler
 
     /// <summary>
     /// Loads a Reference include (FK → single document).
+    /// Supports nested paths like "DireccionPrincipal.SucursalCercana" for ComplexType References.
     /// </summary>
     private async Task LoadReferenceIncludeAsync(
         DocumentSnapshot parentDoc,
@@ -205,7 +206,8 @@ public class ExecutionHandler : IQueryPipelineHandler
         CancellationToken cancellationToken)
     {
         var data = parentDoc.ToDictionary();
-        if (!data.TryGetValue(include.NavigationName, out var value) || value is not DocumentReference docRef)
+        var docRef = GetNestedDocumentReference(data, include.NavigationName);
+        if (docRef == null)
             return;
 
         if (allSnapshots.ContainsKey(docRef.Path))
@@ -217,5 +219,32 @@ public class ExecutionHandler : IQueryPipelineHandler
 
         allSnapshots[doc.Reference.Path] = doc;
         await LoadIncludesAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets a DocumentReference from a path in the document data.
+    /// Supports nested paths like "ComplexTypeProp.ReferenceProp".
+    /// </summary>
+    private static DocumentReference? GetNestedDocumentReference(
+        IDictionary<string, object> data,
+        string navigationPath)
+    {
+        var parts = navigationPath.Split('.');
+        object? current = data;
+
+        foreach (var part in parts)
+        {
+            if (current is IDictionary<string, object> dict)
+            {
+                if (!dict.TryGetValue(part, out current))
+                    return null;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        return current as DocumentReference;
     }
 }

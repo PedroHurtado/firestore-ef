@@ -1,9 +1,9 @@
-using Firestore.EntityFrameworkCore.Query.Visitors;
+using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query.Translators;
 using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 
 namespace Firestore.EntityFrameworkCore.Query
 {
@@ -19,18 +19,22 @@ namespace Firestore.EntityFrameworkCore.Query
     /// </summary>
     public class FirestoreQueryTranslationPreprocessor : QueryTranslationPreprocessor
     {
+        private readonly IFirestoreCollectionManager _collectionManager;
+
         public FirestoreQueryTranslationPreprocessor(
             QueryTranslationPreprocessorDependencies dependencies,
-            QueryCompilationContext queryCompilationContext)
+            QueryCompilationContext queryCompilationContext,
+            IFirestoreCollectionManager collectionManager)
             : base(dependencies, queryCompilationContext)
         {
+            _collectionManager = collectionManager;
         }
 
         public override Expression Process(Expression query)
         {
-            // Extract and remove ComplexType Includes before EF Core processes them
-            var complexTypeIncludeVisitor = new ComplexTypeIncludeExtractorVisitor(QueryCompilationContext);
-            query = complexTypeIncludeVisitor.Visit(query);
+            // Extract, translate to IncludeInfo, and remove ComplexType Includes before EF Core processes them
+            var complexTypeIncludeTranslator = new ComplexTypeIncludeTranslator(QueryCompilationContext, _collectionManager);
+            query = complexTypeIncludeTranslator.Visit(query);
 
             // Transform TakeLast before EF Core's NavigationExpandingExpressionVisitor rejects it
             var takeLastTransformer = new TakeLastTransformingVisitor();

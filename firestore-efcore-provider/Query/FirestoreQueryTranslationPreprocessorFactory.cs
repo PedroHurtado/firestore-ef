@@ -1,3 +1,4 @@
+using Firestore.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;
 
 namespace Firestore.EntityFrameworkCore.Query
@@ -8,16 +9,19 @@ namespace Firestore.EntityFrameworkCore.Query
     public class FirestoreQueryTranslationPreprocessorFactory : IQueryTranslationPreprocessorFactory
     {
         private readonly QueryTranslationPreprocessorDependencies _dependencies;
+        private readonly IFirestoreCollectionManager _collectionManager;
 
         public FirestoreQueryTranslationPreprocessorFactory(
-            QueryTranslationPreprocessorDependencies dependencies)
+            QueryTranslationPreprocessorDependencies dependencies,
+            IFirestoreCollectionManager collectionManager)
         {
             _dependencies = dependencies;
+            _collectionManager = collectionManager;
         }
 
         public QueryTranslationPreprocessor Create(QueryCompilationContext queryCompilationContext)
         {
-            return new FirestoreQueryTranslationPreprocessor(_dependencies, queryCompilationContext);
+            return new FirestoreQueryTranslationPreprocessor(_dependencies, queryCompilationContext, _collectionManager);
         }
     }
 }
