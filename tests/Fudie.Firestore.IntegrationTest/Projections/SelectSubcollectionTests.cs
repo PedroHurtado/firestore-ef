@@ -82,8 +82,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 12: Select con subcollection proyectada
 
-    //[Fact(Skip = "Projections not yet supported - pending implementation")]
-    [Fact]
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
     public async Task Select_WithProjectedSubcollection_ReturnsOnlySelectedFields()
     {
         // Arrange
@@ -594,6 +593,502 @@ public class SelectSubcollectionTests
         result.Top2PedidosConfirmados[1].NumeroOrden.Should().Be("COMP-001");
         result.Top2PedidosConfirmados[1].Total.Should().Be(500m);
         result.Top2PedidosConfirmados[1].CantidadLineas.Should().Be(0);
+    }
+
+    #endregion
+
+    #region Ciclo 18: Agregaciones en subcollections (Sum, Count, Average)
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithSubcollectionSum_ReturnsSumOfField()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-sum-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectsum"),
+            Nombre = "Cliente Sum",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "SUM-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "SUM-002",
+                    Total = 250m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "SUM-003",
+                    Total = 150m,
+                    Estado = EstadoPedido.Pendiente
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                TotalPedidos = c.Pedidos.Sum(p => p.Total)
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Sum");
+        result.TotalPedidos.Should().Be(500m); // 100 + 250 + 150
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithSubcollectionCount_ReturnsCountOfItems()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-count-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectcnt"),
+            Nombre = "Cliente Count",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "CNT-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "CNT-002",
+                    Total = 200m,
+                    Estado = EstadoPedido.Pendiente
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "CNT-003",
+                    Total = 300m,
+                    Estado = EstadoPedido.Enviado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "CNT-004",
+                    Total = 400m,
+                    Estado = EstadoPedido.Entregado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                CantidadPedidos = c.Pedidos.Count()
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Count");
+        result.CantidadPedidos.Should().Be(4);
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithSubcollectionAverage_ReturnsAverageOfField()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-avg-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectavg"),
+            Nombre = "Cliente Average",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "AVG-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "AVG-002",
+                    Total = 200m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "AVG-003",
+                    Total = 300m,
+                    Estado = EstadoPedido.Confirmado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                PromedioTotal = c.Pedidos.Average(p => p.Total)
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Average");
+        result.PromedioTotal.Should().Be(200m); // (100 + 200 + 300) / 3
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithFilteredSubcollectionSum_ReturnsSumOfFilteredItems()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-fsum-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectfsum"),
+            Nombre = "Cliente FilteredSum",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "FSUM-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "FSUM-002",
+                    Total = 250m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "FSUM-003",
+                    Total = 500m,
+                    Estado = EstadoPedido.Cancelado // No debe sumarse
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                TotalConfirmados = c.Pedidos
+                    .Where(p => p.Estado == EstadoPedido.Confirmado)
+                    .Sum(p => p.Total)
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente FilteredSum");
+        result.TotalConfirmados.Should().Be(350m); // 100 + 250 (sin el cancelado)
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithMultipleAggregations_ReturnsAllAggregations()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-multi-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectmulti"),
+            Nombre = "Cliente MultiAgg",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MULTI-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MULTI-002",
+                    Total = 200m,
+                    Estado = EstadoPedido.Enviado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MULTI-003",
+                    Total = 300m,
+                    Estado = EstadoPedido.Entregado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                TotalPedidos = c.Pedidos.Sum(p => p.Total),
+                CantidadPedidos = c.Pedidos.Count(),
+                PromedioTotal = c.Pedidos.Average(p => p.Total)
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente MultiAgg");
+        result.TotalPedidos.Should().Be(600m);
+        result.CantidadPedidos.Should().Be(3);
+        result.PromedioTotal.Should().Be(200m);
+    }
+
+    #endregion
+
+    #region Ciclo 19: Proyecciones con tipos anidados devueltos
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithNestedAnonymousType_ReturnsNestedStructure()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-nested-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectnest"),
+            Nombre = "Cliente Nested",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "NEST-001",
+                    Total = 150m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "NEST-002",
+                    Total = 350m,
+                    Estado = EstadoPedido.Enviado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act - Proyección con tipo anidado
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                Resumen = new
+                {
+                    TotalPedidos = c.Pedidos.Sum(p => p.Total),
+                    Cantidad = c.Pedidos.Count()
+                }
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Nested");
+        result.Resumen.TotalPedidos.Should().Be(500m);
+        result.Resumen.Cantidad.Should().Be(2);
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithSubcollectionToAnonymousType_ReturnsProjectedItems()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-sub-anon-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectanon"),
+            Nombre = "Cliente Anon",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "ANON-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "ANON-002",
+                    Total = 200m,
+                    Estado = EstadoPedido.Enviado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act - Subcollection proyectada a tipo anónimo
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                PedidosResumen = c.Pedidos.Select(p => new
+                {
+                    p.NumeroOrden,
+                    p.Total,
+                    EstadoTexto = p.Estado.ToString()
+                }).ToList()
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Anon");
+        result.PedidosResumen.Should().HaveCount(2);
+
+        var pedido1 = result.PedidosResumen.First(p => p.NumeroOrden == "ANON-001");
+        pedido1.Total.Should().Be(100m);
+        pedido1.EstadoTexto.Should().Be("Confirmado");
+
+        var pedido2 = result.PedidosResumen.First(p => p.NumeroOrden == "ANON-002");
+        pedido2.Total.Should().Be(200m);
+        pedido2.EstadoTexto.Should().Be("Enviado");
+    }
+
+    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    public async Task Select_WithMixedAggregationsAndCollections_ReturnsAllData()
+    {
+        // Arrange
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var uniqueEmail = $"select-mixed-{Guid.NewGuid():N}@test.com";
+        var cliente = new Cliente
+        {
+            Id = FirestoreTestFixture.GenerateId("selectmix"),
+            Nombre = "Cliente Mixed",
+            Email = uniqueEmail,
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MIX-001",
+                    Total = 100m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MIX-002",
+                    Total = 300m,
+                    Estado = EstadoPedido.Confirmado
+                },
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("pedido"),
+                    NumeroOrden = "MIX-003",
+                    Total = 500m,
+                    Estado = EstadoPedido.Cancelado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act - Mezcla de agregación y colección proyectada
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var results = await readContext.Clientes
+            .Where(c => c.Email == uniqueEmail)
+            .Select(c => new
+            {
+                c.Nombre,
+                TotalGeneral = c.Pedidos.Sum(p => p.Total),
+                PedidosConfirmados = c.Pedidos
+                    .Where(p => p.Estado == EstadoPedido.Confirmado)
+                    .Select(p => new { p.NumeroOrden, p.Total })
+                    .ToList()
+            })
+            .ToListAsync();
+
+        // Assert
+        results.Should().HaveCount(1);
+        var result = results[0];
+        result.Nombre.Should().Be("Cliente Mixed");
+        result.TotalGeneral.Should().Be(900m); // Suma de todos
+        result.PedidosConfirmados.Should().HaveCount(2); // Solo confirmados
+        result.PedidosConfirmados.Should().Contain(p => p.NumeroOrden == "MIX-001" && p.Total == 100m);
+        result.PedidosConfirmados.Should().Contain(p => p.NumeroOrden == "MIX-002" && p.Total == 300m);
     }
 
     #endregion
