@@ -35,23 +35,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
-        /// Soporta:
-        /// - Constructor sin parámetros (new() + property setters)
-        /// - Constructor con parámetros que coinciden con propiedades
-        /// - Constructor parcial (algunos parámetros + property setters para el resto)
-        /// - Records (constructor con todos los parámetros)
-        /// </summary>
-        public T DeserializeEntity<T>(DocumentSnapshot document) where T : class
-        {
-            return DeserializeEntity<T>(document, new Dictionary<string, object>());
-        }
-
-        /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado,
-        /// usando entidades relacionadas ya deserializadas para navegaciones (FK y SubCollections).
-        /// </summary>
+        /// <inheritdoc />
         public T DeserializeEntity<T>(DocumentSnapshot document, IReadOnlyDictionary<string, object> relatedEntities) where T : class
         {
             if (document == null)

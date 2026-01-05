@@ -11,18 +11,13 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
     public interface IFirestoreDocumentDeserializer
     {
         /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
+        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado,
+        /// usando entidades relacionadas ya deserializadas para navegaciones (FK y SubCollections).
         /// Soporta:
         /// - Constructor sin parámetros (new() + property setters)
         /// - Constructor con parámetros que coinciden con propiedades
         /// - Constructor parcial (algunos parámetros + property setters para el resto)
         /// - Records (constructor con todos los parámetros)
-        /// </summary>
-        T DeserializeEntity<T>(DocumentSnapshot document) where T : class;
-
-        /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado,
-        /// usando entidades relacionadas ya deserializadas para navegaciones (FK y SubCollections).
         /// </summary>
         /// <param name="document">El documento de Firestore a deserializar</param>
         /// <param name="relatedEntities">
@@ -31,6 +26,7 @@ namespace Firestore.EntityFrameworkCore.Infrastructure
         /// - Inyectar FK en constructores que las requieran
         /// - Asignar navegaciones a propiedades
         /// - Asignar SubCollections a propiedades de colección
+        /// Puede estar vacío si no hay entidades relacionadas.
         /// </param>
         T DeserializeEntity<T>(DocumentSnapshot document, IReadOnlyDictionary<string, object> relatedEntities) where T : class;
     }

@@ -100,48 +100,36 @@ public class ConvertHandler : IQueryPipelineHandler
                 related.Add((kv.Key, relativePath, kv.Value, depth));
         }
 
+        // Bottom→top: deserialize deepest first
+        var relatedEntities = new Dictionary<string, object>();
+
         // If no related entities, simple deserialization
         if (related.Count == 0 || includes.Count == 0)
         {
-            return roots.Select(doc => DeserializeEntity(doc, entityType)).ToList();
+            return roots.Select(doc => DeserializeEntity(doc, entityType, relatedEntities)).ToList();
         }
 
-        // Bottom→top: deserialize deepest first
-        var relatedEntities = new Dictionary<string, object>();
         foreach (var item in related.OrderByDescending(x => x.Depth))
         {
             var itemEntityType = FindEntityTypeForPath(item.RelativePath, includes, model);
             if (itemEntityType == null)
                 continue;
 
-            var entity = DeserializeEntityWithRelated(item.Snapshot, itemEntityType.ClrType, relatedEntities);
+            var entity = DeserializeEntity(item.Snapshot, itemEntityType.ClrType, relatedEntities);
             relatedEntities[item.Path] = entity;
         }
 
         // Deserialize roots with related entities
-        return roots.Select(doc => DeserializeEntityWithRelated(doc, entityType, relatedEntities)).ToList();
+        return roots.Select(doc => DeserializeEntity(doc, entityType, relatedEntities)).ToList();
     }
 
-    private object DeserializeEntity(DocumentSnapshot document, Type entityType)
-    {
-        var method = typeof(IFirestoreDocumentDeserializer)
-            .GetMethod(nameof(IFirestoreDocumentDeserializer.DeserializeEntity), new[] { typeof(DocumentSnapshot) })!
-            .MakeGenericMethod(entityType);
-
-        return method.Invoke(_deserializer, new object[] { document })!;
-    }
-
-    private object DeserializeEntityWithRelated(
+    private object DeserializeEntity(
         DocumentSnapshot document,
         Type entityType,
         IReadOnlyDictionary<string, object> relatedEntities)
     {
         var method = typeof(IFirestoreDocumentDeserializer)
-            .GetMethods()
-            .First(m =>
-                m.Name == nameof(IFirestoreDocumentDeserializer.DeserializeEntity) &&
-                m.GetParameters().Length == 2 &&
-                m.GetParameters()[1].ParameterType == typeof(IReadOnlyDictionary<string, object>))
+            .GetMethod(nameof(IFirestoreDocumentDeserializer.DeserializeEntity))!
             .MakeGenericMethod(entityType);
 
         return method.Invoke(_deserializer, new object[] { document, relatedEntities })!;

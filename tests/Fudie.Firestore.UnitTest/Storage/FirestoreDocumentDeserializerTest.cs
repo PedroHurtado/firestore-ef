@@ -164,26 +164,6 @@ public class FirestoreDocumentDeserializerTest
             mockCollectionManager.Object,
             mockLogger.Object);
 
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() =>
-            deserializer.DeserializeEntity<TestEntity>(null!));
-    }
-
-    [Fact]
-    public void DeserializeEntity_WithRelatedEntities_ShouldThrow_WhenDocumentIsNull()
-    {
-        // Arrange
-        var mockModel = CreateMockModel();
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
-        var mockCollectionManager = CreateMockCollectionManager();
-        var mockLogger = CreateMockLogger();
-
-        var deserializer = new FirestoreDocumentDeserializer(
-            mockModel.Object,
-            mockTypeMappingSource.Object,
-            mockCollectionManager.Object,
-            mockLogger.Object);
-
         var relatedEntities = new Dictionary<string, object>();
 
         // Act & Assert
@@ -594,15 +574,14 @@ public class FirestoreDocumentDeserializerTest
         // Arrange
         var interfaceType = typeof(IFirestoreDocumentDeserializer);
 
-        // Act - Hay dos sobrecargas de DeserializeEntity (simplificado)
+        // Act - Solo hay un método DeserializeEntity (contrato simplificado)
         var methods = interfaceType.GetMethods()
             .Where(m => m.Name == "DeserializeEntity")
             .ToArray();
 
-        // Assert - Verificar que existen las dos sobrecargas del contrato simplificado
-        Assert.Equal(2, methods.Length);
-        Assert.Contains(methods, m => m.GetParameters().Length == 1); // Solo DocumentSnapshot
-        Assert.Contains(methods, m => m.GetParameters().Length == 2); // DocumentSnapshot, relatedEntities
+        // Assert - Verificar que existe solo una sobrecarga con 2 parámetros
+        Assert.Single(methods);
+        Assert.Equal(2, methods[0].GetParameters().Length); // DocumentSnapshot, relatedEntities
     }
 
     #endregion
