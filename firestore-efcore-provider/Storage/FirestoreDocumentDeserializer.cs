@@ -1,5 +1,4 @@
 using Google.Cloud.Firestore;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
@@ -8,7 +7,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Firestore.EntityFrameworkCore.Infrastructure.Internal;
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Metadata.Conventions;
 
@@ -81,52 +79,6 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Deserializa un DocumentSnapshot a una entidad del tipo especificado.
-        /// Si se proporciona DbContext y lazy loading está habilitado, crea un proxy.
-        /// </summary>
-        public T DeserializeEntity<T>(DocumentSnapshot document, DbContext? dbContext, IServiceProvider? serviceProvider) where T : class
-        {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-
-            if (!document.Exists)
-                throw new InvalidOperationException($"Document does not exist: {document.Reference.Path}");
-
-            var entityType = _model.FindEntityType(typeof(T));
-            if (entityType == null)
-                throw new InvalidOperationException($"Entity type {typeof(T).Name} not found in model");
-
-            // Intentar crear lazy loading proxy si está habilitado
-            if (dbContext != null && serviceProvider != null && typeof(T).GetConstructor(Type.EmptyTypes) != null)
-            {
-                var proxy = TryCreateLazyLoadingProxy<T>(dbContext, serviceProvider);
-                if (proxy != null)
-                {
-                    return DeserializeIntoEntity(document, proxy);
-                }
-            }
-
-            var data = document.ToDictionary();
-
-            // Crear entidad usando el constructor apropiado
-            var entity = CreateEntityInstance<T>(document.Id, data, entityType);
-
-            // Poblar propiedades que no fueron seteadas por el constructor
-            return DeserializeIntoEntity(document, entity);
-        }
-
-        /// <summary>
-        /// Crea una instancia de la entidad usando el constructor apropiado.
-        /// Prioridad:
-        /// 1. Constructor sin parámetros (si existe)
-        /// 2. Constructor con parámetros que coinciden con propiedades del documento
-        /// </summary>
-        private T CreateEntityInstance<T>(string documentId, IDictionary<string, object> data, IEntityType entityType) where T : class
-        {
-            return CreateEntityInstance<T>(documentId, data, entityType, new Dictionary<string, object>());
-        }
-
-        /// <summary>
         /// Crea una instancia de la entidad usando el constructor apropiado,
         /// incluyendo entidades relacionadas para parámetros de navegación.
         /// </summary>
@@ -158,18 +110,6 @@ namespace Firestore.EntityFrameworkCore.Storage
             // Preparar argumentos para el constructor (incluyendo navegaciones)
             var args = PrepareConstructorArguments(constructor, documentId, data, entityType, relatedEntities);
             return (T)constructor.Invoke(args);
-        }
-
-        /// <summary>
-        /// Selecciona el mejor constructor basado en los parámetros disponibles.
-        /// Busca constructores cuyos parámetros coincidan con propiedades de la entidad.
-        /// </summary>
-        private static ConstructorInfo? SelectBestConstructor(
-            ConstructorInfo[] constructors,
-            IDictionary<string, object> data,
-            IEntityType entityType)
-        {
-            return SelectBestConstructor(constructors, data, entityType, new Dictionary<string, object>());
         }
 
         /// <summary>
@@ -227,18 +167,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                 .OrderByDescending(x => x.matchCount)
                 .Select(x => x.constructor)
                 .FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Prepara los argumentos para invocar el constructor.
-        /// </summary>
-        private object?[] PrepareConstructorArguments(
-            ConstructorInfo constructor,
-            string documentId,
-            IDictionary<string, object> data,
-            IEntityType entityType)
-        {
-            return PrepareConstructorArguments(constructor, documentId, data, entityType, new Dictionary<string, object>());
         }
 
         /// <summary>
@@ -371,15 +299,6 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Deserializa un DocumentSnapshot en una instancia de entidad existente.
-        /// Útil para poblar proxies de lazy loading.
-        /// </summary>
-        public T DeserializeIntoEntity<T>(DocumentSnapshot document, T entity) where T : class
-        {
-            return DeserializeIntoEntityWithRelated(document, entity, null);
-        }
-
-        /// <summary>
         /// Deserializa un DocumentSnapshot en una instancia de entidad existente,
         /// pasando entidades relacionadas para ComplexTypes con References.
         /// </summary>
@@ -413,26 +332,9 @@ namespace Firestore.EntityFrameworkCore.Storage
             DeserializeComplexProperties(entity, data, entityType, relatedEntities);
 
             // 4. Deserializar referencias a otras entidades
-            // Por ahora solo registrar que existen, carga lazy/eager requiere queries adicionales
             DeserializeReferences(entity, data, entityType);
 
             return entity;
-        }
-
-        /// <summary>
-        /// Deserializa múltiples documentos
-        /// </summary>
-        public List<T> DeserializeEntities<T>(IEnumerable<DocumentSnapshot> documents) where T : class
-        {
-            var results = new List<T>();
-            foreach (var document in documents)
-            {
-                if (document.Exists)
-                {
-                    results.Add(DeserializeEntity<T>(document));
-                }
-            }
-            return results;
         }
 
         /// <summary>
@@ -656,7 +558,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                     }
 
                     // Verificar si es Reference (marcar para carga lazy)
-                    // Por ahora omitir, requiere queries adicionales
                     if (complexProperty.FindAnnotation("Firestore:IsReference")?.Value is true)
                     {
                         _logger.LogTrace("Skipping reference property {PropertyName} - lazy loading not implemented",
@@ -879,11 +780,9 @@ namespace Firestore.EntityFrameworkCore.Storage
                     navigation.Name, docRef.Path);
 
                 // Extract the document ID from the DocumentReference path
-                // Path format: "collection/documentId" or "parent/doc/collection/documentId"
                 var documentId = docRef.Id;
 
                 // Set the FK property value so Include can use it later
-                // The FK property is typically a shadow property like "CategoriaId"
                 var fkProperty = navigation.ForeignKey.Properties.FirstOrDefault();
                 if (fkProperty != null)
                 {
@@ -916,12 +815,7 @@ namespace Firestore.EntityFrameworkCore.Storage
             {
                 var convertedValue = ConvertFkValue(value, fkProperty.ClrType);
                 fieldInfo.SetValue(entity, convertedValue);
-                return;
             }
-
-            // For shadow properties without backing field, we can't set directly
-            // The value will be available via the DocumentReference data
-            // This is handled in IncludeLoader by checking the data dictionary
         }
 
         private static object? ConvertFkValue(string value, Type targetType)
@@ -941,7 +835,7 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// <summary>
         /// Encuentra la propiedad Latitude/Latitud en un tipo
         /// </summary>
-        private PropertyInfo FindLatitudeProperty(Type type)
+        private static PropertyInfo FindLatitudeProperty(Type type)
         {
             return type.GetProperty("Latitude", BindingFlags.Public | BindingFlags.Instance)
                 ?? type.GetProperty("Latitud", BindingFlags.Public | BindingFlags.Instance)
@@ -952,207 +846,13 @@ namespace Firestore.EntityFrameworkCore.Storage
         /// <summary>
         /// Encuentra la propiedad Longitude/Longitud en un tipo
         /// </summary>
-        private PropertyInfo FindLongitudeProperty(Type type)
+        private static PropertyInfo FindLongitudeProperty(Type type)
         {
             return type.GetProperty("Longitude", BindingFlags.Public | BindingFlags.Instance)
                 ?? type.GetProperty("Longitud", BindingFlags.Public | BindingFlags.Instance)
                 ?? throw new InvalidOperationException(
                     $"Type '{type.Name}' must have a 'Longitude' or 'Longitud' property to use HasGeoPoint()");
         }
-
-        #region Collection Deserialization
-
-        /// <summary>
-        /// Deserializa múltiples documentos a una colección del tipo apropiado según la navegación.
-        /// Soporta List{T}, ICollection{T}, HashSet{T}, y otras colecciones.
-        /// </summary>
-        public object DeserializeCollection(IEnumerable<DocumentSnapshot> documents, IReadOnlyNavigation navigation)
-        {
-            var elementType = navigation.TargetEntityType.ClrType;
-            var propertyType = navigation.PropertyInfo?.PropertyType
-                ?? throw new InvalidOperationException($"Navigation {navigation.Name} has no PropertyInfo");
-
-            // Crear la colección del tipo apropiado
-            var collection = CreateCollectionInstance(propertyType, elementType);
-
-            // Deserializar cada documento y agregarlo a la colección
-            var deserializeMethod = typeof(FirestoreDocumentDeserializer)
-                .GetMethods()
-                .First(m => m.Name == nameof(DeserializeEntity) && m.GetParameters().Length == 1)
-                .MakeGenericMethod(elementType);
-
-            foreach (var document in documents)
-            {
-                if (!document.Exists)
-                    continue;
-
-                var entity = deserializeMethod.Invoke(this, new object[] { document });
-                if (entity != null)
-                {
-                    AddToCollection(collection, entity);
-                }
-            }
-
-            return collection;
-        }
-
-        /// <summary>
-        /// Crea una instancia de colección del tipo apropiado.
-        /// </summary>
-        private static object CreateCollectionInstance(Type propertyType, Type elementType)
-        {
-            // Si es HashSet<T>
-            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(HashSet<>))
-            {
-                var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
-                return Activator.CreateInstance(hashSetType)!;
-            }
-
-            // Si es ICollection<T>, IEnumerable<T>, IList<T>, o List<T> -> usar List<T>
-            if (propertyType.IsInterface ||
-                (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(List<>)))
-            {
-                var listType = typeof(List<>).MakeGenericType(elementType);
-                return Activator.CreateInstance(listType)!;
-            }
-
-            // Intentar crear el tipo concreto directamente
-            try
-            {
-                return Activator.CreateInstance(propertyType)!;
-            }
-            catch
-            {
-                // Fallback a List<T>
-                var listType = typeof(List<>).MakeGenericType(elementType);
-                return Activator.CreateInstance(listType)!;
-            }
-        }
-
-        /// <summary>
-        /// Agrega un elemento a una colección usando el método Add apropiado.
-        /// </summary>
-        public void AddToCollection(object collection, object element)
-        {
-            // Usar ICollection<T>.Add si está disponible
-            var collectionType = collection.GetType();
-            var addMethod = collectionType.GetMethod("Add");
-
-            if (addMethod != null)
-            {
-                addMethod.Invoke(collection, new[] { element });
-            }
-            else if (collection is IList list)
-            {
-                list.Add(element);
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    $"Collection type {collectionType.Name} does not have an Add method");
-            }
-        }
-
-        /// <summary>
-        /// Crea una colección vacía del tipo apropiado según la navegación.
-        /// </summary>
-        public object CreateEmptyCollection(IReadOnlyNavigation navigation)
-        {
-            var elementType = navigation.TargetEntityType.ClrType;
-            var propertyType = navigation.PropertyInfo?.PropertyType
-                ?? throw new InvalidOperationException($"Navigation {navigation.Name} has no PropertyInfo");
-
-            return CreateCollectionInstance(propertyType, elementType);
-        }
-
-        #endregion
-
-        #region Lazy Loading Proxy Support
-
-        /// <summary>
-        /// Attempts to create a lazy loading proxy for the entity type.
-        /// Returns null if lazy loading proxies are not enabled.
-        /// Uses reflection to avoid direct dependency on Microsoft.EntityFrameworkCore.Proxies.
-        /// </summary>
-        private static T? TryCreateLazyLoadingProxy<T>(DbContext dbContext, IServiceProvider serviceProvider) where T : class
-        {
-            try
-            {
-                // Find Proxies assembly (only loaded if UseLazyLoadingProxies() was called)
-                var proxiesAssembly = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Proxies");
-                if (proxiesAssembly == null)
-                    return null;
-
-                // Get IProxyFactory type and service
-                var proxyFactoryType = proxiesAssembly.GetTypes()
-                    .FirstOrDefault(t => t.Name == "IProxyFactory");
-                if (proxyFactoryType == null)
-                    return null;
-
-                var proxyFactory = serviceProvider.GetService(proxyFactoryType);
-                if (proxyFactory == null)
-                    return null;
-
-                var entityType = dbContext.Model.FindEntityType(typeof(T));
-                if (entityType == null)
-                    return null;
-
-                // Get ILazyLoader type from Abstractions assembly
-                var lazyLoaderType = AppDomain.CurrentDomain.GetAssemblies()
-                    .Where(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Abstractions")
-                    .SelectMany(a => a.GetTypes())
-                    .FirstOrDefault(t => t.Name == "ILazyLoader");
-                if (lazyLoaderType == null)
-                    return null;
-
-                // Get or create LazyLoader instance
-                object? lazyLoader = serviceProvider.GetService(lazyLoaderType);
-                if (lazyLoader == null)
-                {
-                    // LazyLoader is not a singleton - create via factory
-                    var loaderFactoryType = AppDomain.CurrentDomain.GetAssemblies()
-                        .SelectMany(a => a.GetTypes())
-                        .FirstOrDefault(t => t.Name == "ILazyLoaderFactory");
-
-                    if (loaderFactoryType != null)
-                    {
-                        var loaderFactory = serviceProvider.GetService(loaderFactoryType);
-                        var createMethod = loaderFactoryType.GetMethod("Create");
-                        if (loaderFactory != null && createMethod != null)
-                        {
-                            lazyLoader = createMethod.Invoke(loaderFactory, new object[] { dbContext });
-                        }
-                    }
-                }
-
-                if (lazyLoader == null)
-                    return null;
-
-                // Find and invoke CreateLazyLoadingProxy(DbContext, IEntityType, ILazyLoader, object[])
-                var createProxyMethod = proxyFactoryType.GetMethods()
-                    .FirstOrDefault(m => m.Name == "CreateLazyLoadingProxy" && m.GetParameters().Length == 4);
-                if (createProxyMethod == null)
-                    return null;
-
-                var proxy = createProxyMethod.Invoke(proxyFactory, new object[]
-                {
-                    dbContext,
-                    entityType,
-                    lazyLoader,
-                    Array.Empty<object>()
-                });
-
-                return proxy as T;
-            }
-            catch
-            {
-                // If proxy creation fails for any reason, fall back to normal entity
-                return null;
-            }
-        }
-
-        #endregion
 
         #region Navigation Assignment
 
@@ -1177,7 +877,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                 if (navigation.IsCollection)
                 {
                     // SubCollection: buscar entidades hijas cuyo path empiece con documentPath/collectionName
-                    // Siempre intentar asignar - la propiedad puede tener una colección vacía inicializada
                     AssignSubCollection(entity, navigation, documentPath, relatedEntities);
                 }
                 else
@@ -1237,9 +936,8 @@ namespace Firestore.EntityFrameworkCore.Storage
             var subCollectionPrefix = $"{parentDocPath}/{collectionName}/";
 
             // Calcular la profundidad esperada de los hijos directos
-            // parentDocPath tiene N segmentos, los hijos directos tienen N+2 segmentos
-            var parentDepth = parentDocPath.Count(c => c == '/') + 1; // segments = slashes + 1
-            var expectedChildDepth = parentDepth + 2; // +collectionName +docId
+            var parentDepth = parentDocPath.Count(c => c == '/') + 1;
+            var expectedChildDepth = parentDepth + 2;
 
             // Buscar solo entidades hijas directas (no nietas)
             var childEntities = relatedEntities
@@ -1248,7 +946,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                     if (!kv.Key.StartsWith(subCollectionPrefix, StringComparison.Ordinal))
                         return false;
 
-                    // Verificar que es un hijo directo (no un descendiente más profundo)
                     var keyDepth = kv.Key.Count(c => c == '/') + 1;
                     return keyDepth == expectedChildDepth;
                 })
@@ -1259,7 +956,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                 return;
 
             // Crear la colección del tipo apropiado
-            var collection = CreateEmptyCollection(navigation);
+            var collection = CreateCollectionInstance(navigation);
 
             foreach (var child in childEntities)
             {
@@ -1267,6 +964,66 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
 
             navigation.PropertyInfo.SetValue(entity, collection);
+        }
+
+        /// <summary>
+        /// Crea una instancia de colección del tipo apropiado.
+        /// </summary>
+        private static object CreateCollectionInstance(IReadOnlyNavigation navigation)
+        {
+            var elementType = navigation.TargetEntityType.ClrType;
+            var propertyType = navigation.PropertyInfo?.PropertyType
+                ?? throw new InvalidOperationException($"Navigation {navigation.Name} has no PropertyInfo");
+
+            // Si es HashSet<T>
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(hashSetType)!;
+            }
+
+            // Si es ICollection<T>, IEnumerable<T>, IList<T>, o List<T> -> usar List<T>
+            if (propertyType.IsInterface ||
+                (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(List<>)))
+            {
+                var listType = typeof(List<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(listType)!;
+            }
+
+            // Intentar crear el tipo concreto directamente
+            try
+            {
+                return Activator.CreateInstance(propertyType)!;
+            }
+            catch
+            {
+                // Fallback a List<T>
+                var listType = typeof(List<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(listType)!;
+            }
+        }
+
+        /// <summary>
+        /// Agrega un elemento a una colección usando el método Add apropiado.
+        /// </summary>
+        private static void AddToCollection(object collection, object element)
+        {
+            var collectionType = collection.GetType();
+            var addMethod = collectionType.GetMethod("Add");
+
+            if (addMethod != null)
+            {
+                addMethod.Invoke(collection, new[] { element });
+            }
+            else if (collection is IList list)
+            {
+                list.Add(element);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Collection type {collectionType.Name} does not have an Add method");
+            }
         }
 
         #endregion

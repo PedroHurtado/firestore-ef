@@ -170,7 +170,7 @@ public class FirestoreDocumentDeserializerTest
     }
 
     [Fact]
-    public void DeserializeEntities_ShouldReturnEmptyList_WhenNoDocuments()
+    public void DeserializeEntity_WithRelatedEntities_ShouldThrow_WhenDocumentIsNull()
     {
         // Arrange
         var mockModel = CreateMockModel();
@@ -178,25 +178,17 @@ public class FirestoreDocumentDeserializerTest
         var mockCollectionManager = CreateMockCollectionManager();
         var mockLogger = CreateMockLogger();
 
-        // Setup mock entity type
-        var mockEntityType = new Mock<IEntityType>();
-        mockEntityType.Setup(e => e.ClrType).Returns(typeof(TestEntity));
-        mockModel.Setup(m => m.FindEntityType(typeof(TestEntity))).Returns(mockEntityType.Object);
-
         var deserializer = new FirestoreDocumentDeserializer(
             mockModel.Object,
             mockTypeMappingSource.Object,
             mockCollectionManager.Object,
             mockLogger.Object);
 
-        var emptyDocuments = new List<Google.Cloud.Firestore.DocumentSnapshot>();
+        var relatedEntities = new Dictionary<string, object>();
 
-        // Act
-        var result = deserializer.DeserializeEntities<TestEntity>(emptyDocuments);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.Empty(result);
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() =>
+            deserializer.DeserializeEntity<TestEntity>(null!, relatedEntities));
     }
 
     [Fact]
@@ -602,29 +594,15 @@ public class FirestoreDocumentDeserializerTest
         // Arrange
         var interfaceType = typeof(IFirestoreDocumentDeserializer);
 
-        // Act - Hay tres sobrecargas de DeserializeEntity
+        // Act - Hay dos sobrecargas de DeserializeEntity (simplificado)
         var methods = interfaceType.GetMethods()
             .Where(m => m.Name == "DeserializeEntity")
             .ToArray();
 
-        // Assert - Verificar que existen las tres sobrecargas
-        Assert.Equal(3, methods.Length);
+        // Assert - Verificar que existen las dos sobrecargas del contrato simplificado
+        Assert.Equal(2, methods.Length);
         Assert.Contains(methods, m => m.GetParameters().Length == 1); // Solo DocumentSnapshot
         Assert.Contains(methods, m => m.GetParameters().Length == 2); // DocumentSnapshot, relatedEntities
-        Assert.Contains(methods, m => m.GetParameters().Length == 3); // DocumentSnapshot, DbContext, IServiceProvider
-    }
-
-    [Fact]
-    public void IFirestoreDocumentDeserializer_ShouldHaveDeserializeEntitiesMethod()
-    {
-        // Arrange
-        var interfaceType = typeof(IFirestoreDocumentDeserializer);
-
-        // Act
-        var method = interfaceType.GetMethod("DeserializeEntities");
-
-        // Assert
-        Assert.NotNull(method);
     }
 
     #endregion
