@@ -1,6 +1,5 @@
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
@@ -15,22 +14,23 @@ namespace Firestore.EntityFrameworkCore.Storage
     /// <summary>
     /// Deserializa DocumentSnapshot de Firestore a entidades C#.
     /// Es el proceso inverso de FirestoreDocumentSerializer.
+    /// Usa IFirestoreValueConverter para centralizar todas las conversiones de tipos.
     /// </summary>
     public class FirestoreDocumentDeserializer : IFirestoreDocumentDeserializer
     {
         private readonly IModel _model;
-        private readonly ITypeMappingSource _typeMappingSource;
+        private readonly IFirestoreValueConverter _valueConverter;
         private readonly IFirestoreCollectionManager _collectionManager;
         private readonly ILogger<FirestoreDocumentDeserializer> _logger;
 
         public FirestoreDocumentDeserializer(
             IModel model,
-            ITypeMappingSource typeMappingSource,
+            IFirestoreValueConverter valueConverter,
             IFirestoreCollectionManager collectionManager,
             ILogger<FirestoreDocumentDeserializer> logger)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
-            _typeMappingSource = typeMappingSource ?? throw new ArgumentNullException(nameof(typeMappingSource));
+            _valueConverter = valueConverter ?? throw new ArgumentNullException(nameof(valueConverter));
             _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
@@ -176,7 +176,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                 // ¿Es la clave primaria (Id)?
                 if (paramName?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false)
                 {
-                    args[i] = ConvertToParameterType(documentId, param.ParameterType);
+                    args[i] = ConvertToTargetType(documentId, param.ParameterType);
                     continue;
                 }
 
@@ -204,7 +204,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                     }
                     else
                     {
-                        args[i] = ConvertToParameterType(value, param.ParameterType);
+                        args[i] = ConvertToTargetType(value, param.ParameterType);
                     }
                 }
                 else
@@ -251,8 +251,9 @@ namespace Firestore.EntityFrameworkCore.Storage
 
         /// <summary>
         /// Convierte un valor al tipo de parámetro esperado.
+        /// Usa IFirestoreValueConverter para conversiones centralizadas.
         /// </summary>
-        private static object? ConvertToParameterType(object? value, Type targetType)
+        private object? ConvertToTargetType(object? value, Type targetType)
         {
             if (value == null)
                 return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
@@ -260,18 +261,13 @@ namespace Firestore.EntityFrameworkCore.Storage
             if (targetType.IsAssignableFrom(value.GetType()))
                 return value;
 
-            // Conversión double → decimal
-            if (value is double d && targetType == typeof(decimal))
-                return (decimal)d;
+            // Usar el converter centralizado para todas las conversiones
+            // (Timestamp→DateTime, double→decimal, string→enum, long→int, etc.)
+            var converted = _valueConverter.FromFirestore(value, targetType);
+            if (converted != null && targetType.IsAssignableFrom(converted.GetType()))
+                return converted;
 
-            // Conversión Timestamp → DateTime
-            if (value is Google.Cloud.Firestore.Timestamp timestamp && targetType == typeof(DateTime))
-                return timestamp.ToDateTime();
-
-            // Conversión string → enum
-            if (value is string s && targetType.IsEnum)
-                return Enum.Parse(targetType, s, ignoreCase: true);
-
+            // Último recurso: Convert.ChangeType
             try
             {
                 return Convert.ChangeType(value, targetType);
@@ -381,47 +377,36 @@ namespace Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Aplica conversiones inversas usando los converters de EF Core
+        /// Aplica conversiones inversas usando IFirestoreValueConverter centralizado.
         /// </summary>
         private object? ApplyReverseConverter(IProperty property, object value)
         {
-            // Conversiones especiales para tipos de Firestore
-            if (value is Google.Cloud.Firestore.Timestamp timestamp)
-            {
-                return timestamp.ToDateTime();
-            }
-
-            // Conversión manual: double → decimal
-            if (value is double d && property.ClrType == typeof(decimal))
-            {
-                return (decimal)d;
-            }
-
-            // Conversión manual: string → enum
-            if (value is string s && property.ClrType.IsEnum)
-            {
-                return Enum.Parse(property.ClrType, s, ignoreCase: true);
-            }
-
-            // Conversiones para colecciones
-            if (value is IEnumerable enumerable &&
-                value is not string &&
-                value is not byte[])
-            {
-                return ConvertCollection(property, enumerable);
-            }
-
-            // Usar converter de EF Core si existe
-            var converter = property.GetValueConverter() ?? property.GetTypeMapping()?.Converter;
-            if (converter != null)
-            {
-                return converter.ConvertFromProvider(value);
-            }
-
             // Si el tipo ya es compatible, retornar directamente
             if (property.ClrType.IsAssignableFrom(value.GetType()))
             {
                 return value;
+            }
+
+            // Usar el converter centralizado para todas las conversiones
+            // (Timestamp→DateTime, double→decimal, string→enum, long→int, colecciones, etc.)
+            var converted = _valueConverter.FromFirestore(value, property.ClrType);
+            if (converted != null && property.ClrType.IsAssignableFrom(converted.GetType()))
+            {
+                return converted;
+            }
+
+            // Usar converter de EF Core si existe y el centralizado no funcionó
+            var converter = property.GetValueConverter() ?? property.GetTypeMapping()?.Converter;
+            if (converter != null)
+            {
+                try
+                {
+                    return converter.ConvertFromProvider(value);
+                }
+                catch
+                {
+                    // Ignorar errores del converter de EF Core
+                }
             }
 
             // Último recurso: Convert.ChangeType
@@ -436,82 +421,6 @@ namespace Firestore.EntityFrameworkCore.Storage
                     value, value.GetType().Name, property.ClrType.Name);
                 return null;
             }
-        }
-
-        /// <summary>
-        /// Convierte colecciones de Firestore a colecciones de C#
-        /// </summary>
-        private object? ConvertCollection(IProperty property, IEnumerable collection)
-        {
-            var elementType = property.ClrType.GetGenericArguments().FirstOrDefault()
-                              ?? property.ClrType.GetElementType();
-
-            if (elementType == null)
-                return collection;
-
-            // Conversión: double[] → List<decimal>
-            if (elementType == typeof(decimal))
-            {
-                var decimals = collection.Cast<object>()
-                    .Select(item => item is double d ? (decimal)d : Convert.ToDecimal(item))
-                    .ToList();
-                return decimals;
-            }
-
-            // Conversión: string[] → List<enum>
-            if (elementType.IsEnum)
-            {
-                var enums = collection.Cast<object>()
-                    .Select(item => Enum.Parse(elementType, item.ToString()!, ignoreCase: true))
-                    .ToList();
-
-                // Crear List<TEnum> usando reflexión
-                var listType = typeof(List<>).MakeGenericType(elementType);
-                var list = (IList)Activator.CreateInstance(listType)!;
-                foreach (var item in enums)
-                {
-                    list.Add(item);
-                }
-                return list;
-            }
-
-            // Conversión: object[] → List<int> (Firestore devuelve long)
-            if (elementType == typeof(int))
-            {
-                var ints = collection.Cast<object>()
-                    .Select(item => Convert.ToInt32(item))
-                    .ToList();
-                return ints;
-            }
-
-            // Conversión: object[] → List<long>
-            if (elementType == typeof(long))
-            {
-                var longs = collection.Cast<object>()
-                    .Select(item => Convert.ToInt64(item))
-                    .ToList();
-                return longs;
-            }
-
-            // Conversión: object[] → List<string>
-            if (elementType == typeof(string))
-            {
-                var strings = collection.Cast<object>()
-                    .Select(item => item?.ToString() ?? string.Empty)
-                    .ToList();
-                return strings;
-            }
-
-            // Conversión: object[] → List<double>
-            if (elementType == typeof(double))
-            {
-                var doubles = collection.Cast<object>()
-                    .Select(item => Convert.ToDouble(item))
-                    .ToList();
-                return doubles;
-            }
-
-            return collection;
         }
 
         /// <summary>

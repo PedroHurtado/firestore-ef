@@ -1,3 +1,4 @@
+using Google.Cloud.Firestore;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -77,6 +78,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         // long → int (Firestore may return long for integers)
         if (value is long l && actualTargetType == typeof(int))
             return (int)l;
+
+        // Timestamp → DateTime (Firestore SDK specific type)
+        if (value is Timestamp timestamp && actualTargetType == typeof(DateTime))
+            return timestamp.ToDateTime();
 
         // Collections: convert elements recursively
         if (value is IEnumerable enumerable && value is not string && value is not byte[])
@@ -158,6 +163,11 @@ public class FirestoreValueConverter : IFirestoreValueConverter
             else if (item is long l && underlyingElementType == typeof(int))
             {
                 convertedItem = (int)l;
+            }
+            // Timestamp → DateTime
+            else if (item is Timestamp ts && underlyingElementType == typeof(DateTime))
+            {
+                convertedItem = ts.ToDateTime();
             }
             else
             {

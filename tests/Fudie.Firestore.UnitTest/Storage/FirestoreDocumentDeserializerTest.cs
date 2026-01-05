@@ -1,7 +1,6 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
 using System.Linq;
@@ -43,9 +42,12 @@ public class FirestoreDocumentDeserializerTest
         return new Mock<IModel>();
     }
 
-    private Mock<ITypeMappingSource> CreateMockTypeMappingSource()
+    private Mock<IFirestoreValueConverter> CreateMockValueConverter()
     {
-        return new Mock<ITypeMappingSource>();
+        var mock = new Mock<IFirestoreValueConverter>();
+        mock.Setup(m => m.FromFirestore(It.IsAny<object>(), It.IsAny<Type>()))
+            .Returns<object, Type>((value, targetType) => value);
+        return mock;
     }
 
     private Mock<IFirestoreCollectionManager> CreateMockCollectionManager()
@@ -66,14 +68,14 @@ public class FirestoreDocumentDeserializerTest
     {
         // Arrange
         var mockModel = CreateMockModel();
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
+        var mockValueConverter = CreateMockValueConverter();
         var mockCollectionManager = CreateMockCollectionManager();
         var mockLogger = CreateMockLogger();
 
         // Act
         var deserializer = new FirestoreDocumentDeserializer(
             mockModel.Object,
-            mockTypeMappingSource.Object,
+            mockValueConverter.Object,
             mockCollectionManager.Object,
             mockLogger.Object);
 
@@ -85,7 +87,7 @@ public class FirestoreDocumentDeserializerTest
     public void Constructor_ShouldThrow_WhenModelIsNull()
     {
         // Arrange
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
+        var mockValueConverter = CreateMockValueConverter();
         var mockCollectionManager = CreateMockCollectionManager();
         var mockLogger = CreateMockLogger();
 
@@ -93,13 +95,13 @@ public class FirestoreDocumentDeserializerTest
         Assert.Throws<ArgumentNullException>(() =>
             new FirestoreDocumentDeserializer(
                 null!,
-                mockTypeMappingSource.Object,
+                mockValueConverter.Object,
                 mockCollectionManager.Object,
                 mockLogger.Object));
     }
 
     [Fact]
-    public void Constructor_ShouldThrow_WhenTypeMappingSourceIsNull()
+    public void Constructor_ShouldThrow_WhenValueConverterIsNull()
     {
         // Arrange
         var mockModel = CreateMockModel();
@@ -120,14 +122,14 @@ public class FirestoreDocumentDeserializerTest
     {
         // Arrange
         var mockModel = CreateMockModel();
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
+        var mockValueConverter = CreateMockValueConverter();
         var mockLogger = CreateMockLogger();
 
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
             new FirestoreDocumentDeserializer(
                 mockModel.Object,
-                mockTypeMappingSource.Object,
+                mockValueConverter.Object,
                 null!,
                 mockLogger.Object));
     }
@@ -137,14 +139,14 @@ public class FirestoreDocumentDeserializerTest
     {
         // Arrange
         var mockModel = CreateMockModel();
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
+        var mockValueConverter = CreateMockValueConverter();
         var mockCollectionManager = CreateMockCollectionManager();
 
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
             new FirestoreDocumentDeserializer(
                 mockModel.Object,
-                mockTypeMappingSource.Object,
+                mockValueConverter.Object,
                 mockCollectionManager.Object,
                 null!));
     }
@@ -154,13 +156,13 @@ public class FirestoreDocumentDeserializerTest
     {
         // Arrange
         var mockModel = CreateMockModel();
-        var mockTypeMappingSource = CreateMockTypeMappingSource();
+        var mockValueConverter = CreateMockValueConverter();
         var mockCollectionManager = CreateMockCollectionManager();
         var mockLogger = CreateMockLogger();
 
         var deserializer = new FirestoreDocumentDeserializer(
             mockModel.Object,
-            mockTypeMappingSource.Object,
+            mockValueConverter.Object,
             mockCollectionManager.Object,
             mockLogger.Object);
 
