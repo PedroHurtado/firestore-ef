@@ -5,6 +5,7 @@ using Google.Cloud.Firestore;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using FirestoreQuery = Google.Cloud.Firestore.Query;
 
 namespace Firestore.EntityFrameworkCore.Query.Pipeline;
@@ -51,6 +52,9 @@ public class FirestoreQueryBuilder : IQueryBuilder
                 .Limit(1);
             return query;
         }
+
+        // Apply projection (Select specific fields)
+        query = ApplyProjection(query, resolvedQuery.Projection);
 
         // Apply pagination
         query = ApplyPagination(query, resolvedQuery.Pagination);
@@ -186,6 +190,20 @@ public class FirestoreQueryBuilder : IQueryBuilder
         return query;
     }
 
+    private static FirestoreQuery ApplyProjection(FirestoreQuery query, ResolvedProjectionDefinition? projection)
+    {
+        // No projection or no specific fields → return all fields
+        if (projection == null || !projection.HasFields)
+            return query;
+
+        // Extract field paths from projection
+        var fieldPaths = projection.Fields!
+            .Select(f => f.FieldPath)
+            .ToArray();
+
+        return query.Select(fieldPaths);
+    }
+
     private static FirestoreQuery ApplyPagination(FirestoreQuery query, ResolvedPaginationInfo pagination)
     {
         if (pagination.Skip.HasValue)
@@ -251,6 +269,56 @@ public class FirestoreQueryBuilder : IQueryBuilder
         query = ApplyPagination(query, include.Pagination);
 
         return query;
+    }
+
+    /// <inheritdoc />
+    public FirestoreQuery BuildSubcollectionQuery(string parentDocPath, ResolvedSubcollectionProjection subcollection)
+    {
+        var relativePath = ExtractRelativePath(parentDocPath);
+        var docRef = _clientWrapper.Database.Document(relativePath);
+        var subCollectionRef = docRef.Collection(subcollection.CollectionPath);
+
+        FirestoreQuery query = subCollectionRef;
+
+        // Apply filters
+        query = ApplyFilters(query, subcollection.FilterResults);
+
+        // Apply ordering
+        query = ApplyOrderBy(query, subcollection.OrderByClauses);
+
+        // Apply field selection if specified
+        if (subcollection.Fields != null && subcollection.Fields.Count > 0)
+        {
+            var fieldPaths = subcollection.Fields.Select(f => f.FieldPath).ToArray();
+            query = query.Select(fieldPaths);
+        }
+
+        // Apply pagination
+        query = ApplyPagination(query, subcollection.Pagination);
+
+        return query;
+    }
+
+    /// <inheritdoc />
+    public AggregateQuery BuildSubcollectionAggregate(string parentDocPath, ResolvedSubcollectionProjection subcollection)
+    {
+        var relativePath = ExtractRelativePath(parentDocPath);
+        var docRef = _clientWrapper.Database.Document(relativePath);
+        var subCollectionRef = docRef.Collection(subcollection.CollectionPath);
+
+        FirestoreQuery query = subCollectionRef;
+
+        // Apply filters
+        query = ApplyFilters(query, subcollection.FilterResults);
+
+        // Build aggregate query based on type
+        return subcollection.Aggregation switch
+        {
+            FirestoreAggregationType.Count => query.Count(),
+            FirestoreAggregationType.Sum => query.Aggregate(AggregateField.Sum(subcollection.AggregationPropertyName!)),
+            FirestoreAggregationType.Average => query.Aggregate(AggregateField.Average(subcollection.AggregationPropertyName!)),
+            _ => throw new NotSupportedException($"Subcollection aggregation type {subcollection.Aggregation} is not supported")
+        };
     }
 
     /// <summary>

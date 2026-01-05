@@ -34,4 +34,22 @@ public interface IQueryBuilder
     /// <param name="include">The resolved include with filters, ordering, and pagination.</param>
     /// <returns>A Firestore SDK Query ready for execution.</returns>
     FirestoreQuery BuildInclude(string parentDocPath, ResolvedInclude include);
+
+    /// <summary>
+    /// Builds a Firestore SDK Query for a subcollection projection.
+    /// Applies filters, ordering, pagination, and field selection from the ResolvedSubcollectionProjection.
+    /// </summary>
+    /// <param name="parentDocPath">The full path of the parent document (e.g., "Clientes/cli-001").</param>
+    /// <param name="subcollection">The resolved subcollection projection.</param>
+    /// <returns>A Firestore SDK Query ready for execution.</returns>
+    FirestoreQuery BuildSubcollectionQuery(string parentDocPath, ResolvedSubcollectionProjection subcollection);
+
+    /// <summary>
+    /// Builds a Firestore SDK AggregateQuery for a subcollection aggregation.
+    /// Used for Sum, Count, Average on subcollections within projections.
+    /// </summary>
+    /// <param name="parentDocPath">The full path of the parent document (e.g., "Clientes/cli-001").</param>
+    /// <param name="subcollection">The resolved subcollection projection with aggregation info.</param>
+    /// <returns>An AggregateQuery ready for execution.</returns>
+    AggregateQuery BuildSubcollectionAggregate(string parentDocPath, ResolvedSubcollectionProjection subcollection);
 }

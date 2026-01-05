@@ -40,21 +40,30 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             Type resultType;
             QueryKind queryKind;
             Type? entityType;
+            bool isTracking;
 
             if (firestoreQueryExpression.IsAggregation)
             {
                 resultType = firestoreQueryExpression.AggregationResultType ?? typeof(int);
                 queryKind = QueryKind.Aggregation;
                 entityType = firestoreQueryExpression.EntityType.ClrType;
+                isTracking = false; // Aggregations don't track
+            }
+            else if (firestoreQueryExpression.HasProjection)
+            {
+                // Projection: use the projected type, not entity type
+                resultType = firestoreQueryExpression.Projection!.ClrType;
+                queryKind = QueryKind.Projection;
+                entityType = firestoreQueryExpression.EntityType.ClrType;
+                isTracking = false; // Projections don't track (anonymous types, DTOs)
             }
             else
             {
                 resultType = firestoreQueryExpression.EntityType.ClrType;
                 queryKind = QueryKind.Entity;
                 entityType = resultType;
+                isTracking = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
             }
-
-            var isTracking = QueryCompilationContext.QueryTrackingBehavior == QueryTrackingBehavior.TrackAll;
 
             // Create FirestorePipelineQueryingEnumerable<T>
             var enumerableType = typeof(FirestorePipelineQueryingEnumerable<>).MakeGenericType(resultType);

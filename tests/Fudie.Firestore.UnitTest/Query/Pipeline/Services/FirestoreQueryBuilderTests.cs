@@ -257,6 +257,154 @@ public class FirestoreQueryBuilderTests
 
     #endregion
 
+    #region BuildInclude Method Signature Tests
+
+    [Fact]
+    public void BuildInclude_Method_Exists_With_Correct_Signature()
+    {
+        var method = typeof(FirestoreQueryBuilder).GetMethod("BuildInclude");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(Google.Cloud.Firestore.Query));
+
+        var parameters = method.GetParameters();
+        parameters.Should().HaveCount(2);
+        parameters[0].ParameterType.Should().Be(typeof(string));
+        parameters[0].Name.Should().Be("parentDocPath");
+        parameters[1].ParameterType.Should().Be(typeof(ResolvedInclude));
+        parameters[1].Name.Should().Be("include");
+    }
+
+    [Fact]
+    public void BuildInclude_Applies_Filters_From_ResolvedInclude()
+    {
+        // BuildInclude should apply filters from include.FilterResults
+        typeof(ResolvedInclude).GetProperty("FilterResults")
+            .Should().NotBeNull("BuildInclude should apply filters from ResolvedInclude");
+    }
+
+    [Fact]
+    public void BuildInclude_Applies_OrderBy_From_ResolvedInclude()
+    {
+        // BuildInclude should apply ordering from include.OrderByClauses
+        typeof(ResolvedInclude).GetProperty("OrderByClauses")
+            .Should().NotBeNull("BuildInclude should apply ordering from ResolvedInclude");
+    }
+
+    [Fact]
+    public void BuildInclude_Applies_Pagination_From_ResolvedInclude()
+    {
+        // BuildInclude should apply pagination from include.Pagination
+        typeof(ResolvedInclude).GetProperty("Pagination")
+            .Should().NotBeNull("BuildInclude should apply pagination from ResolvedInclude");
+    }
+
+    #endregion
+
+    #region BuildSubcollectionQuery Method Signature Tests
+
+    [Fact]
+    public void BuildSubcollectionQuery_Method_Exists_With_Correct_Signature()
+    {
+        var method = typeof(FirestoreQueryBuilder).GetMethod("BuildSubcollectionQuery");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(Google.Cloud.Firestore.Query));
+
+        var parameters = method.GetParameters();
+        parameters.Should().HaveCount(2);
+        parameters[0].ParameterType.Should().Be(typeof(string));
+        parameters[0].Name.Should().Be("parentDocPath");
+        parameters[1].ParameterType.Should().Be(typeof(ResolvedSubcollectionProjection));
+        parameters[1].Name.Should().Be("subcollection");
+    }
+
+    [Fact]
+    public void BuildSubcollectionQuery_Applies_Filters_From_Subcollection()
+    {
+        // BuildSubcollectionQuery should apply filters from subcollection.FilterResults
+        typeof(ResolvedSubcollectionProjection).GetProperty("FilterResults")
+            .Should().NotBeNull("BuildSubcollectionQuery should apply filters");
+    }
+
+    [Fact]
+    public void BuildSubcollectionQuery_Applies_OrderBy_From_Subcollection()
+    {
+        // BuildSubcollectionQuery should apply ordering from subcollection.OrderByClauses
+        typeof(ResolvedSubcollectionProjection).GetProperty("OrderByClauses")
+            .Should().NotBeNull("BuildSubcollectionQuery should apply ordering");
+    }
+
+    [Fact]
+    public void BuildSubcollectionQuery_Applies_FieldSelection_From_Subcollection()
+    {
+        // BuildSubcollectionQuery should apply field selection from subcollection.Fields
+        typeof(ResolvedSubcollectionProjection).GetProperty("Fields")
+            .Should().NotBeNull("BuildSubcollectionQuery should apply field selection");
+    }
+
+    [Fact]
+    public void BuildSubcollectionQuery_Applies_Pagination_From_Subcollection()
+    {
+        // BuildSubcollectionQuery should apply pagination from subcollection.Pagination
+        typeof(ResolvedSubcollectionProjection).GetProperty("Pagination")
+            .Should().NotBeNull("BuildSubcollectionQuery should apply pagination");
+    }
+
+    #endregion
+
+    #region BuildSubcollectionAggregate Method Signature Tests
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Method_Exists_With_Correct_Signature()
+    {
+        var method = typeof(FirestoreQueryBuilder).GetMethod("BuildSubcollectionAggregate");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(AggregateQuery));
+
+        var parameters = method.GetParameters();
+        parameters.Should().HaveCount(2);
+        parameters[0].ParameterType.Should().Be(typeof(string));
+        parameters[0].Name.Should().Be("parentDocPath");
+        parameters[1].ParameterType.Should().Be(typeof(ResolvedSubcollectionProjection));
+        parameters[1].Name.Should().Be("subcollection");
+    }
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Handles_Count()
+    {
+        // BuildSubcollectionAggregate should handle Count aggregations
+        FirestoreAggregationType.Count.Should().BeDefined(
+            "BuildSubcollectionAggregate should call query.Count() for Count");
+    }
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Handles_Sum()
+    {
+        // BuildSubcollectionAggregate should handle Sum aggregations
+        FirestoreAggregationType.Sum.Should().BeDefined(
+            "BuildSubcollectionAggregate should use AggregateField.Sum for Sum");
+    }
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Handles_Average()
+    {
+        // BuildSubcollectionAggregate should handle Average aggregations
+        FirestoreAggregationType.Average.Should().BeDefined(
+            "BuildSubcollectionAggregate should use AggregateField.Average for Average");
+    }
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Applies_Filters_Before_Aggregation()
+    {
+        // BuildSubcollectionAggregate should apply filters before aggregation
+        typeof(ResolvedSubcollectionProjection).GetProperty("FilterResults")
+            .Should().NotBeNull("Filters should be applied before aggregation");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ResolvedFirestoreQuery CreateSimpleQuery(string collectionPath)

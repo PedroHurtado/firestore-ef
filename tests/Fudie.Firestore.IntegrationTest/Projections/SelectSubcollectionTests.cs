@@ -82,7 +82,8 @@ public class SelectSubcollectionTests
 
     #region Ciclo 12: Select con subcollection proyectada
 
-    [Fact(Skip = "Projections not yet supported - pending implementation")]
+    //[Fact(Skip = "Projections not yet supported - pending implementation")]
+    [Fact]
     public async Task Select_WithProjectedSubcollection_ReturnsOnlySelectedFields()
     {
         // Arrange

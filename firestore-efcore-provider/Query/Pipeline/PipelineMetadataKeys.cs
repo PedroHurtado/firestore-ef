@@ -47,4 +47,12 @@ public static class PipelineMetadataKeys
     /// Used by ConvertHandler for bottom-up deserialization with includes.
     /// </summary>
     public static readonly MetadataKey<Dictionary<string, Google.Cloud.Firestore.DocumentSnapshot>> AllSnapshots = new("AllSnapshots");
+
+    /// <summary>
+    /// Subcollection aggregation results loaded by ExecutionHandler.
+    /// Key format: "{parentDocPath}:{resultName}" (e.g., "Clientes/cli-001:Totales").
+    /// Value is the aggregation result (long for Count, double for Sum/Average).
+    /// Used for materializing projections with subcollection aggregations.
+    /// </summary>
+    public static readonly MetadataKey<Dictionary<string, object>> SubcollectionAggregations = new("SubcollectionAggregations");
 }

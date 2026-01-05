@@ -57,6 +57,50 @@ public class IQueryBuilderTests
         parameters[0].Name.Should().Be("resolvedQuery");
     }
 
+    [Fact]
+    public void IQueryBuilder_Has_BuildSubcollectionQuery_Method()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildSubcollectionQuery");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(FirestoreQuery));
+    }
+
+    [Fact]
+    public void BuildSubcollectionQuery_Accepts_ParentDocPath_And_Subcollection_Parameters()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildSubcollectionQuery");
+        var parameters = method!.GetParameters();
+
+        parameters.Should().HaveCount(2);
+        parameters[0].ParameterType.Should().Be(typeof(string));
+        parameters[0].Name.Should().Be("parentDocPath");
+        parameters[1].ParameterType.Should().Be(typeof(ResolvedSubcollectionProjection));
+        parameters[1].Name.Should().Be("subcollection");
+    }
+
+    [Fact]
+    public void IQueryBuilder_Has_BuildSubcollectionAggregate_Method()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildSubcollectionAggregate");
+
+        method.Should().NotBeNull();
+        method!.ReturnType.Should().Be(typeof(AggregateQuery));
+    }
+
+    [Fact]
+    public void BuildSubcollectionAggregate_Accepts_ParentDocPath_And_Subcollection_Parameters()
+    {
+        var method = typeof(IQueryBuilder).GetMethod("BuildSubcollectionAggregate");
+        var parameters = method!.GetParameters();
+
+        parameters.Should().HaveCount(2);
+        parameters[0].ParameterType.Should().Be(typeof(string));
+        parameters[0].Name.Should().Be("parentDocPath");
+        parameters[1].ParameterType.Should().Be(typeof(ResolvedSubcollectionProjection));
+        parameters[1].Name.Should().Be("subcollection");
+    }
+
     #endregion
 
     #region Design Documentation Tests
@@ -121,8 +165,8 @@ public class IQueryBuilderTests
         // This follows Single Responsibility Principle.
 
         typeof(IQueryBuilder).GetMethods()
-            .Should().HaveCount(3,
-                "IQueryBuilder has Build, BuildAggregate, and BuildInclude methods");
+            .Should().HaveCount(5,
+                "IQueryBuilder has Build, BuildAggregate, BuildInclude, BuildSubcollectionQuery, and BuildSubcollectionAggregate methods");
     }
 
     #endregion

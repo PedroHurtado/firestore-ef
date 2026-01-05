@@ -277,15 +277,18 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     var navInfo = ExtractNavigationFromMethodChain(methodCallExpr);
                     if (navInfo != null)
                     {
-                        var subProj = CreateSubcollectionProjection(navInfo.NavigationName, resultName);
+                        var subProj = CreateSubcollectionProjection(navInfo.NavigationName, resultName, navInfo.TargetClrType);
                         ExtractSubcollectionOperations(methodCallExpr, subProj);
                         Subcollections.Add(subProj);
                     }
                     else
                     {
-                        // Method call on property: e.Name.ToUpper()
+                        // Debug: show what expression we got
+                        var rootExpr = GetRootExpression(methodCallExpr);
                         throw new NotSupportedException(
                             $"Method calls in projections are not supported: {methodCallExpr.Method.Name}. " +
+                            $"Root expression type: {rootExpr?.GetType().Name ?? "null"}, " +
+                            $"Root: {rootExpr}. " +
                             "Projections must reference entity properties directly.");
                     }
                     break;
@@ -381,31 +384,42 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// </summary>
         private FirestoreSubcollectionProjection CreateSubcollectionProjection(
             string navigationName,
-            string resultName)
+            string resultName,
+            Type? targetClrTypeHint = null)
         {
-            // Try to get navigation info from entity type
+            // Try to get navigation info from entity type by name
             var navigation = _entityType?.FindNavigation(navigationName);
+
+            // If not found by name and we have a type hint, try to find navigation by target type
+            if (navigation == null && targetClrTypeHint != null && _entityType != null)
+            {
+                navigation = _entityType.GetNavigations()
+                    .FirstOrDefault(n => n.TargetEntityType.ClrType == targetClrTypeHint);
+            }
 
             Type targetClrType;
             bool isCollection;
             string collectionName;
+            string actualNavigationName = navigationName;
 
             if (navigation != null)
             {
                 targetClrType = navigation.TargetEntityType.ClrType;
                 isCollection = navigation.IsCollection;
                 collectionName = _collectionManager.GetCollectionName(targetClrType);
+                actualNavigationName = navigation.Name; // Use actual navigation name
             }
             else
             {
-                // Fallback: use navigation name as collection name (will be resolved later)
-                // This happens for nested subcollections where we don't have the parent's entity type
-                targetClrType = typeof(object);
+                // Fallback: use type hint or navigation name
+                targetClrType = targetClrTypeHint ?? typeof(object);
                 isCollection = true; // Assume collection since we're in subcollection context
-                collectionName = navigationName;
+                collectionName = targetClrTypeHint != null
+                    ? _collectionManager.GetCollectionName(targetClrTypeHint)
+                    : navigationName;
             }
 
-            return new FirestoreSubcollectionProjection(navigationName, resultName, collectionName, isCollection, targetClrType);
+            return new FirestoreSubcollectionProjection(actualNavigationName, resultName, collectionName, isCollection, targetClrType);
         }
 
         /// <summary>
@@ -439,7 +453,93 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 return new NavigationInfo(memberExpr.Member.Name);
             }
 
+            // EF Core may wrap the navigation in different ways, check if it's a member access
+            // even if IsCollectionNavigation doesn't recognize the exact type
+            if (current is MemberExpression memberExpr2)
+            {
+                // Check if the type implements IEnumerable<T> (broader check)
+                var memberType = memberExpr2.Type;
+                if (IsEnumerableType(memberType))
+                {
+                    return new NavigationInfo(memberExpr2.Member.Name);
+                }
+            }
+
+            // EF Core transforms navigations like c.Pedidos.Select(...) into:
+            // [EntityQueryRootExpression].Where(p => Property(c, "Id") == Property(p, "ClienteId")).Select(...)
+            // We need to extract the entity type from the EntityQueryRootExpression
+            if (current != null && IsEntityQueryRootExpression(current))
+            {
+                var entityClrType = GetEntityTypeFromQueryRoot(current);
+                if (entityClrType != null)
+                {
+                    // Use the entity type name as the navigation name, but also pass the CLR type
+                    // so CreateSubcollectionProjection can find the navigation by target type
+                    return new NavigationInfo(entityClrType.Name, entityClrType);
+                }
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// Checks if an expression is an EF Core EntityQueryRootExpression.
+        /// </summary>
+        private static bool IsEntityQueryRootExpression(Expression expression)
+        {
+            // EntityQueryRootExpression is an internal EF Core type
+            // We check by type name to avoid coupling to internals
+            return expression.GetType().Name == "EntityQueryRootExpression";
+        }
+
+        /// <summary>
+        /// Extracts the entity CLR type from an EntityQueryRootExpression.
+        /// </summary>
+        private static Type? GetEntityTypeFromQueryRoot(Expression expression)
+        {
+            // EntityQueryRootExpression has an EntityType property
+            var entityTypeProp = expression.GetType().GetProperty("EntityType");
+            if (entityTypeProp != null)
+            {
+                var entityType = entityTypeProp.GetValue(expression) as IEntityType;
+                return entityType?.ClrType;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Checks if a type is an enumerable type (implements IEnumerable&lt;T&gt;).
+        /// More permissive than IsCollectionNavigation to handle EF Core type transformations.
+        /// </summary>
+        private static bool IsEnumerableType(Type type)
+        {
+            if (type == typeof(string)) return false; // string is IEnumerable<char> but not a collection
+
+            // Check if type itself is IEnumerable<T>
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return true;
+
+            // Check if type implements IEnumerable<T>
+            return type.GetInterfaces().Any(i =>
+                i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+        }
+
+        /// <summary>
+        /// Gets the root expression from a method call chain (for debugging).
+        /// </summary>
+        private static Expression? GetRootExpression(MethodCallExpression methodCallExpr)
+        {
+            Expression? current = methodCallExpr;
+            while (current is MethodCallExpression call)
+            {
+                if (call.Arguments.Count > 0)
+                    current = call.Arguments[0];
+                else if (call.Object != null)
+                    current = call.Object;
+                else
+                    return null;
+            }
+            return current;
         }
 
         /// <summary>
@@ -459,26 +559,40 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 current = call.Arguments.Count > 0 ? call.Arguments[0] : call.Object;
             }
 
+            // Check if the source is an EntityQueryRootExpression (EF Core's internal transformation)
+            // In this case, Where clauses are EF Core's internal join conditions, not user filters
+            var isFromEntityQueryRoot = current != null && IsEntityQueryRootExpression(current);
+
             // Process each method call
             foreach (var call in methodCalls)
             {
-                ProcessSubcollectionMethodCall(call, subcollection);
+                ProcessSubcollectionMethodCall(call, subcollection, skipInternalWheres: isFromEntityQueryRoot);
             }
         }
 
         /// <summary>
         /// Processes a single method call for a subcollection.
         /// </summary>
+        /// <param name="methodCall">The method call expression to process.</param>
+        /// <param name="subcollection">The subcollection projection to update.</param>
+        /// <param name="skipInternalWheres">If true, skip Where clauses as they are EF Core's internal join conditions.</param>
         private void ProcessSubcollectionMethodCall(
             MethodCallExpression methodCall,
-            FirestoreSubcollectionProjection subcollection)
+            FirestoreSubcollectionProjection subcollection,
+            bool skipInternalWheres = false)
         {
             var methodName = methodCall.Method.Name;
 
             switch (methodName)
             {
                 case "Where":
-                    ProcessSubcollectionWhere(methodCall, subcollection);
+                    // When the source is an EntityQueryRootExpression, EF Core adds internal Where clauses
+                    // for join conditions (e.g., Property(c, "Id") == Property(p, "ClienteId")).
+                    // These are NOT user filters and should be skipped.
+                    if (!skipInternalWheres)
+                    {
+                        ProcessSubcollectionWhere(methodCall, subcollection);
+                    }
                     break;
 
                 case "OrderBy":
@@ -754,10 +868,12 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         private sealed class NavigationInfo
         {
             public string NavigationName { get; }
+            public Type? TargetClrType { get; }
 
-            public NavigationInfo(string navigationName)
+            public NavigationInfo(string navigationName, Type? targetClrType = null)
             {
                 NavigationName = navigationName;
+                TargetClrType = targetClrType;
             }
         }
     }

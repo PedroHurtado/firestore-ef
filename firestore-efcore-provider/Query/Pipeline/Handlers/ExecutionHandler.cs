@@ -109,6 +109,7 @@ public class ExecutionHandler : IQueryPipelineHandler
         CancellationToken cancellationToken)
     {
         var allSnapshots = new Dictionary<string, DocumentSnapshot>();
+        var subcollectionAggregations = new Dictionary<string, object>();
 
         // Document query (by ID)
         if (resolved.IsDocumentQuery)
@@ -121,6 +122,7 @@ public class ExecutionHandler : IQueryPipelineHandler
 
             allSnapshots[doc.Reference.Path] = doc;
             await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+            await LoadProjectionSubcollectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
         }
         // Collection query
         else
@@ -133,12 +135,15 @@ public class ExecutionHandler : IQueryPipelineHandler
                 if (!doc.Exists) continue;
                 allSnapshots[doc.Reference.Path] = doc;
                 await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+                await LoadProjectionSubcollectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
             }
         }
 
-        var contextWithSnapshots = context.WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots);
+        var contextWithData = context
+            .WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots)
+            .WithMetadata(PipelineMetadataKeys.SubcollectionAggregations, subcollectionAggregations);
         var items = allSnapshots.Values.Cast<object>().ToList();
-        return new PipelineResult.Materialized(items, contextWithSnapshots);
+        return new PipelineResult.Materialized(items, contextWithData);
     }
 
     /// <summary>
@@ -150,6 +155,9 @@ public class ExecutionHandler : IQueryPipelineHandler
         Dictionary<string, DocumentSnapshot> allSnapshots,
         CancellationToken cancellationToken)
     {
+        if (includes.Count == 0)
+            return;
+
         foreach (var include in includes)
         {
             await LoadIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
@@ -246,5 +254,83 @@ public class ExecutionHandler : IQueryPipelineHandler
         }
 
         return current as DocumentReference;
+    }
+
+    /// <summary>
+    /// Loads all projection subcollections for a parent document.
+    /// </summary>
+    private async Task LoadProjectionSubcollectionsAsync(
+        DocumentSnapshot parentDoc,
+        IReadOnlyList<ResolvedSubcollectionProjection>? subcollections,
+        Dictionary<string, DocumentSnapshot> allSnapshots,
+        Dictionary<string, object> aggregations,
+        CancellationToken cancellationToken)
+    {
+        if (subcollections == null || subcollections.Count == 0)
+            return;
+
+        foreach (var subcollection in subcollections)
+        {
+            await LoadSubcollectionProjectionAsync(parentDoc, subcollection, allSnapshots, aggregations, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Loads a single subcollection projection.
+    /// For aggregations, executes aggregate query and stores result.
+    /// For regular queries, loads documents.
+    /// </summary>
+    private async Task LoadSubcollectionProjectionAsync(
+        DocumentSnapshot parentDoc,
+        ResolvedSubcollectionProjection subcollection,
+        Dictionary<string, DocumentSnapshot> allSnapshots,
+        Dictionary<string, object> aggregations,
+        CancellationToken cancellationToken)
+    {
+        if (subcollection.IsAggregation)
+        {
+            await LoadSubcollectionAggregationAsync(parentDoc, subcollection, aggregations, cancellationToken);
+        }
+        else
+        {
+            var query = _queryBuilder.BuildSubcollectionQuery(parentDoc.Reference.Path, subcollection);
+            var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+            foreach (var doc in snapshot.Documents)
+            {
+                if (!doc.Exists) continue;
+                allSnapshots[doc.Reference.Path] = doc;
+                await LoadProjectionSubcollectionsAsync(doc, subcollection.NestedSubcollections, allSnapshots, aggregations, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Executes a subcollection aggregation query (Sum, Count, Average).
+    /// Results are stored in the aggregations dictionary for later materialization.
+    /// </summary>
+    private async Task LoadSubcollectionAggregationAsync(
+        DocumentSnapshot parentDoc,
+        ResolvedSubcollectionProjection subcollection,
+        Dictionary<string, object> aggregations,
+        CancellationToken cancellationToken)
+    {
+        var aggregateQuery = _queryBuilder.BuildSubcollectionAggregate(parentDoc.Reference.Path, subcollection);
+        var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
+
+        // Key format: "{parentDocPath}:{subcollection.ResultName}"
+        var key = $"{parentDoc.Reference.Path}:{subcollection.ResultName}";
+
+        object value = subcollection.Aggregation switch
+        {
+            Ast.FirestoreAggregationType.Count => snapshot.Count ?? 0L,
+            Ast.FirestoreAggregationType.Sum => snapshot.GetValue<double?>(
+                AggregateField.Sum(subcollection.AggregationPropertyName!)) ?? 0.0,
+            Ast.FirestoreAggregationType.Average => snapshot.GetValue<double?>(
+                AggregateField.Average(subcollection.AggregationPropertyName!)) ?? 0.0,
+            _ => throw new NotSupportedException($"Subcollection aggregation {subcollection.Aggregation} not supported")
+        };
+
+        aggregations[key] = value;
     }
 }
