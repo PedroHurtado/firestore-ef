@@ -1,7 +1,7 @@
 using Fudie.Firestore.IntegrationTest.Helpers;
 using Microsoft.EntityFrameworkCore;
 
-namespace Fudie.Firestore.IntegrationTest.Query;
+namespace Fudie.Firestore.IntegrationTest.Projections;
 
 /// <summary>
 /// Integration tests for Select (projection) operators.
