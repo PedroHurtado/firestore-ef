@@ -1,5 +1,7 @@
+using Firestore.EntityFrameworkCore.Query.Resolved;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using Microsoft.EntityFrameworkCore.Metadata;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +12,7 @@ namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 /// Handler that tracks entities via IStateManager.
 /// Only applies to Entity queries when tracking is enabled.
 /// Gets IStateManager from QueryContext at runtime to avoid circular DI dependencies.
+/// Tracks both root entities and related entities from Includes.
 /// </summary>
 public class TrackingHandler : QueryPipelineHandlerBase
 {
@@ -53,6 +56,7 @@ public class TrackingHandler : QueryPipelineHandlerBase
 
         var key = entityType.FindPrimaryKey();
         var result = new List<object>(entities.Count);
+        var includes = context.ResolvedQuery?.Includes ?? [];
 
         foreach (var entity in entities)
         {
@@ -69,9 +73,83 @@ public class TrackingHandler : QueryPipelineHandlerBase
                 entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
                 result.Add(entity);
             }
+
+            // Track related entities from Includes
+            var entityToTrack = trackedEntity ?? entity;
+            TrackRelatedEntities(entityToTrack, entityType, includes, stateManager, model);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Recursively tracks related entities from navigation properties.
+    /// </summary>
+    private static void TrackRelatedEntities(
+        object entity,
+        IEntityType entityType,
+        IReadOnlyList<ResolvedInclude> includes,
+        IStateManager stateManager,
+        IModel model)
+    {
+        foreach (var include in includes)
+        {
+            var navigation = entityType.FindNavigation(include.NavigationName);
+            if (navigation == null)
+                continue;
+
+            var relatedEntityType = navigation.TargetEntityType;
+            var relatedKey = relatedEntityType.FindPrimaryKey();
+            var navigationValue = navigation.GetGetter().GetClrValue(entity);
+
+            if (navigationValue == null)
+                continue;
+
+            if (include.IsCollection && navigationValue is IEnumerable collection)
+            {
+                foreach (var relatedEntity in collection)
+                {
+                    if (relatedEntity == null)
+                        continue;
+
+                    TrackSingleEntity(relatedEntity, relatedEntityType, relatedKey, stateManager);
+
+                    // Recursively track nested includes
+                    if (include.NestedIncludes.Count > 0)
+                    {
+                        TrackRelatedEntities(relatedEntity, relatedEntityType, include.NestedIncludes, stateManager, model);
+                    }
+                }
+            }
+            else if (!include.IsCollection)
+            {
+                TrackSingleEntity(navigationValue, relatedEntityType, relatedKey, stateManager);
+
+                // Recursively track nested includes
+                if (include.NestedIncludes.Count > 0)
+                {
+                    TrackRelatedEntities(navigationValue, relatedEntityType, include.NestedIncludes, stateManager, model);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Tracks a single entity if not already tracked.
+    /// </summary>
+    private static void TrackSingleEntity(
+        object entity,
+        IEntityType entityType,
+        IKey? key,
+        IStateManager stateManager)
+    {
+        // Check if already tracked
+        var existingEntry = TryGetTrackedEntity(stateManager, entityType, key, entity);
+        if (existingEntry != null)
+            return;
+
+        var entry = stateManager.GetOrCreateEntry(entity, entityType);
+        entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
     }
 
     private static object? TryGetTrackedEntity(
