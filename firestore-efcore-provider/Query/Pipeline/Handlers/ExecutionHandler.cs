@@ -59,25 +59,8 @@ public class ExecutionHandler : IQueryPipelineHandler
         var aggregateQuery = _queryBuilder.BuildAggregate(resolved);
         var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
 
-        var value = resolved.AggregationType switch
-        {
-            FirestoreAggregationType.Count => snapshot.Count ?? 0L,
-            FirestoreAggregationType.Any => (snapshot.Count ?? 0L) > 0,
-            FirestoreAggregationType.Sum => snapshot.GetValue<double?>(
-                AggregateField.Sum(resolved.AggregationPropertyName!)) ?? 0.0,
-            FirestoreAggregationType.Average => ExtractAverage(snapshot, resolved.AggregationPropertyName!),
-            _ => snapshot.Count ?? 0L
-        };
-
+        var value = ExtractAggregationValue(snapshot, resolved.AggregationType, resolved.AggregationPropertyName);
         return new PipelineResult.Scalar(value, context);
-    }
-
-    private static object ExtractAverage(AggregateQuerySnapshot snapshot, string propertyName)
-    {
-        var value = snapshot.GetValue<double?>(AggregateField.Average(propertyName));
-        if (value == null)
-            throw new InvalidOperationException("Sequence contains no elements");
-        return value.Value;
     }
 
     private async Task<PipelineResult> ExecuteMinMaxAsync(
@@ -90,7 +73,6 @@ public class ExecutionHandler : IQueryPipelineHandler
 
         if (snapshot.Count == 0)
         {
-            // Empty sequence handling
             var isNullable = !context.ResultType.IsValueType ||
                              Nullable.GetUnderlyingType(context.ResultType) != null;
             if (isNullable)
@@ -111,7 +93,6 @@ public class ExecutionHandler : IQueryPipelineHandler
         var allSnapshots = new Dictionary<string, DocumentSnapshot>();
         var subcollectionAggregations = new Dictionary<string, object>();
 
-        // Document query (by ID)
         if (resolved.IsDocumentQuery)
         {
             var doc = await _client.GetDocumentAsync(
@@ -121,10 +102,9 @@ public class ExecutionHandler : IQueryPipelineHandler
                 return new PipelineResult.Empty(context);
 
             allSnapshots[doc.Reference.Path] = doc;
-            await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
-            await LoadProjectionSubcollectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
+            await LoadIncludesRecursiveAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+            await LoadSubcollectionProjectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
         }
-        // Collection query
         else
         {
             var query = _queryBuilder.Build(resolved);
@@ -134,8 +114,8 @@ public class ExecutionHandler : IQueryPipelineHandler
             {
                 if (!doc.Exists) continue;
                 allSnapshots[doc.Reference.Path] = doc;
-                await LoadIncludesAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
-                await LoadProjectionSubcollectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
+                await LoadIncludesRecursiveAsync(doc, resolved.Includes, allSnapshots, cancellationToken);
+                await LoadSubcollectionProjectionsAsync(doc, resolved.Projection?.Subcollections, allSnapshots, subcollectionAggregations, cancellationToken);
             }
         }
 
@@ -148,8 +128,9 @@ public class ExecutionHandler : IQueryPipelineHandler
 
     /// <summary>
     /// Loads all includes recursively for a parent document.
+    /// Handles both SubCollection and Reference includes inline.
     /// </summary>
-    private async Task LoadIncludesAsync(
+    private async Task LoadIncludesRecursiveAsync(
         DocumentSnapshot parentDoc,
         IReadOnlyList<ResolvedInclude> includes,
         Dictionary<string, DocumentSnapshot> allSnapshots,
@@ -160,106 +141,95 @@ public class ExecutionHandler : IQueryPipelineHandler
 
         foreach (var include in includes)
         {
-            await LoadIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
+            if (include.IsCollection)
+            {
+                // SubCollection: query N documents
+                var query = _queryBuilder.BuildInclude(parentDoc.Reference.Path, include);
+                var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (!doc.Exists) continue;
+                    allSnapshots[doc.Reference.Path] = doc;
+                    await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                }
+            }
+            else
+            {
+                // Reference: FK → single document
+                var docRef = GetNestedDocumentReference(parentDoc.ToDictionary(), include.NavigationName);
+                if (docRef == null || allSnapshots.ContainsKey(docRef.Path))
+                    continue;
+
+                var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+                if (!doc.Exists)
+                    continue;
+
+                allSnapshots[doc.Reference.Path] = doc;
+                await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+            }
         }
     }
 
     /// <summary>
-    /// Loads a single include (SubCollection or Reference).
-    /// </summary>
-    private async Task LoadIncludeAsync(
-        DocumentSnapshot parentDoc,
-        ResolvedInclude include,
-        Dictionary<string, DocumentSnapshot> allSnapshots,
-        CancellationToken cancellationToken)
-    {
-        if (include.IsCollection)
-        {
-            await LoadSubCollectionIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
-        }
-        else
-        {
-            await LoadReferenceIncludeAsync(parentDoc, include, allSnapshots, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Loads a SubCollection include (query N documents).
-    /// </summary>
-    private async Task LoadSubCollectionIncludeAsync(
-        DocumentSnapshot parentDoc,
-        ResolvedInclude include,
-        Dictionary<string, DocumentSnapshot> allSnapshots,
-        CancellationToken cancellationToken)
-    {
-        var query = _queryBuilder.BuildInclude(parentDoc.Reference.Path, include);
-        var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
-
-        foreach (var doc in snapshot.Documents)
-        {
-            if (!doc.Exists) continue;
-            allSnapshots[doc.Reference.Path] = doc;
-            await LoadIncludesAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Loads a Reference include (FK → single document).
-    /// Supports nested paths like "DireccionPrincipal.SucursalCercana" for ComplexType References.
-    /// </summary>
-    private async Task LoadReferenceIncludeAsync(
-        DocumentSnapshot parentDoc,
-        ResolvedInclude include,
-        Dictionary<string, DocumentSnapshot> allSnapshots,
-        CancellationToken cancellationToken)
-    {
-        var data = parentDoc.ToDictionary();
-        var docRef = GetNestedDocumentReference(data, include.NavigationName);
-        if (docRef == null)
-            return;
-
-        if (allSnapshots.ContainsKey(docRef.Path))
-            return; // Already loaded
-
-        var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
-        if (!doc.Exists)
-            return;
-
-        allSnapshots[doc.Reference.Path] = doc;
-        await LoadIncludesAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
-    }
-
-    /// <summary>
-    /// Gets a DocumentReference from a path in the document data.
-    /// Supports nested paths like "ComplexTypeProp.ReferenceProp".
+    /// Gets a DocumentReference from a nested path in the document data.
+    /// Supports paths like "ComplexTypeProp.ReferenceProp".
     /// </summary>
     private static DocumentReference? GetNestedDocumentReference(
         IDictionary<string, object> data,
         string navigationPath)
     {
-        var parts = navigationPath.Split('.');
         object? current = data;
 
-        foreach (var part in parts)
+        foreach (var part in navigationPath.Split('.'))
         {
-            if (current is IDictionary<string, object> dict)
-            {
-                if (!dict.TryGetValue(part, out current))
-                    return null;
-            }
-            else
-            {
-                return null;
-            }
+            if (current is IDictionary<string, object> dict && dict.TryGetValue(part, out current))
+                continue;
+            return null;
         }
 
         return current as DocumentReference;
     }
 
     /// <summary>
-    /// Loads all projection subcollections for a parent document.
+    /// Extracts the aggregation value from an AggregateQuerySnapshot.
+    /// For main queries, Average throws on empty. For subcollections, returns 0.0.
     /// </summary>
-    private async Task LoadProjectionSubcollectionsAsync(
+    private static object ExtractAggregationValue(
+        AggregateQuerySnapshot snapshot,
+        FirestoreAggregationType aggregationType,
+        string? propertyName,
+        bool throwOnEmptyAverage = true)
+    {
+        return aggregationType switch
+        {
+            FirestoreAggregationType.Count => snapshot.Count ?? 0L,
+            FirestoreAggregationType.Any => (snapshot.Count ?? 0L) > 0,
+            FirestoreAggregationType.Sum => snapshot.GetValue<double?>(
+                AggregateField.Sum(propertyName!)) ?? 0.0,
+            FirestoreAggregationType.Average => ExtractAverage(snapshot, propertyName!, throwOnEmptyAverage),
+            _ => throw new NotSupportedException($"Aggregation {aggregationType} not supported")
+        };
+    }
+
+    private static object ExtractAverage(AggregateQuerySnapshot snapshot, string propertyName, bool throwOnEmpty)
+    {
+        var value = snapshot.GetValue<double?>(AggregateField.Average(propertyName));
+        if (value == null)
+        {
+            if (throwOnEmpty)
+                throw new InvalidOperationException("Sequence contains no elements");
+            return 0.0;
+        }
+        return value.Value;
+    }
+
+    /// <summary>
+    /// Loads all projection subcollections for a parent document.
+    /// For aggregations, executes aggregate query and stores result.
+    /// For regular queries, loads documents recursively.
+    /// </summary>
+    private async Task LoadSubcollectionProjectionsAsync(
         DocumentSnapshot parentDoc,
         IReadOnlyList<ResolvedSubcollectionProjection>? subcollections,
         Dictionary<string, DocumentSnapshot> allSnapshots,
@@ -271,66 +241,32 @@ public class ExecutionHandler : IQueryPipelineHandler
 
         foreach (var subcollection in subcollections)
         {
-            await LoadSubcollectionProjectionAsync(parentDoc, subcollection, allSnapshots, aggregations, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Loads a single subcollection projection.
-    /// For aggregations, executes aggregate query and stores result.
-    /// For regular queries, loads documents.
-    /// </summary>
-    private async Task LoadSubcollectionProjectionAsync(
-        DocumentSnapshot parentDoc,
-        ResolvedSubcollectionProjection subcollection,
-        Dictionary<string, DocumentSnapshot> allSnapshots,
-        Dictionary<string, object> aggregations,
-        CancellationToken cancellationToken)
-    {
-        if (subcollection.IsAggregation)
-        {
-            await LoadSubcollectionAggregationAsync(parentDoc, subcollection, aggregations, cancellationToken);
-        }
-        else
-        {
-            var query = _queryBuilder.BuildSubcollectionQuery(parentDoc.Reference.Path, subcollection);
-            var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
-
-            foreach (var doc in snapshot.Documents)
+            if (subcollection.IsAggregation)
             {
-                if (!doc.Exists) continue;
-                allSnapshots[doc.Reference.Path] = doc;
-                await LoadProjectionSubcollectionsAsync(doc, subcollection.NestedSubcollections, allSnapshots, aggregations, cancellationToken);
+                // Aggregation: Sum, Count, Average
+                var aggregateQuery = _queryBuilder.BuildSubcollectionAggregate(parentDoc.Reference.Path, subcollection);
+                var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
+
+                var key = $"{parentDoc.Reference.Path}:{subcollection.ResultName}";
+                aggregations[key] = ExtractAggregationValue(
+                    snapshot, 
+                    subcollection.Aggregation ?? FirestoreAggregationType.Count, 
+                    subcollection.AggregationPropertyName,
+                    throwOnEmptyAverage: false);
+            }
+            else
+            {
+                // Regular query: load documents
+                var query = _queryBuilder.BuildSubcollectionQuery(parentDoc.Reference.Path, subcollection);
+                var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+                foreach (var doc in snapshot.Documents)
+                {
+                    if (!doc.Exists) continue;
+                    allSnapshots[doc.Reference.Path] = doc;
+                    await LoadSubcollectionProjectionsAsync(doc, subcollection.NestedSubcollections, allSnapshots, aggregations, cancellationToken);
+                }
             }
         }
-    }
-
-    /// <summary>
-    /// Executes a subcollection aggregation query (Sum, Count, Average).
-    /// Results are stored in the aggregations dictionary for later materialization.
-    /// </summary>
-    private async Task LoadSubcollectionAggregationAsync(
-        DocumentSnapshot parentDoc,
-        ResolvedSubcollectionProjection subcollection,
-        Dictionary<string, object> aggregations,
-        CancellationToken cancellationToken)
-    {
-        var aggregateQuery = _queryBuilder.BuildSubcollectionAggregate(parentDoc.Reference.Path, subcollection);
-        var snapshot = await _client.ExecuteAggregateQueryAsync(aggregateQuery, cancellationToken);
-
-        // Key format: "{parentDocPath}:{subcollection.ResultName}"
-        var key = $"{parentDoc.Reference.Path}:{subcollection.ResultName}";
-
-        object value = subcollection.Aggregation switch
-        {
-            Ast.FirestoreAggregationType.Count => snapshot.Count ?? 0L,
-            Ast.FirestoreAggregationType.Sum => snapshot.GetValue<double?>(
-                AggregateField.Sum(subcollection.AggregationPropertyName!)) ?? 0.0,
-            Ast.FirestoreAggregationType.Average => snapshot.GetValue<double?>(
-                AggregateField.Average(subcollection.AggregationPropertyName!)) ?? 0.0,
-            _ => throw new NotSupportedException($"Subcollection aggregation {subcollection.Aggregation} not supported")
-        };
-
-        aggregations[key] = value;
     }
 }
