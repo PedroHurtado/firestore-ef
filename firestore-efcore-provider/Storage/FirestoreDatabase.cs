@@ -700,11 +700,27 @@ namespace Firestore.EntityFrameworkCore.Storage
                 var value = prop.GetValue(complexObject);
                 if (value == null) continue;
 
-                if (value.GetType().IsClass &&
-                    value is not string &&
-                    value is not IEnumerable)
+                // ✅ Manejar listas anidadas recursivamente
+                if (value is IEnumerable enumerable && value is not string)
                 {
-                    dict[prop.Name] = SerializeComplexTypeFromObject(value);
+                    var serializedList = SerializeNestedList(enumerable, prop.PropertyType);
+                    if (serializedList != null)
+                        dict[prop.Name] = serializedList;
+                }
+                else if (value.GetType().IsClass && value is not string)
+                {
+                    // ✅ Verificar si es una entidad (referencia)
+                    var entityType = _model.FindEntityType(value.GetType());
+                    if (entityType != null)
+                    {
+                        var docRef = CreateDocumentReference(value, entityType);
+                        if (docRef != null)
+                            dict[prop.Name] = docRef;
+                    }
+                    else
+                    {
+                        dict[prop.Name] = SerializeComplexTypeFromObject(value);
+                    }
                 }
                 else
                 {
@@ -713,6 +729,111 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
 
             return dict;
+        }
+
+        /// <summary>
+        /// Serializa una lista anidada dentro de un ComplexType.
+        /// Detecta automáticamente si es List de ComplexTypes, GeoPoints o References.
+        /// </summary>
+        private object? SerializeNestedList(IEnumerable enumerable, Type propertyType)
+        {
+            // Obtener el tipo de elemento de la lista
+            var elementType = GetEnumerableElementType(propertyType);
+            if (elementType == null)
+                return null;
+
+            // ✅ Caso 1: Es una entidad registrada → List<DocumentReference>
+            var entityType = _model.FindEntityType(elementType);
+            if (entityType != null)
+            {
+                var refList = new List<Google.Cloud.Firestore.DocumentReference>();
+                foreach (var item in enumerable)
+                {
+                    if (item == null) continue;
+                    var docRef = CreateDocumentReference(item, entityType);
+                    if (docRef != null)
+                        refList.Add(docRef);
+                }
+                return refList;
+            }
+
+            // ✅ Caso 2: Tiene propiedades Latitude/Longitude → List<GeoPoint>
+            if (HasGeoPointProperties(elementType))
+            {
+                var geoList = new List<Google.Cloud.Firestore.GeoPoint>();
+                foreach (var item in enumerable)
+                {
+                    if (item != null)
+                        geoList.Add(ConvertToFirestoreGeoPoint(item));
+                }
+                return geoList;
+            }
+
+            // ✅ Caso 3: Es un ComplexType → List<Dictionary<string, object>>
+            if (elementType.IsClass && elementType != typeof(string))
+            {
+                var mapList = new List<Dictionary<string, object>>();
+                foreach (var item in enumerable)
+                {
+                    if (item != null)
+                        mapList.Add(SerializeComplexTypeFromObject(item));
+                }
+                return mapList;
+            }
+
+            // Caso 4: Tipos primitivos - devolver tal cual
+            return enumerable;
+        }
+
+        /// <summary>
+        /// Obtiene el tipo de elemento de un IEnumerable genérico.
+        /// </summary>
+        private static Type? GetEnumerableElementType(Type type)
+        {
+            if (type.IsGenericType)
+            {
+                var genericArgs = type.GetGenericArguments();
+                if (genericArgs.Length == 1)
+                    return genericArgs[0];
+            }
+
+            // Buscar en interfaces
+            foreach (var iface in type.GetInterfaces())
+            {
+                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                    return iface.GetGenericArguments()[0];
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Verifica si un tipo tiene propiedades Latitude y Longitude.
+        /// </summary>
+        private static bool HasGeoPointProperties(Type type)
+        {
+            var latProp = type.GetProperty("Latitude");
+            var lngProp = type.GetProperty("Longitude");
+            return latProp != null && lngProp != null &&
+                   (latProp.PropertyType == typeof(double) || latProp.PropertyType == typeof(float)) &&
+                   (lngProp.PropertyType == typeof(double) || lngProp.PropertyType == typeof(float));
+        }
+
+        /// <summary>
+        /// Crea un DocumentReference a partir de una entidad.
+        /// </summary>
+        private Google.Cloud.Firestore.DocumentReference? CreateDocumentReference(object entity, IEntityType entityType)
+        {
+            var primaryKey = entityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (primaryKey == null) return null;
+
+            var idValue = primaryKey.PropertyInfo?.GetValue(entity);
+            if (idValue == null || IsDefaultValue(idValue, primaryKey.ClrType)) return null;
+
+            var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
+            return _firestoreClient.Database
+                .Collection(collectionName)
+                .Document(idValue.ToString()!);
         }
 
         private Dictionary<string, object> SerializeComplexType(object complexObject, IComplexType complexType)
