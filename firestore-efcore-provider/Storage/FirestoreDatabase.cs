@@ -556,7 +556,40 @@ namespace Firestore.EntityFrameworkCore.Storage
                     }
                     dict[prop.Name] = list;
                 }
-                // ArrayType.Reference se implementará en Fase 4
+                else if (arrayType == ArrayOfAnnotations.ArrayType.Reference)
+                {
+                    // List<Entity> → List<DocumentReference>
+                    var elementType = entityType.GetArrayOfElementClrType(prop.Name);
+                    if (elementType == null)
+                        continue;
+
+                    var referencedEntityType = _model.FindEntityType(elementType);
+                    if (referencedEntityType == null)
+                        continue;
+
+                    var idProperty = referencedEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+                    if (idProperty == null)
+                        continue;
+
+                    var collectionName = _collectionManager.GetCollectionName(elementType);
+                    var list = new List<Google.Cloud.Firestore.DocumentReference>();
+
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null)
+                            continue;
+
+                        var idValue = idProperty.PropertyInfo?.GetValue(item);
+                        if (idValue == null || IsDefaultValue(idValue, idProperty.ClrType))
+                            continue;
+
+                        var docRef = _firestoreClient.Database
+                            .Collection(collectionName)
+                            .Document(idValue.ToString()!);
+                        list.Add(docRef);
+                    }
+                    dict[prop.Name] = list;
+                }
             }
         }
 
