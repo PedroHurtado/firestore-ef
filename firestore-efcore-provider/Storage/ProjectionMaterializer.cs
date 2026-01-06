@@ -29,11 +29,43 @@ public class ProjectionMaterializer : IProjectionMaterializer
         IReadOnlyDictionary<string, object> aggregations)
     {
         var targetType = projection.ClrType;
+        IDictionary<string, object> data = rootSnapshot.ToDictionary();
+
+        // Handle primitive types directly (string, int, decimal, etc.)
+        if (IsPrimitiveOrSimpleType(targetType))
+        {
+            return MaterializePrimitiveValue(projection, data, targetType);
+        }
+
+        // Handle ComplexType projection (e.g., Select(p => p.Direccion))
+        // When projecting a single ComplexType, extract its sub-dictionary
+        if (projection.Fields != null && projection.Fields.Count == 1)
+        {
+            var field = projection.Fields[0];
+            var nestedData = GetNestedValue(data, field.FieldPath);
+            if (nestedData is IDictionary<string, object> complexTypeData)
+            {
+                data = complexTypeData;
+            }
+        }
+
+        // Handle complex types with constructor
         var constructor = GetBestConstructor(targetType);
         var parameters = constructor.GetParameters();
 
+        // If parameterless constructor, use property setters
+        if (parameters.Length == 0)
+        {
+            return MaterializeWithPropertySetters(
+                targetType,
+                projection,
+                rootSnapshot,
+                data,
+                allSnapshots,
+                aggregations);
+        }
+
         var args = new object?[parameters.Length];
-        var data = rootSnapshot.ToDictionary();
 
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -48,6 +80,127 @@ public class ProjectionMaterializer : IProjectionMaterializer
         }
 
         return constructor.Invoke(args);
+    }
+
+    private object MaterializePrimitiveValue(
+        ResolvedProjectionDefinition projection,
+        IDictionary<string, object> data,
+        Type targetType)
+    {
+        // If there's a single field projection, use it
+        if (projection.Fields != null && projection.Fields.Count == 1)
+        {
+            var field = projection.Fields[0];
+            var value = GetNestedValue(data, field.FieldPath);
+            return _valueConverter.FromFirestore(value, targetType)!;
+        }
+
+        // Fallback: try to find a value that matches the target type
+        // This handles cases like Select(e => e.Name) where Name maps directly
+        foreach (var kvp in data)
+        {
+            var converted = _valueConverter.FromFirestore(kvp.Value, targetType);
+            if (converted != null && converted.GetType() == targetType)
+            {
+                return converted;
+            }
+        }
+
+        // Return default if nothing found
+        return targetType.IsValueType
+            ? Activator.CreateInstance(targetType)!
+            : null!;
+    }
+
+    private static bool IsPrimitiveOrSimpleType(Type type)
+    {
+        return type.IsPrimitive
+            || type == typeof(string)
+            || type == typeof(decimal)
+            || type == typeof(DateTime)
+            || type == typeof(DateTimeOffset)
+            || type == typeof(TimeSpan)
+            || type == typeof(Guid)
+            || (Nullable.GetUnderlyingType(type) != null && IsPrimitiveOrSimpleType(Nullable.GetUnderlyingType(type)!));
+    }
+
+    private object MaterializeWithPropertySetters(
+        Type targetType,
+        ResolvedProjectionDefinition projection,
+        DocumentSnapshot rootSnapshot,
+        IDictionary<string, object> data,
+        IReadOnlyDictionary<string, DocumentSnapshot> allSnapshots,
+        IReadOnlyDictionary<string, object> aggregations)
+    {
+        var instance = Activator.CreateInstance(targetType)!;
+
+        foreach (var prop in targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!prop.CanWrite) continue;
+
+            var propName = prop.Name;
+            object? value = null;
+
+            // 1. Check if it's a subcollection aggregation
+            var aggregationKey = $"{rootSnapshot.Reference.Path}:{propName}";
+            if (aggregations.TryGetValue(aggregationKey, out var aggValue))
+            {
+                value = _valueConverter.FromFirestore(aggValue, prop.PropertyType);
+            }
+            // 2. Check if it's a subcollection projection
+            else
+            {
+                var subcollection = projection.Subcollections
+                    .FirstOrDefault(s => s.ResultName.Equals(propName, StringComparison.OrdinalIgnoreCase));
+
+                if (subcollection != null && !subcollection.IsAggregation)
+                {
+                    value = MaterializeSubcollection(
+                        subcollection,
+                        rootSnapshot,
+                        allSnapshots,
+                        aggregations,
+                        prop.PropertyType);
+                }
+                // 3. Check if it's a projected field
+                else
+                {
+                    var field = projection.Fields?
+                        .FirstOrDefault(f => f.ResultName.Equals(propName, StringComparison.OrdinalIgnoreCase));
+
+                    if (field != null)
+                    {
+                        // Handle Id field specially
+                        if (field.FieldPath.Equals("Id", StringComparison.OrdinalIgnoreCase))
+                        {
+                            value = _valueConverter.FromFirestore(rootSnapshot.Id, prop.PropertyType);
+                        }
+                        else
+                        {
+                            var fieldValue = GetNestedValue(data, field.FieldPath);
+                            value = _valueConverter.FromFirestore(fieldValue, prop.PropertyType);
+                        }
+                    }
+                    // 4. Try direct field match from document
+                    else if (data.TryGetValue(propName, out var directValue))
+                    {
+                        value = _valueConverter.FromFirestore(directValue, prop.PropertyType);
+                    }
+                    // 5. Handle Id specially
+                    else if (propName.Equals("Id", StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = _valueConverter.FromFirestore(rootSnapshot.Id, prop.PropertyType);
+                    }
+                }
+            }
+
+            if (value != null)
+            {
+                prop.SetValue(instance, value);
+            }
+        }
+
+        return instance;
     }
 
     /// <inheritdoc />
@@ -99,6 +252,12 @@ public class ProjectionMaterializer : IProjectionMaterializer
 
         if (field != null)
         {
+            // Handle Id field specially - it comes from DocumentSnapshot.Id, not from data
+            if (field.FieldPath.Equals("Id", StringComparison.OrdinalIgnoreCase))
+            {
+                return _valueConverter.FromFirestore(rootSnapshot.Id, param.ParameterType);
+            }
+
             var fieldValue = GetNestedValue(data, field.FieldPath);
             return _valueConverter.FromFirestore(fieldValue, param.ParameterType);
         }
@@ -212,6 +371,13 @@ public class ProjectionMaterializer : IProjectionMaterializer
 
             if (field != null)
             {
+                // Handle Id field specially - it comes from DocumentSnapshot.Id, not from data
+                if (field.FieldPath.Equals("Id", StringComparison.OrdinalIgnoreCase))
+                {
+                    args[i] = _valueConverter.FromFirestore(snapshot.Id, param.ParameterType);
+                    continue;
+                }
+
                 var fieldValue = GetNestedValue(data, field.FieldPath);
                 args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
                 continue;

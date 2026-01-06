@@ -183,10 +183,21 @@ public class ProductoCompleto
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
     public required GeoLocation Ubicacion { get; set; }
     public required Direccion Direccion { get; set; }
+
+    // Lists of primitives
     public List<decimal> Precios { get; set; } = [];
-    public List<CategoriaProducto> Tags { get; set; } = [];
     public List<int> Cantidades { get; set; } = [];
+    public List<double> Pesos { get; set; } = [];
     public List<string> Etiquetas { get; set; } = [];
+
+    // List of enums
+    public List<CategoriaProducto> Tags { get; set; } = [];
+
+    // List of GeoLocation
+    public List<GeoLocation> Ubicaciones { get; set; } = [];
+
+    // List of ComplexType
+    public List<Direccion> DireccionesEntrega { get; set; } = [];
 }
 
 // ============================================================================
