@@ -304,6 +304,9 @@ namespace Firestore.EntityFrameworkCore.Storage
             // Serializar Complex Properties (Value Objects)
             SerializeComplexProperties(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
+            // ✅ Serializar propiedades ArrayOf (List<ValueObject>, List<GeoPoint>)
+            SerializeArrayOfProperties(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
             // ✅ Serializar referencias de entidades individuales
             SerializeEntityReferences(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
@@ -501,6 +504,59 @@ namespace Firestore.EntityFrameworkCore.Storage
 
                 // ✅ 4. Complex type simple (no colección, no GeoPoint, no Reference)
                 dict[complexProperty.Name] = SerializeComplexType(complexValue, complexProperty.ComplexType);
+            }
+        }
+
+        // ✅ Serializar propiedades marcadas con ArrayOf (List<ValueObject>, List<GeoPoint>)
+        private void SerializeArrayOfProperties(
+            IEntityType entityType,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var prop in clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                // Verificar si esta propiedad está marcada como ArrayOf
+                var arrayType = entityType.GetArrayOfType(prop.Name);
+                if (arrayType == null)
+                    continue;
+
+                var value = prop.GetValue(entity);
+                if (value == null)
+                    continue;
+
+                if (value is not IEnumerable enumerable)
+                    continue;
+
+                // Serializar según el tipo de ArrayOf
+                if (arrayType == ArrayOfAnnotations.ArrayType.Embedded)
+                {
+                    // List<ValueObject> → List<Dictionary<string, object>>
+                    var list = new List<Dictionary<string, object>>();
+                    foreach (var item in enumerable)
+                    {
+                        if (item != null)
+                        {
+                            list.Add(SerializeComplexTypeFromObject(item));
+                        }
+                    }
+                    dict[prop.Name] = list;
+                }
+                else if (arrayType == ArrayOfAnnotations.ArrayType.GeoPoint)
+                {
+                    // List<GeoLocation> → List<GeoPoint>
+                    var list = new List<Google.Cloud.Firestore.GeoPoint>();
+                    foreach (var item in enumerable)
+                    {
+                        if (item != null)
+                        {
+                            list.Add(ConvertToFirestoreGeoPoint(item));
+                        }
+                    }
+                    dict[prop.Name] = list;
+                }
+                // ArrayType.Reference se implementará en Fase 4
             }
         }
 

@@ -35,6 +35,10 @@ public class ArrayOfBuilder<TEntity, TElement>
         var memberInfo = propertyExpression.GetMemberAccess();
         _propertyName = memberInfo.Name;
 
+        // ✅ Ignorar la propiedad para que EF Core no intente registrarla como navegación
+        // ArrayOf se maneja directamente por el serializador de Firestore
+        _entityTypeBuilder.Ignore(_propertyName);
+
         // Registrar anotación base como Embedded por defecto
         _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Embedded);
         _entityType.SetArrayOfElementClrType(_propertyName, _elementType);
