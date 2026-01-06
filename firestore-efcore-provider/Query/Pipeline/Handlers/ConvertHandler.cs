@@ -12,22 +12,25 @@ namespace Firestore.EntityFrameworkCore.Query.Pipeline;
 
 /// <summary>
 /// Handler that converts Firestore results to CLR types.
-/// - Materialized DocumentSnapshots → Materialized entities
+/// - Materialized DocumentSnapshots → Materialized entities or projections
 /// - Scalar values → converted CLR types
 /// - Handles Include by assembling navigation hierarchies (bottom→top)
 /// </summary>
 public class ConvertHandler : IQueryPipelineHandler
 {
     private readonly IFirestoreDocumentDeserializer _deserializer;
+    private readonly IProjectionMaterializer _projectionMaterializer;
     private readonly ITypeConverter _typeConverter;
     private readonly IFirestoreCollectionManager _collectionManager;
 
     public ConvertHandler(
         IFirestoreDocumentDeserializer deserializer,
+        IProjectionMaterializer projectionMaterializer,
         ITypeConverter typeConverter,
         IFirestoreCollectionManager collectionManager)
     {
         _deserializer = deserializer;
+        _projectionMaterializer = projectionMaterializer;
         _typeConverter = typeConverter;
         _collectionManager = collectionManager;
     }
@@ -54,14 +57,79 @@ public class ConvertHandler : IQueryPipelineHandler
             return new PipelineResult.Scalar(converted!, context);
         }
 
-        // Materialized: deserialize entities
-        if (result is PipelineResult.Materialized materialized && context.EntityType != null)
+        // Materialized: deserialize entities or projections
+        if (result is PipelineResult.Materialized materialized)
         {
-            var entities = DeserializeEntities(materialized.Context, context.EntityType);
-            return new PipelineResult.Materialized(entities, materialized.Context);
+            // Check if this is a projection query
+            var projection = materialized.Context.ResolvedQuery?.Projection;
+            if (projection != null)
+            {
+                var projectedItems = MaterializeProjections(materialized.Context, projection);
+                return new PipelineResult.Materialized(projectedItems, materialized.Context);
+            }
+
+            // Entity deserialization
+            if (context.EntityType != null)
+            {
+                var entities = DeserializeEntities(materialized.Context, context.EntityType);
+                return new PipelineResult.Materialized(entities, materialized.Context);
+            }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Materializes projection results using IProjectionMaterializer.
+    /// </summary>
+    private IReadOnlyList<object> MaterializeProjections(
+        PipelineContext context,
+        ResolvedProjectionDefinition projection)
+    {
+        var allSnapshots = context.GetMetadata(PipelineMetadataKeys.AllSnapshots);
+        if (allSnapshots == null || allSnapshots.Count == 0)
+            return Array.Empty<object>();
+
+        var aggregations = context.GetMetadata(PipelineMetadataKeys.SubcollectionAggregations)
+            ?? new Dictionary<string, object>();
+
+        // Find root documents (entities being projected)
+        var rootCollectionName = GetRootCollectionFromSnapshots(allSnapshots);
+        var rootSnapshots = allSnapshots
+            .Where(kv => IsRootDocument(kv.Key, rootCollectionName))
+            .Select(kv => kv.Value)
+            .ToList();
+
+        return _projectionMaterializer.MaterializeMany(projection, rootSnapshots, allSnapshots, aggregations);
+    }
+
+    private static string GetRootCollectionFromSnapshots(IReadOnlyDictionary<string, DocumentSnapshot> snapshots)
+    {
+        // Find the shallowest document path to determine root collection
+        var minDepth = int.MaxValue;
+        string rootCollection = string.Empty;
+
+        foreach (var path in snapshots.Keys)
+        {
+            var relativePath = ExtractRelativePath(path);
+            var depth = GetPathDepth(relativePath);
+            if (depth < minDepth)
+            {
+                minDepth = depth;
+                var segments = relativePath.Split('/');
+                rootCollection = segments[0];
+            }
+        }
+
+        return rootCollection;
+    }
+
+    private static bool IsRootDocument(string path, string rootCollectionName)
+    {
+        var relativePath = ExtractRelativePath(path);
+        var depth = GetPathDepth(relativePath);
+        var segments = relativePath.Split('/');
+        return depth == 1 && segments[0].Equals(rootCollectionName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

@@ -18,20 +18,26 @@ public class ConvertHandlerTests
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(3);
+        parameters.Should().HaveCount(4);
         parameters[0].ParameterType.Should().Be(typeof(IFirestoreDocumentDeserializer));
-        parameters[1].ParameterType.Should().Be(typeof(ITypeConverter));
-        parameters[2].ParameterType.Should().Be(typeof(IFirestoreCollectionManager));
+        parameters[1].ParameterType.Should().Be(typeof(IProjectionMaterializer));
+        parameters[2].ParameterType.Should().Be(typeof(ITypeConverter));
+        parameters[3].ParameterType.Should().Be(typeof(IFirestoreCollectionManager));
     }
 
     [Fact]
     public void ConvertHandler_Can_Be_Instantiated()
     {
         var mockDeserializer = new Mock<IFirestoreDocumentDeserializer>();
+        var mockProjectionMaterializer = new Mock<IProjectionMaterializer>();
         var mockConverter = new Mock<ITypeConverter>();
         var mockCollectionManager = new Mock<IFirestoreCollectionManager>();
 
-        var handler = new ConvertHandler(mockDeserializer.Object, mockConverter.Object, mockCollectionManager.Object);
+        var handler = new ConvertHandler(
+            mockDeserializer.Object,
+            mockProjectionMaterializer.Object,
+            mockConverter.Object,
+            mockCollectionManager.Object);
 
         handler.Should().NotBeNull();
     }
