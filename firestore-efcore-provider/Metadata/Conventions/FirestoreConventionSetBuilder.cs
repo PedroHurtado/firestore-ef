@@ -15,8 +15,13 @@ public class FirestoreConventionSetBuilder : ProviderConventionSetBuilder
         var conventionSet = base.CreateConventionSet();
 
         // Agregar conventions que se ejecutan cuando se agrega una entidad
+        var arrayOfConvention = new ArrayOfConvention();
         conventionSet.EntityTypeAddedConventions.Add(new PrimaryKeyConvention());
         conventionSet.EntityTypeAddedConventions.Add(new CollectionNamingConvention());
+        conventionSet.EntityTypeAddedConventions.Add(arrayOfConvention);
+
+        // Agregar conventions que se ejecutan al finalizar el modelo
+        conventionSet.ModelFinalizingConventions.Add(arrayOfConvention);
 
         // Agregar conventions que se ejecutan cuando se agrega una propiedad
         conventionSet.PropertyAddedConventions.Add(new EnumToStringConvention());

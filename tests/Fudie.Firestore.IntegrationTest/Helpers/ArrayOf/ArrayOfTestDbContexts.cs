@@ -118,3 +118,19 @@ public class ArrayOfComplexWithReferencesTestDbContext(DbContextOptions<ArrayOfC
         });
     }
 }
+
+// ============================================================================
+// DBCONTEXT PARA TEST DE AUTO-DETECCIÓN (SIN CONFIGURACIÓN EXPLÍCITA)
+// ============================================================================
+
+/// <summary>
+/// DbContext con CERO configuración.
+/// Demuestra que las conventions auto-detectan todo:
+/// - PK por convention (propiedad Id)
+/// - Direcciones → ArrayOf Embedded (clase sin Id)
+/// - Ubicaciones → ArrayOf GeoPoint (tiene Lat/Lng sin Id)
+/// </summary>
+public class ArrayOfConventionTestDbContext(DbContextOptions<ArrayOfConventionTestDbContext> options) : DbContext(options)
+{
+    public DbSet<Oficina> Oficinas => Set<Oficina>();
+}

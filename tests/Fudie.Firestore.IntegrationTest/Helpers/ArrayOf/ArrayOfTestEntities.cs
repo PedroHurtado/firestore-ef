@@ -141,3 +141,42 @@ public class Catalogo
     public required string Titulo { get; set; }
     public List<Seccion> Secciones { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA TEST DE AUTO-DETECCIÓN (CONVENTION)
+// ============================================================================
+
+/// <summary>
+/// ComplexType simple para test de auto-detección.
+/// NO tiene Id, así que debe detectarse como Embedded.
+/// </summary>
+public class DireccionOficina
+{
+    public required string Calle { get; set; }
+    public required string Ciudad { get; set; }
+    public required string CodigoPostal { get; set; }
+}
+
+/// <summary>
+/// GeoPoint para test de auto-detección.
+/// Tiene Lat/Lng y NO tiene Id, así que debe detectarse como GeoPoint.
+/// </summary>
+public class PuntoGeo
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+/// <summary>
+/// Entidad para probar auto-detección de ArrayOf.
+/// NO requiere configuración explícita - la convention debe detectar:
+/// - Direcciones → ArrayOf Embedded
+/// - Ubicaciones → ArrayOf GeoPoint
+/// </summary>
+public class Oficina
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public List<DireccionOficina> Direcciones { get; set; } = [];
+    public List<PuntoGeo> Ubicaciones { get; set; } = [];
+}

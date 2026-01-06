@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
 
@@ -21,31 +18,15 @@ public class GeoPointConvention : IComplexPropertyAddedConvention
         var complexType = complexProperty.ComplexType;
         var clrType = complexType.ClrType;
 
-        // Detección por ESTRUCTURA: buscar propiedades Latitude y Longitude (double)
-        var latProperty = clrType.GetProperties()
-            .FirstOrDefault(p =>
-                (p.Name.Equals("Latitude", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("Lat", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("Latitud", StringComparison.OrdinalIgnoreCase)) &&
-                (p.PropertyType == typeof(double) || p.PropertyType == typeof(double?)));
-
-        var lonProperty = clrType.GetProperties()
-            .FirstOrDefault(p =>
-                (p.Name.Equals("Longitude", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("Lng", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("Lon", StringComparison.OrdinalIgnoreCase) ||
-                 p.Name.Equals("Longitud", StringComparison.OrdinalIgnoreCase)) &&
-                (p.PropertyType == typeof(double) || p.PropertyType == typeof(double?)));
-
-        // Si no tiene ambas propiedades, no es GeoPoint
-        if (latProperty == null || lonProperty == null)
+        // Usar helper centralizado para detectar estructura GeoPoint
+        if (!ConventionHelpers.HasGeoPointStructure(clrType))
             return;
 
         // Verificar si ya tiene la anotación de GeoPoint
         if (complexProperty.FindAnnotation("Firestore:IsGeoPoint") != null)
             return;
 
-        // Aplicar la anotación de GeoPoint (nombre debe coincidir con FirestoreDocumentDeserializer)
+        // Aplicar la anotación de GeoPoint
         propertyBuilder.HasAnnotation("Firestore:IsGeoPoint", true);
     }
 }
