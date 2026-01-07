@@ -157,3 +157,117 @@ public class ArrayOfSubCollectionTestDbContext(DbContextOptions<ArrayOfSubCollec
         });
     }
 }
+
+// ============================================================================
+// DBCONTEXT PARA TEST COMPLETO DE ARRAYOF (SECCIÓN 2 DEL PLAN)
+// ============================================================================
+
+/// <summary>
+/// DbContext que implementa EXACTAMENTE la sección 2.2 del plan ARRAYOF_IMPLEMENTATION_PLAN.md
+/// Cubre los 5 casos de ArrayOf:
+/// - CASO 1: Embedded simple
+/// - CASO 2: GeoPoints
+/// - CASO 3: References
+/// - CASO 4: Embedded con Reference dentro
+/// - CASO 5: Embedded anidado con Reference al final
+/// </summary>
+public class RestauranteTestDbContext(DbContextOptions<RestauranteTestDbContext> options) : DbContext(options)
+{
+    public DbSet<Restaurante> Restaurantes => Set<Restaurante>();
+    public DbSet<CategoriaRestaurante> Categorias => Set<CategoriaRestaurante>();
+    public DbSet<Certificador> Certificadores => Set<Certificador>();
+    public DbSet<Plato> Platos => Set<Plato>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Restaurante>(entity =>
+        {
+            // CASO 1: Embedded simple - Sin config (convention detecta)
+            entity.ArrayOf(e => e.Horarios);
+
+            // CASO 2: GeoPoints
+            entity.ArrayOf(e => e.ZonasCobertura).AsGeoPoints();
+
+            // CASO 3: References
+            entity.ArrayOf(e => e.Categorias).AsReferences();
+
+            // CASO 4: Embedded con Reference
+            entity.ArrayOf(e => e.Certificaciones, c =>
+            {
+                c.Reference(x => x.Certificador);
+            });
+
+            // CASO 5: Embedded anidado con Reference al final
+            entity.ArrayOf(e => e.Menus, menu =>
+            {
+                menu.ArrayOf(m => m.Secciones, seccion =>
+                {
+                    seccion.ArrayOf(s => s.Items, item =>
+                    {
+                        item.Reference(i => i.Plato);
+                    });
+                });
+            });
+        });
+    }
+}
+
+// ============================================================================
+// DBCONTEXT CON MINIMAL CONFIGURATION (AUTO-DETECCIÓN)
+// ============================================================================
+
+/// <summary>
+/// DbContext con CONFIGURACIÓN MÍNIMA para los 5 casos de ArrayOf.
+/// Demuestra qué puede auto-detectar la convention vs qué requiere config explícita.
+///
+/// AUTO-DETECTADO (sin config):
+/// - CASO 1: List&lt;Horario&gt; → Embedded (clase sin Id)
+/// - CASO 2: List&lt;Coordenada&gt; → GeoPoint (tiene Lat/Lng sin Id)
+/// - CASO 3: List&lt;CategoriaRestaurante&gt; → Reference (entidad registrada con DbSet)
+///
+/// REQUIERE CONFIG EXPLÍCITA:
+/// - CASO 4: Certificacion.Certificador → Reference() (propiedad de navegación dentro de ComplexType)
+/// - CASO 5: ItemMenu.Plato → Reference() (propiedad de navegación dentro de ComplexType anidado)
+/// </summary>
+public class RestauranteMinimalConfigDbContext(DbContextOptions<RestauranteMinimalConfigDbContext> options) : DbContext(options)
+{
+    public DbSet<Restaurante> Restaurantes => Set<Restaurante>();
+    public DbSet<CategoriaRestaurante> Categorias => Set<CategoriaRestaurante>();
+    public DbSet<Certificador> Certificadores => Set<Certificador>();
+    public DbSet<Plato> Platos => Set<Plato>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Restaurante>(entity =>
+        {
+            // CASO 1: Embedded simple - AUTO-DETECTADO ✅
+            // Horario no tiene Id → Convention detecta como Embedded
+
+            // CASO 2: GeoPoints - AUTO-DETECTADO ✅
+            // Coordenada tiene Lat/Lng sin Id → Convention detecta como GeoPoint
+
+            // CASO 3: References - AUTO-DETECTADO ✅
+            // CategoriaRestaurante tiene DbSet → Convention detecta como Reference
+
+            // CASO 4: Embedded con Reference - REQUIERE CONFIG ⚠️
+            // Certificacion es Embedded (auto), pero Certificador es navegación a entidad
+            entity.ArrayOf(e => e.Certificaciones, c =>
+            {
+                c.Reference(x => x.Certificador);
+            });
+
+            // CASO 5: Embedded anidado con Reference - REQUIERE CONFIG ⚠️
+            // Menu/SeccionMenu son Embedded (auto), pero ItemMenu.Plato es navegación a entidad
+            entity.ArrayOf(e => e.Menus, menu =>
+            {
+                menu.ArrayOf(m => m.Secciones, seccion =>
+                {
+                    seccion.ArrayOf(s => s.Items, item =>
+                    {
+                        item.Reference(i => i.Plato);
+                    });
+                });
+            });
+        });
+    }
+}

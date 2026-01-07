@@ -218,3 +218,92 @@ public class Empresa
     public List<Sucursal> Sucursales { get; set; } = [];
     public List<RutaDistribucion> Rutas { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA TEST COMPLETO DE ARRAYOF (SECCIÓN 2 DEL PLAN)
+// ============================================================================
+
+// --- ENTIDADES PRINCIPALES ---
+
+public class CategoriaRestaurante
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+}
+
+public class Plato
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public decimal Precio { get; set; }
+}
+
+public class Certificador
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Pais { get; set; }
+}
+
+// --- COMPLEX TYPES (Value Objects) ---
+
+public class Horario
+{
+    public required string Dia { get; set; }
+    public TimeSpan Apertura { get; set; }
+    public TimeSpan Cierre { get; set; }
+}
+
+public class Coordenada
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+public class Certificacion
+{
+    public required string Nombre { get; set; }
+    public DateTime FechaObtencion { get; set; }
+    public Certificador? Certificador { get; set; }
+}
+
+public class ItemMenu
+{
+    public required string Descripcion { get; set; }
+    public Plato? Plato { get; set; }
+}
+
+public class SeccionMenu
+{
+    public required string Titulo { get; set; }
+    public List<ItemMenu> Items { get; set; } = [];
+}
+
+public class Menu
+{
+    public required string Nombre { get; set; }
+    public List<SeccionMenu> Secciones { get; set; } = [];
+}
+
+// --- ENTIDAD PRINCIPAL ---
+
+public class Restaurante
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+
+    // CASO 1: Array de Embedded simple
+    public List<Horario> Horarios { get; set; } = [];
+
+    // CASO 2: Array de GeoPoints
+    public List<Coordenada> ZonasCobertura { get; set; } = [];
+
+    // CASO 3: Array de References
+    public List<CategoriaRestaurante> Categorias { get; set; } = [];
+
+    // CASO 4: Array de Embedded con Reference dentro
+    public List<Certificacion> Certificaciones { get; set; } = [];
+
+    // CASO 5: Array de Embedded anidado
+    public List<Menu> Menus { get; set; } = [];
+}

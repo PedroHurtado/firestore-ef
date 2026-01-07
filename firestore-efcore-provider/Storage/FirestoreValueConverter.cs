@@ -41,6 +41,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is DateTime dt)
             return dt.Kind == DateTimeKind.Utc ? dt : dt.ToUniversalTime();
 
+        // TimeSpan → long (ticks) - Firestore doesn't support TimeSpan natively
+        if (value is TimeSpan ts)
+            return ts.Ticks;
+
         // Collections: convert elements recursively
         if (value is IEnumerable enumerable && value is not string && value is not byte[])
         {
@@ -82,6 +86,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         // Timestamp → DateTime (Firestore SDK specific type)
         if (value is Timestamp timestamp && actualTargetType == typeof(DateTime))
             return timestamp.ToDateTime();
+
+        // long → TimeSpan (stored as ticks)
+        if (value is long ticks && actualTargetType == typeof(TimeSpan))
+            return TimeSpan.FromTicks(ticks);
 
         // Collections: convert elements recursively
         if (value is IEnumerable enumerable && value is not string && value is not byte[])

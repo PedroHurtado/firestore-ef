@@ -27,7 +27,8 @@ namespace Firestore.EntityFrameworkCore.Storage
         IFirestoreCollectionManager collectionManager,
         IDiagnosticsLogger<Microsoft.EntityFrameworkCore.DbLoggerCategory.Database.Command> commandLogger,
         ITypeMappingSource typeMappingSource,
-        IModel model
+        IModel model,
+        IFirestoreValueConverter valueConverter
         ) : Database(dependencies)
 
     {
@@ -38,6 +39,7 @@ namespace Firestore.EntityFrameworkCore.Storage
         private readonly IDiagnosticsLogger<Microsoft.EntityFrameworkCore.DbLoggerCategory.Database.Command> _commandLogger = commandLogger;
         private readonly ITypeMappingSource _typeMappingSource = typeMappingSource;
         private readonly IModel _model = model;
+        private readonly IFirestoreValueConverter _valueConverter = valueConverter;
 
         public override int SaveChanges(IList<IUpdateEntry> entries)
         {
@@ -715,7 +717,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                     {
                         var docRef = CreateDocumentReference(value, entityType);
                         if (docRef != null)
-                            dict[prop.Name] = docRef;
+                            dict[prop.Name + "Ref"] = docRef;
                     }
                     else
                     {
@@ -724,7 +726,10 @@ namespace Firestore.EntityFrameworkCore.Storage
                 }
                 else
                 {
-                    dict[prop.Name] = value;
+                    // ✅ Aplicar conversión de tipos (DateTime→UTC, decimal→double, enum→string)
+                    var convertedValue = _valueConverter.ToFirestore(value);
+                    if (convertedValue != null)
+                        dict[prop.Name] = convertedValue;
                 }
             }
 

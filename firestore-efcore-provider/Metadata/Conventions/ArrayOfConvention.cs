@@ -13,10 +13,11 @@ namespace Firestore.EntityFrameworkCore.Metadata.Conventions;
 /// Reglas de detección:
 /// - List&lt;T&gt; donde T es GeoPoint (Lat/Lng sin Id) → ArrayOf GeoPoint
 /// - List&lt;T&gt; donde T es ComplexType (no Entity, no GeoPoint) → ArrayOf Embedded
-/// - List&lt;T&gt; donde T es Entity → NO aplica (requiere configuración explícita con AsReferences())
+/// - List&lt;T&gt; donde T es Entity registrada en el modelo → ArrayOf Reference (auto-detectado)
 ///
-/// Esta convention también implementa IModelFinalizingConvention para limpiar entidades
-/// que fueron descubiertas incorrectamente por EF Core antes de que la convention pudiera actuar.
+/// Esta convention también implementa IModelFinalizingConvention para:
+/// 1. Detectar ArrayOf References cuando T es una entidad registrada
+/// 2. Limpiar entidades descubiertas incorrectamente por EF Core
 /// </summary>
 public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingConvention
 {
@@ -77,8 +78,8 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
 
     /// <summary>
     /// Se ejecuta al final del proceso de construcción del modelo.
-    /// Elimina entidades que fueron descubiertas incorrectamente por EF Core
-    /// cuando deberían ser tratadas como ArrayOf elements.
+    /// 1. Auto-detecta ArrayOf References cuando List&lt;T&gt; y T es entidad registrada
+    /// 2. Elimina entidades descubiertas incorrectamente por EF Core
     /// </summary>
     public void ProcessModelFinalizing(
         IConventionModelBuilder modelBuilder,
@@ -86,22 +87,63 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     {
         var model = modelBuilder.Metadata;
 
-        // Encontrar entidades que son realmente ArrayOf elements y no deberían ser entidades
+        // Paso 1: Auto-detectar ArrayOf References
+        AutoDetectArrayOfReferences(model);
+
+        // Paso 2: Limpiar entidades que son ArrayOf elements
         var entitiesToRemove = model.GetEntityTypes()
             .Where(et => _arrayOfElementTypes.Contains(et.ClrType))
             .ToList();
 
         foreach (var entityType in entitiesToRemove)
         {
-            // Solo remover si no tiene PK definida explícitamente
             if (entityType.FindPrimaryKey() == null)
             {
                 modelBuilder.Ignore(entityType.ClrType);
             }
         }
 
-        // Limpiar el set para la próxima ejecución
         _arrayOfElementTypes.Clear();
+    }
+
+    /// <summary>
+    /// Auto-detecta List&lt;T&gt; donde T es una entidad registrada en el modelo
+    /// y aplica ArrayOf Reference automáticamente.
+    /// </summary>
+    private static void AutoDetectArrayOfReferences(IConventionModel model)
+    {
+        // Obtener todos los tipos de entidades registradas
+        var registeredEntityTypes = model.GetEntityTypes()
+            .Select(et => et.ClrType)
+            .ToHashSet();
+
+        foreach (var entityType in model.GetEntityTypes().ToList())
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var propertyInfo in clrType.GetProperties())
+            {
+                var propertyType = propertyInfo.PropertyType;
+
+                // Solo procesar colecciones genéricas
+                if (!ConventionHelpers.IsGenericCollection(propertyType))
+                    continue;
+
+                var elementType = ConventionHelpers.GetCollectionElementType(propertyType);
+                if (elementType == null)
+                    continue;
+
+                // Verificar si ya está configurado
+                if (entityType.IsArrayOf(propertyInfo.Name))
+                    continue;
+
+                // Si el elementType es una entidad registrada → ArrayOf Reference
+                if (registeredEntityTypes.Contains(elementType))
+                {
+                    ApplyArrayOfReference(entityType, propertyInfo.Name, elementType);
+                }
+            }
+        }
     }
 
     private static void ApplyArrayOfGeoPoint(IConventionEntityType entityType, string propertyName, Type elementType)
@@ -115,6 +157,13 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     {
         var mutableEntityType = (IMutableEntityType)entityType;
         mutableEntityType.SetArrayOfType(propertyName, ArrayOfAnnotations.ArrayType.Embedded);
+        mutableEntityType.SetArrayOfElementClrType(propertyName, elementType);
+    }
+
+    private static void ApplyArrayOfReference(IConventionEntityType entityType, string propertyName, Type elementType)
+    {
+        var mutableEntityType = (IMutableEntityType)entityType;
+        mutableEntityType.SetArrayOfType(propertyName, ArrayOfAnnotations.ArrayType.Reference);
         mutableEntityType.SetArrayOfElementClrType(propertyName, elementType);
     }
 
