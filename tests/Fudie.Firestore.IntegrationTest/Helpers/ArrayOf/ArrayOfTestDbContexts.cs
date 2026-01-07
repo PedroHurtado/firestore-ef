@@ -271,3 +271,24 @@ public class RestauranteMinimalConfigDbContext(DbContextOptions<RestauranteMinim
         });
     }
 }
+
+// ============================================================================
+// DBCONTEXT CON HASHSET Y RECORDS (TEST DE ICollection<T>)
+// ============================================================================
+
+/// <summary>
+/// DbContext con HashSet y records para verificar que ICollection&lt;T&gt; funciona correctamente.
+/// Usa MINIMAL CONFIGURATION - todo auto-detectado por conventions.
+///
+/// AUTO-DETECTADO:
+/// - HashSet&lt;Tag&gt; → Embedded (record sin Id)
+/// - HashSet&lt;Ubicacion&gt; → GeoPoint (record con Lat/Lng sin Id)
+/// - HashSet&lt;Proveedor&gt; → Reference (record con Id = entidad registrada)
+/// </summary>
+public class ProductoHashSetDbContext(DbContextOptions<ProductoHashSetDbContext> options) : DbContext(options)
+{
+    public DbSet<ProductoConHashSet> Productos => Set<ProductoConHashSet>();
+    public DbSet<Proveedor> Proveedores => Set<Proveedor>();
+
+    // Sin OnModelCreating - todo auto-detectado por conventions
+}

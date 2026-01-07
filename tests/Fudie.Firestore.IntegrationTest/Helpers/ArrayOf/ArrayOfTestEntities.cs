@@ -307,3 +307,38 @@ public class Restaurante
     // CASO 5: Array de Embedded anidado
     public List<Menu> Menus { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES CON HASHSET Y RECORDS (TEST DE ICollection<T>)
+// ============================================================================
+
+// --- RECORDS (hasheable por defecto) ---
+
+public record Tag(string Nombre, string Color);
+
+public record Ubicacion(double Latitude, double Longitude);
+
+public record Proveedor
+{
+    public string? Id { get; init; }
+    public required string Nombre { get; init; }
+    public required string Pais { get; init; }
+}
+
+// --- ENTIDAD CON HASHSET ---
+
+public class ProductoConHashSet
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public decimal Precio { get; set; }
+
+    // HashSet de Embedded (record sin Id)
+    public HashSet<Tag> Tags { get; set; } = [];
+
+    // HashSet de GeoPoints (record con Lat/Lng sin Id)
+    public HashSet<Ubicacion> PuntosVenta { get; set; } = [];
+
+    // HashSet de References (record con Id = entidad)
+    public HashSet<Proveedor> Proveedores { get; set; } = [];
+}

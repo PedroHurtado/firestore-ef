@@ -87,18 +87,18 @@ public static class ConventionHelpers
     #region Detección de Colecciones
 
     /// <summary>
-    /// Verifica si un tipo es una colección genérica (List, IList, ICollection, IEnumerable).
+    /// Verifica si un tipo es una colección genérica materializada (implementa ICollection&lt;T&gt;).
+    /// Soporta: List&lt;T&gt;, HashSet&lt;T&gt;, ICollection&lt;T&gt;, IList&lt;T&gt;, etc.
+    /// NO soporta IEnumerable&lt;T&gt; puro para evitar colecciones lazy (yield, LINQ).
     /// </summary>
     public static bool IsGenericCollection(Type type)
     {
         if (!type.IsGenericType)
             return false;
 
-        var genericDef = type.GetGenericTypeDefinition();
-        return genericDef == typeof(List<>) ||
-               genericDef == typeof(IList<>) ||
-               genericDef == typeof(ICollection<>) ||
-               genericDef == typeof(IEnumerable<>);
+        // Verificar si implementa ICollection<T>
+        return type.GetInterfaces()
+            .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICollection<>));
     }
 
     /// <summary>
