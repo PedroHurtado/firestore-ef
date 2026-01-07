@@ -56,7 +56,7 @@ public class FirestoreCollectionManagerTest
     [Theory]
     [InlineData(typeof(Customer), "Customers")]
     [InlineData(typeof(Address), "Addresses")]
-    [InlineData(typeof(Person), "Persons")]   // Simple pluralization (not irregular)
+    [InlineData(typeof(Person), "People")]   // Humanizer handles irregular plurals correctly
     public void GetCollectionName_Pluralizes_Simple_Names(Type entityType, string expected)
     {
         var result = _manager.GetCollectionName(entityType);

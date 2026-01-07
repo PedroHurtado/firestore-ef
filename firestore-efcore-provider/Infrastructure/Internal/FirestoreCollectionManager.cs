@@ -1,3 +1,4 @@
+using Humanizer;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Reflection;
@@ -27,40 +28,15 @@ namespace Firestore.EntityFrameworkCore.Infrastructure.Internal
             return collectionName;
         }
 
-        private string DetermineCollectionName(Type entityType)
+        private static string DetermineCollectionName(Type entityType)
         {
             // Buscar atributo [Table] de System.ComponentModel.DataAnnotations.Schema
             var tableAttr = entityType.GetCustomAttribute<System.ComponentModel.DataAnnotations.Schema.TableAttribute>();
             if (tableAttr != null && !string.IsNullOrEmpty(tableAttr.Name))
                 return tableAttr.Name;
 
-            // Por defecto, pluralizar el nombre del tipo
-            var baseName = entityType.Name;
-            return Pluralize(baseName);
-        }
-
-        private static string Pluralize(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return name;
-
-            if (name.EndsWith("y", StringComparison.OrdinalIgnoreCase) && 
-                name.Length > 1 && 
-                !IsVowel(name[name.Length - 2]))
-            {
-                return name.Substring(0, name.Length - 1) + "ies";
-            }
-
-            if (name.EndsWith("s", StringComparison.OrdinalIgnoreCase))
-                return name + "es";
-
-            return name + "s";
-        }
-
-        private static bool IsVowel(char c)
-        {
-            c = char.ToLowerInvariant(c);
-            return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
+            // Por defecto, pluralizar el nombre del tipo usando Humanizer
+            return entityType.Name.Pluralize();
         }
     }
 }
