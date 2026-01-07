@@ -180,3 +180,41 @@ public class Oficina
     public List<DireccionOficina> Direcciones { get; set; } = [];
     public List<PuntoGeo> Ubicaciones { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA SUBCOLLECTION CON ARRAYOF
+// ============================================================================
+
+/// <summary>
+/// Subcollection que contiene ArrayOf Embedded (horarios de sucursal)
+/// </summary>
+public class Sucursal
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Direccion { get; set; }
+    public List<HorarioAtencion> Horarios { get; set; } = [];
+}
+
+/// <summary>
+/// Subcollection que contiene ArrayOf GeoPoint (puntos de ruta)
+/// </summary>
+public class RutaDistribucion
+{
+    public string? Id { get; set; }
+    public required string Codigo { get; set; }
+    public required string Descripcion { get; set; }
+    public List<PuntoGeo> Waypoints { get; set; } = [];
+}
+
+/// <summary>
+/// Entidad raíz con subcollections que tienen ArrayOf
+/// </summary>
+public class Empresa
+{
+    public string? Id { get; set; }
+    public required string RazonSocial { get; set; }
+    public required string Ruc { get; set; }
+    public List<Sucursal> Sucursales { get; set; } = [];
+    public List<RutaDistribucion> Rutas { get; set; } = [];
+}

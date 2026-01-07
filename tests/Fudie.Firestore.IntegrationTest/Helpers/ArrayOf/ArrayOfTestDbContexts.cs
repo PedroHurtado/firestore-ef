@@ -134,3 +134,26 @@ public class ArrayOfConventionTestDbContext(DbContextOptions<ArrayOfConventionTe
 {
     public DbSet<Oficina> Oficinas => Set<Oficina>();
 }
+
+// ============================================================================
+// DBCONTEXT PARA SUBCOLLECTION CON ARRAYOF
+// ============================================================================
+
+/// <summary>
+/// DbContext para probar ArrayOf dentro de SubCollections.
+/// - Sucursales → SubCollection con ArrayOf Embedded (Horarios)
+/// - Rutas → SubCollection con ArrayOf GeoPoint (Waypoints)
+/// </summary>
+public class ArrayOfSubCollectionTestDbContext(DbContextOptions<ArrayOfSubCollectionTestDbContext> options) : DbContext(options)
+{
+    public DbSet<Empresa> Empresas => Set<Empresa>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Empresa>(entity =>
+        {
+            entity.SubCollection(e => e.Sucursales);
+            entity.SubCollection(e => e.Rutas);
+        });
+    }
+}
