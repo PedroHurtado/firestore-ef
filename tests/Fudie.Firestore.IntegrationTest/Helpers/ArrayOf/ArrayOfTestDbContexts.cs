@@ -337,3 +337,37 @@ public class SubCollectionWithArrayOfDbContext(DbContextOptions<SubCollectionWit
         });
     }
 }
+
+// ============================================================================
+// DBCONTEXT PARA TEST COMPLETO DE SUBCOLLECTION CON ARRAYS
+// ============================================================================
+
+/// <summary>
+/// DbContext para probar SubCollection con múltiples tipos de arrays:
+/// - Array de References (productos)
+/// - Array de GeoPoints (puntos de entrega)
+/// - Array de ValueObjects (descuentos)
+/// </summary>
+public class SubCollectionWithAllArraysDbContext(DbContextOptions<SubCollectionWithAllArraysDbContext> options) : DbContext(options)
+{
+    public DbSet<ClienteCompleto> Clientes => Set<ClienteCompleto>();
+    public DbSet<ProductoRef> Productos => Set<ProductoRef>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ClienteCompleto>(entity =>
+        {
+            entity.SubCollection(c => c.Ordenes, orden =>
+            {
+                // Array de References a productos
+                orden.ArrayOf(o => o.Productos).AsReferences();
+
+                // Array de GeoPoints para ruta de entrega
+                orden.ArrayOf(o => o.RutaEntrega).AsGeoPoints();
+
+                // Array de ValueObjects embebidos (auto-detectado, pero explícito para claridad)
+                orden.ArrayOf(o => o.Descuentos);
+            });
+        });
+    }
+}

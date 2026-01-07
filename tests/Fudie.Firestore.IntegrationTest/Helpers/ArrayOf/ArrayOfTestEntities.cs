@@ -416,3 +416,72 @@ public class ClienteConLineas
     public required string Email { get; set; }
     public List<PedidoConLineas> Pedidos { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA TEST COMPLETO DE SUBCOLLECTION CON ARRAYS
+// ============================================================================
+
+/// <summary>
+/// Producto referenciable desde subcollection
+/// </summary>
+public class ProductoRef
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Sku { get; set; }
+    public decimal PrecioBase { get; set; }
+}
+
+/// <summary>
+/// GeoPoint para ubicaciones de entrega
+/// </summary>
+public class PuntoEntrega
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+/// <summary>
+/// ValueObject para descuentos aplicados
+/// </summary>
+public class DescuentoAplicado
+{
+    public required string Codigo { get; set; }
+    public required string Descripcion { get; set; }
+    public decimal Porcentaje { get; set; }
+}
+
+/// <summary>
+/// Subcollection completa con:
+/// - Array de References (productos)
+/// - Array de GeoPoints (puntos de entrega)
+/// - Array de ValueObjects (descuentos)
+/// </summary>
+public class OrdenCompleta
+{
+    public string? Id { get; set; }
+    public required string NumeroOrden { get; set; }
+    public DateTime FechaCreacion { get; set; }
+    public decimal Total { get; set; }
+
+    // Array de References a productos
+    public List<ProductoRef> Productos { get; set; } = [];
+
+    // Array de GeoPoints para ruta de entrega
+    public List<PuntoEntrega> RutaEntrega { get; set; } = [];
+
+    // Array de ValueObjects embebidos
+    public List<DescuentoAplicado> Descuentos { get; set; } = [];
+}
+
+/// <summary>
+/// Entidad raíz para test completo de SubCollection con arrays
+/// </summary>
+public class ClienteCompleto
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+    public required string Telefono { get; set; }
+    public List<OrdenCompleta> Ordenes { get; set; } = [];
+}

@@ -147,6 +147,118 @@ public class SubCollectionCallbackTests
 
     #endregion
 
+    #region SubCollection con todos los tipos de arrays
+
+    [Fact]
+    public async Task SubCollection_WithAllArrayTypes_ShouldPersistCorrectly()
+    {
+        // Arrange
+        var clienteId = FirestoreTestFixture.GenerateId("cli");
+        var ordenId = FirestoreTestFixture.GenerateId("ord");
+        var producto1Id = FirestoreTestFixture.GenerateId("prod");
+        var producto2Id = FirestoreTestFixture.GenerateId("prod");
+        var producto3Id = FirestoreTestFixture.GenerateId("prod");
+        using var context = _fixture.CreateContext<SubCollectionWithAllArraysDbContext>();
+
+        // Crear productos primero
+        var producto1 = new ProductoRef { Id = producto1Id, Nombre = "Laptop Pro", Sku = "LAP-001", PrecioBase = 1200.00m };
+        var producto2 = new ProductoRef { Id = producto2Id, Nombre = "Mouse Wireless", Sku = "MOU-001", PrecioBase = 45.00m };
+        var producto3 = new ProductoRef { Id = producto3Id, Nombre = "Teclado Mecánico", Sku = "TEC-001", PrecioBase = 150.00m };
+        context.Productos.AddRange(producto1, producto2, producto3);
+
+        // Crear cliente con orden completa
+        var cliente = new ClienteCompleto
+        {
+            Id = clienteId,
+            Nombre = "Corporación TechMax",
+            Email = "compras@techmax.com",
+            Telefono = "+1-555-0100",
+            Ordenes =
+            [
+                new OrdenCompleta
+                {
+                    Id = ordenId,
+                    NumeroOrden = "ORD-2024-001",
+                    FechaCreacion = new DateTime(2024, 3, 15, 10, 30, 0, DateTimeKind.Utc),
+                    Total = 1500.00m,
+
+                    // Array de References
+                    Productos = [producto1, producto2, producto3],
+
+                    // Array de GeoPoints (ruta de entrega)
+                    RutaEntrega =
+                    [
+                        new PuntoEntrega { Latitude = 40.7128, Longitude = -74.0060 },  // NYC
+                        new PuntoEntrega { Latitude = 40.7580, Longitude = -73.9855 },  // Times Square
+                        new PuntoEntrega { Latitude = 40.7484, Longitude = -73.9857 }   // Empire State
+                    ],
+
+                    // Array de ValueObjects
+                    Descuentos =
+                    [
+                        new DescuentoAplicado { Codigo = "WELCOME10", Descripcion = "Descuento de bienvenida", Porcentaje = 10.0m },
+                        new DescuentoAplicado { Codigo = "BULK5", Descripcion = "Descuento por volumen", Porcentaje = 5.0m }
+                    ]
+                }
+            ]
+        };
+
+        // Act
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Assert - Verificar que el documento padre NO contiene el array de Ordenes
+        var parentRawData = await GetDocumentRawData<ClienteCompleto>(clienteId);
+        parentRawData.Should().NotContainKey("Ordenes",
+            "Las subcollections no deben guardarse como arrays en el documento padre");
+        parentRawData["Nombre"].Should().Be("Corporación TechMax");
+        parentRawData["Email"].Should().Be("compras@techmax.com");
+
+        // Assert - Obtener datos crudos de la subcollection
+        var rawData = await GetSubCollectionDocumentRawData<ClienteCompleto, OrdenCompleta>(
+            clienteId, ordenId);
+
+        // Verificar campos básicos
+        rawData["NumeroOrden"].Should().Be("ORD-2024-001");
+
+        // Assert - Array de References (productos)
+        rawData.Should().ContainKey("Productos");
+        var productos = ((IEnumerable<object>)rawData["Productos"]).ToList();
+        productos.Should().HaveCount(3);
+        productos.Should().AllBeOfType<DocumentReference>();
+
+        var productosRefs = productos.Cast<DocumentReference>().ToList();
+        productosRefs.Select(r => r.Id).Should().BeEquivalentTo([producto1Id, producto2Id, producto3Id]);
+
+        // Assert - Array de GeoPoints (ruta de entrega)
+        rawData.Should().ContainKey("RutaEntrega");
+        var rutaEntrega = ((IEnumerable<object>)rawData["RutaEntrega"]).ToList();
+        rutaEntrega.Should().HaveCount(3);
+        rutaEntrega.Should().AllBeOfType<GeoPoint>();
+
+        var geoPoints = rutaEntrega.Cast<GeoPoint>().ToList();
+        geoPoints[0].Latitude.Should().BeApproximately(40.7128, 0.0001);
+        geoPoints[0].Longitude.Should().BeApproximately(-74.0060, 0.0001);
+        geoPoints[1].Latitude.Should().BeApproximately(40.7580, 0.0001);
+        geoPoints[2].Latitude.Should().BeApproximately(40.7484, 0.0001);
+
+        // Assert - Array de ValueObjects (descuentos)
+        rawData.Should().ContainKey("Descuentos");
+        var descuentos = ((IEnumerable<object>)rawData["Descuentos"]).ToList();
+        descuentos.Should().HaveCount(2);
+
+        var primerDescuento = descuentos[0] as Dictionary<string, object>;
+        primerDescuento.Should().NotBeNull();
+        primerDescuento!["Codigo"].Should().Be("WELCOME10");
+        primerDescuento["Descripcion"].Should().Be("Descuento de bienvenida");
+
+        var segundoDescuento = descuentos[1] as Dictionary<string, object>;
+        segundoDescuento.Should().NotBeNull();
+        segundoDescuento!["Codigo"].Should().Be("BULK5");
+    }
+
+    #endregion
+
     #region Helpers
 
     private async Task<Dictionary<string, object>> GetDocumentRawData<T>(string documentId)
