@@ -342,3 +342,77 @@ public class ProductoConHashSet
     // HashSet de References (record con Id = entidad)
     public HashSet<Proveedor> Proveedores { get; set; } = [];
 }
+
+// ============================================================================
+// ENTIDADES PARA TEST DE SUBCOLLECTION CON CALLBACK
+// ============================================================================
+
+/// <summary>
+/// Entidad para referenciar dentro de subcollections
+/// </summary>
+public class Vendedor
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Zona { get; set; }
+}
+
+/// <summary>
+/// ComplexType para ArrayOf dentro de subcollection
+/// </summary>
+public class LineaDetalle
+{
+    public required string ProductoNombre { get; set; }
+    public int Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
+}
+
+/// <summary>
+/// Subcollection con Reference a otra entidad
+/// </summary>
+public class PedidoConVendedor
+{
+    public string? Id { get; set; }
+    public required string Numero { get; set; }
+    public DateTime Fecha { get; set; }
+    public decimal Total { get; set; }
+
+    // Reference a entidad externa
+    public Vendedor? Vendedor { get; set; }
+}
+
+/// <summary>
+/// Subcollection con ArrayOf embebido
+/// </summary>
+public class PedidoConLineas
+{
+    public string? Id { get; set; }
+    public required string Numero { get; set; }
+    public DateTime Fecha { get; set; }
+    public decimal Total { get; set; }
+
+    // ArrayOf Embedded
+    public List<LineaDetalle> Lineas { get; set; } = [];
+}
+
+/// <summary>
+/// Entidad raíz para test de SubCollection con Reference
+/// </summary>
+public class ClienteConVendedor
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+    public List<PedidoConVendedor> Pedidos { get; set; } = [];
+}
+
+/// <summary>
+/// Entidad raíz para test de SubCollection con ArrayOf
+/// </summary>
+public class ClienteConLineas
+{
+    public string? Id { get; set; }
+    public required string Nombre { get; set; }
+    public required string Email { get; set; }
+    public List<PedidoConLineas> Pedidos { get; set; } = [];
+}

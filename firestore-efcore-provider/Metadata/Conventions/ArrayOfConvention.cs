@@ -137,6 +137,11 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
                 if (entityType.IsArrayOf(propertyInfo.Name))
                     continue;
 
+                // ✅ Omitir navegaciones que son SubCollections
+                var navigation = entityType.FindNavigation(propertyInfo.Name);
+                if (navigation != null && navigation.IsSubCollection())
+                    continue;
+
                 // Si el elementType es una entidad registrada → ArrayOf Reference
                 if (registeredEntityTypes.Contains(elementType))
                 {

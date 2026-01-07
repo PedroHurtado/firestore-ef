@@ -185,10 +185,10 @@ public class RestauranteMinimalConfigTests
 
         var primeraCert = certificaciones[0] as Dictionary<string, object>;
         primeraCert!["Nombre"].Should().Be("ISO 9001");
-        primeraCert.Should().ContainKey("CertificadorRef");
-        primeraCert["CertificadorRef"].Should().BeOfType<DocumentReference>();
+        primeraCert.Should().ContainKey("Certificador");
+        primeraCert["Certificador"].Should().BeOfType<DocumentReference>();
 
-        var certRef = (DocumentReference)primeraCert["CertificadorRef"];
+        var certRef = (DocumentReference)primeraCert["Certificador"];
         certRef.Id.Should().Be(certId);
     }
 
@@ -258,10 +258,10 @@ public class RestauranteMinimalConfigTests
         var items = ((IEnumerable<object>)primeraSeccion["Items"]).ToList();
         var primerItem = items[0] as Dictionary<string, object>;
         primerItem!["Descripcion"].Should().Be("Ración completa");
-        primerItem.Should().ContainKey("PlatoRef");
-        primerItem["PlatoRef"].Should().BeOfType<DocumentReference>();
+        primerItem.Should().ContainKey("Plato");
+        primerItem["Plato"].Should().BeOfType<DocumentReference>();
 
-        var platoRef = (DocumentReference)primerItem["PlatoRef"];
+        var platoRef = (DocumentReference)primerItem["Plato"];
         platoRef.Id.Should().Be(platoId);
     }
 

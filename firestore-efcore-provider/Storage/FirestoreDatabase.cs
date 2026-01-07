@@ -717,7 +717,7 @@ namespace Firestore.EntityFrameworkCore.Storage
                     {
                         var docRef = CreateDocumentReference(value, entityType);
                         if (docRef != null)
-                            dict[prop.Name + "Ref"] = docRef;
+                            dict[prop.Name] = docRef;
                     }
                     else
                     {

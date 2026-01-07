@@ -292,3 +292,48 @@ public class ProductoHashSetDbContext(DbContextOptions<ProductoHashSetDbContext>
 
     // Sin OnModelCreating - todo auto-detectado por conventions
 }
+
+// ============================================================================
+// DBCONTEXT PARA TEST DE SUBCOLLECTION CON CALLBACK
+// ============================================================================
+
+/// <summary>
+/// DbContext para probar SubCollection con Reference dentro.
+/// Usa la nueva API: SubCollection(e => e.X, c => c.Reference(...))
+/// </summary>
+public class SubCollectionWithReferenceDbContext(DbContextOptions<SubCollectionWithReferenceDbContext> options) : DbContext(options)
+{
+    public DbSet<ClienteConVendedor> Clientes => Set<ClienteConVendedor>();
+    public DbSet<Vendedor> Vendedores => Set<Vendedor>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ClienteConVendedor>(entity =>
+        {
+            entity.SubCollection(c => c.Pedidos, pedido =>
+            {
+                pedido.Reference(p => p.Vendedor);
+            });
+        });
+    }
+}
+
+/// <summary>
+/// DbContext para probar SubCollection con ArrayOf dentro.
+/// Usa la nueva API: SubCollection(e => e.X, c => c.ArrayOf(...))
+/// </summary>
+public class SubCollectionWithArrayOfDbContext(DbContextOptions<SubCollectionWithArrayOfDbContext> options) : DbContext(options)
+{
+    public DbSet<ClienteConLineas> Clientes => Set<ClienteConLineas>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ClienteConLineas>(entity =>
+        {
+            entity.SubCollection(c => c.Pedidos, pedido =>
+            {
+                pedido.ArrayOf(p => p.Lineas);
+            });
+        });
+    }
+}
