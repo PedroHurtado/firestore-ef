@@ -1,4 +1,5 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query.Projections;
 using Firestore.EntityFrameworkCore.Query.Resolved;
 using Google.Cloud.Firestore;
 using System;
@@ -122,6 +123,113 @@ public class ProjectionMaterializer : IProjectionMaterializer
             || type == typeof(TimeSpan)
             || type == typeof(Guid)
             || (Nullable.GetUnderlyingType(type) != null && IsPrimitiveOrSimpleType(Nullable.GetUnderlyingType(type)!));
+    }
+
+    private static bool IsAnonymousType(Type type)
+    {
+        return type.IsClass
+            && type.IsSealed
+            && type.Attributes.HasFlag(TypeAttributes.NotPublic)
+            && type.Name.Contains("AnonymousType");
+    }
+
+    /// <summary>
+    /// Materializes a nested anonymous type from fields or aggregations with a common prefix.
+    /// E.g., aggregations "Resumen.TotalPedidos" and "Resumen.Cantidad" become { TotalPedidos = ..., Cantidad = ... }
+    /// </summary>
+    private object MaterializeNestedAnonymousType(
+        Type nestedType,
+        string prefix,
+        List<FirestoreProjectedField>? nestedFields,
+        ResolvedProjectionDefinition projection,
+        DocumentSnapshot rootSnapshot,
+        IDictionary<string, object> data,
+        IReadOnlyDictionary<string, DocumentSnapshot> allSnapshots,
+        IReadOnlyDictionary<string, object> aggregations)
+    {
+        var constructor = GetBestConstructor(nestedType);
+        var parameters = constructor.GetParameters();
+        var args = new object?[parameters.Length];
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var param = parameters[i];
+            var paramName = param.Name!;
+            var fullResultName = $"{prefix}{paramName}";
+
+            // Check if it's a subcollection aggregation (e.g., "Resumen.TotalPedidos" from Sum)
+            var aggregationKey = $"{rootSnapshot.Reference.Path}:{fullResultName}";
+            if (aggregations.TryGetValue(aggregationKey, out var aggValue))
+            {
+                args[i] = _valueConverter.FromFirestore(aggValue, param.ParameterType);
+                continue;
+            }
+
+            // Check if it's a subcollection projection
+            var subcollection = projection.Subcollections
+                .FirstOrDefault(s => s.ResultName.Equals(fullResultName, StringComparison.OrdinalIgnoreCase));
+
+            if (subcollection != null)
+            {
+                if (subcollection.IsAggregation)
+                {
+                    // The aggregation result should be in the aggregations dictionary
+                    var subAggKey = $"{rootSnapshot.Reference.Path}:{subcollection.ResultName}";
+                    if (aggregations.TryGetValue(subAggKey, out var subAggValue))
+                    {
+                        args[i] = _valueConverter.FromFirestore(subAggValue, param.ParameterType);
+                    }
+                }
+                else
+                {
+                    args[i] = MaterializeSubcollection(
+                        subcollection,
+                        rootSnapshot,
+                        allSnapshots,
+                        aggregations,
+                        param.ParameterType);
+                }
+                continue;
+            }
+
+            // Check if it's a field with exact match
+            var field = nestedFields?.FirstOrDefault(f =>
+                f.ResultName.Equals(fullResultName, StringComparison.OrdinalIgnoreCase));
+
+            if (field != null)
+            {
+                var fieldValue = GetNestedValue(data, field.FieldPath);
+                args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
+                continue;
+            }
+
+            // Check for deeper nesting (e.g., "Resumen.Detalle.Valor")
+            var deeperPrefix = $"{fullResultName}.";
+            var deeperFields = projection.Fields?
+                .Where(f => f.ResultName.StartsWith(deeperPrefix, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (deeperFields != null && deeperFields.Count > 0 && IsAnonymousType(param.ParameterType))
+            {
+                args[i] = MaterializeNestedAnonymousType(
+                    param.ParameterType,
+                    deeperPrefix,
+                    deeperFields,
+                    projection,
+                    rootSnapshot,
+                    data,
+                    allSnapshots,
+                    aggregations);
+                continue;
+            }
+
+            // Default value
+            args[i] = param.ParameterType.IsValueType
+                ? Activator.CreateInstance(param.ParameterType)
+                : null;
+        }
+
+        return constructor.Invoke(args);
     }
 
     private object MaterializeWithPropertySetters(
@@ -262,7 +370,32 @@ public class ProjectionMaterializer : IProjectionMaterializer
             return _valueConverter.FromFirestore(fieldValue, param.ParameterType);
         }
 
-        // 4. Try direct field match from document
+        // 4. Check if it's a nested anonymous type (fields or subcollections with prefix like "Resumen.TotalPedidos")
+        var nestedPrefix = $"{paramName}.";
+        var nestedFields = projection.Fields?
+            .Where(f => f.ResultName.StartsWith(nestedPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // Also check for subcollections with the prefix (for nested aggregations)
+        var nestedSubcollections = projection.Subcollections
+            .Where(s => s.ResultName.StartsWith(nestedPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (((nestedFields != null && nestedFields.Count > 0) || nestedSubcollections.Count > 0)
+            && IsAnonymousType(param.ParameterType))
+        {
+            return MaterializeNestedAnonymousType(
+                param.ParameterType,
+                nestedPrefix,
+                nestedFields,
+                projection,
+                rootSnapshot,
+                data,
+                allSnapshots,
+                aggregations);
+        }
+
+        // 5. Try direct field match from document
         if (data.TryGetValue(paramName, out var directValue))
         {
             return _valueConverter.FromFirestore(directValue, param.ParameterType);
@@ -333,6 +466,15 @@ public class ProjectionMaterializer : IProjectionMaterializer
         if (subcollection.Fields == null || subcollection.Fields.Count == 0)
         {
             return MaterializeFullEntity(snapshot, data, elementType);
+        }
+
+        // If projecting a single primitive field (e.g., .Select(p => p.Total))
+        // Return the value directly instead of trying to construct a complex type
+        if (subcollection.Fields.Count == 1 && IsPrimitiveOrSimpleType(elementType))
+        {
+            var field = subcollection.Fields[0];
+            var fieldValue = GetNestedValue(data, field.FieldPath);
+            return _valueConverter.FromFirestore(fieldValue, elementType)!;
         }
 
         // Create projection with specific fields

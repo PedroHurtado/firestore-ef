@@ -282,6 +282,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                         ExtractSubcollectionOperations(methodCallExpr, subProj);
                         Subcollections.Add(subProj);
                     }
+                    // Handle Enum.ToString() - required by compiler for projecting enums to string
+                    else if (IsEnumToStringCall(methodCallExpr, out var enumMemberExpr))
+                    {
+                        var enumFieldPath = BuildFieldPath(enumMemberExpr!);
+                        // Store as string type since Firestore returns enums as strings
+                        Fields.Add(new FirestoreProjectedField(enumFieldPath, resultName, typeof(string), constructorParameterIndex));
+                    }
                     else
                     {
                         // Debug: show what expression we got
@@ -297,6 +304,11 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 case UnaryExpression unaryExpr when unaryExpr.NodeType == ExpressionType.Convert:
                     // Handle type conversions
                     ProcessProjectionArgument(unaryExpr.Operand, resultName, parameter, constructorParameterIndex);
+                    break;
+
+                // Handle nested anonymous types: new { Resumen = new { Sum = ..., Count = ... } }
+                case NewExpression nestedNewExpr when IsAnonymousType(nestedNewExpr.Type):
+                    ProcessNestedAnonymousType(nestedNewExpr, resultName, parameter, constructorParameterIndex);
                     break;
 
                 // Handle EF Core's MaterializeCollectionNavigationExpression (Extension node type)
@@ -338,6 +350,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 if (navigation != null)
                 {
                     var subcollection = CreateSubcollectionProjection(navigation.Name, resultName);
+
+                    // Extract operations from Subquery (Where, OrderBy, Take, Select, aggregations)
+                    if (materializeExpr.Subquery is MethodCallExpression subqueryMethodCall)
+                    {
+                        ExtractSubcollectionOperations(subqueryMethodCall, subcollection);
+                    }
+
                     Subcollections.Add(subcollection);
                     return;
                 }
@@ -349,6 +368,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     if (navInfo != null)
                     {
                         var subcollection = CreateSubcollectionProjection(navInfo.NavigationName, resultName, navInfo.TargetClrType);
+
+                        // Extract operations from Subquery
+                        if (materializeExpr.Subquery is MethodCallExpression subqueryMethodCall)
+                        {
+                            ExtractSubcollectionOperations(subqueryMethodCall, subcollection);
+                        }
+
                         Subcollections.Add(subcollection);
                         return;
                     }
@@ -359,6 +385,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 if (elementType != null)
                 {
                     var subcollection = CreateSubcollectionProjection(resultName, resultName, elementType);
+
+                    // Extract operations from Subquery
+                    if (materializeExpr.Subquery is MethodCallExpression subqueryMethodCall)
+                    {
+                        ExtractSubcollectionOperations(subqueryMethodCall, subcollection);
+                    }
+
                     Subcollections.Add(subcollection);
                     return;
                 }
@@ -454,6 +487,54 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 && type.IsSealed
                 && type.Attributes.HasFlag(TypeAttributes.NotPublic)
                 && type.Name.Contains("AnonymousType");
+        }
+
+        /// <summary>
+        /// Checks if a method call is Enum.ToString() - required by C# compiler for projecting enums to string.
+        /// </summary>
+        private static bool IsEnumToStringCall(MethodCallExpression methodCall, out MemberExpression? enumMember)
+        {
+            enumMember = null;
+
+            // Check if it's a ToString() call
+            if (methodCall.Method.Name != "ToString")
+                return false;
+
+            // The object should be a member expression (the enum property)
+            if (methodCall.Object is not MemberExpression memberExpr)
+                return false;
+
+            // Check if the member type is an enum
+            var memberType = memberExpr.Type;
+            if (!memberType.IsEnum)
+                return false;
+
+            enumMember = memberExpr;
+            return true;
+        }
+
+        /// <summary>
+        /// Processes a nested anonymous type expression (e.g., Resumen = new { TotalPedidos = ..., Cantidad = ... }).
+        /// Creates a nested field structure using dot notation for field paths.
+        /// </summary>
+        private void ProcessNestedAnonymousType(
+            NewExpression nestedNewExpr,
+            string parentResultName,
+            ParameterExpression parameter,
+            int constructorParameterIndex)
+        {
+            for (int i = 0; i < nestedNewExpr.Arguments.Count; i++)
+            {
+                var argument = nestedNewExpr.Arguments[i];
+                var member = nestedNewExpr.Members?[i];
+                var nestedResultName = member?.Name ?? $"Item{i}";
+
+                // Build the full result name with parent prefix (e.g., "Resumen.TotalPedidos")
+                var fullResultName = $"{parentResultName}.{nestedResultName}";
+
+                // Process the nested argument recursively
+                ProcessProjectionArgument(argument, fullResultName, parameter, constructorParameterIndex);
+            }
         }
 
         /// <summary>
@@ -656,14 +737,12 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 current = call.Arguments.Count > 0 ? call.Arguments[0] : call.Object;
             }
 
-            // Check if the source is an EntityQueryRootExpression (EF Core's internal transformation)
-            // In this case, Where clauses are EF Core's internal join conditions, not user filters
-            var isFromEntityQueryRoot = current != null && IsEntityQueryRootExpression(current);
-
             // Process each method call
+            // Note: We no longer skip all Where clauses based on EntityQueryRootExpression.
+            // Instead, each Where is checked individually to see if it's a correlation filter.
             foreach (var call in methodCalls)
             {
-                ProcessSubcollectionMethodCall(call, subcollection, skipInternalWheres: isFromEntityQueryRoot);
+                ProcessSubcollectionMethodCall(call, subcollection);
             }
         }
 
@@ -672,21 +751,20 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// </summary>
         /// <param name="methodCall">The method call expression to process.</param>
         /// <param name="subcollection">The subcollection projection to update.</param>
-        /// <param name="skipInternalWheres">If true, skip Where clauses as they are EF Core's internal join conditions.</param>
         private void ProcessSubcollectionMethodCall(
             MethodCallExpression methodCall,
-            FirestoreSubcollectionProjection subcollection,
-            bool skipInternalWheres = false)
+            FirestoreSubcollectionProjection subcollection)
         {
             var methodName = methodCall.Method.Name;
 
             switch (methodName)
             {
                 case "Where":
-                    // When the source is an EntityQueryRootExpression, EF Core adds internal Where clauses
-                    // for join conditions (e.g., Property(c, "Id") == Property(p, "ClienteId")).
-                    // These are NOT user filters and should be skipped.
-                    if (!skipInternalWheres)
+                    // Check if this is a correlation filter (EF Core internal join condition)
+                    // Correlation filters use Property(...) expressions like:
+                    // Property(c, "Id") == Property(p, "ClienteId")
+                    // User filters use direct member access like: p.Estado == EstadoPedido.Confirmado
+                    if (!IsCorrelationFilter(methodCall))
                     {
                         ProcessSubcollectionWhere(methodCall, subcollection);
                     }
@@ -909,6 +987,26 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 return unary.Operand as LambdaExpression;
             }
             return expression as LambdaExpression;
+        }
+
+        /// <summary>
+        /// Checks if a Where method call is a correlation filter (EF Core internal join condition).
+        /// Correlation filters use Property(...) expressions like: Property(c, "Id") == Property(p, "ClienteId")
+        /// User filters use direct member access like: p.Estado == EstadoPedido.Confirmado
+        /// </summary>
+        private static bool IsCorrelationFilter(MethodCallExpression whereCall)
+        {
+            if (whereCall.Arguments.Count < 2)
+                return false;
+
+            var predicateLambda = ExtractLambda(whereCall.Arguments[1]);
+            if (predicateLambda == null)
+                return false;
+
+            // Check if the predicate body contains Property(...) calls
+            // which indicate EF Core's internal correlation conditions
+            var exprString = predicateLambda.Body.ToString();
+            return exprString.Contains("Property(");
         }
 
         /// <summary>

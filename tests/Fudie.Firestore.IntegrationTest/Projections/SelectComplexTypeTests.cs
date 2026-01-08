@@ -22,7 +22,7 @@ public class SelectComplexTypeTests
 
     #region Ciclo 4: Select ComplexType completo
 
-    [Fact(Skip = "Pendiente: corregir materialización de ComplexType completo con GeoPoint anidado")]
+    [Fact]
     public async Task Select_ComplexTypeCompleto_ReturnsEntireComplexType()
     {
         // Arrange

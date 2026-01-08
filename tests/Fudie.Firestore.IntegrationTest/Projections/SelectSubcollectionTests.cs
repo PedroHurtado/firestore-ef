@@ -13,10 +13,6 @@ namespace Fudie.Firestore.IntegrationTest.Projections;
 /// Ciclo 15: Select con subcollection filtrada + ordenada + limitada
 /// Ciclo 16: Select con múltiples subcollections
 /// </summary>
-/// <remarks>
-/// SKIP: Pendiente corregir ProjectionMaterializer para subcollections en proyecciones.
-/// Los tests de Include con subcollections funcionan correctamente.
-/// </remarks>
 [Collection(nameof(FirestoreTestCollection))]
 public class SelectSubcollectionTests
 {
@@ -86,7 +82,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 12: Select con subcollection proyectada
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithProjectedSubcollection_ReturnsOnlySelectedFields()
     {
         // Arrange
@@ -143,7 +139,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 13: Select con subcollection filtrada
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithFilteredSubcollection_ReturnsOnlyMatchingItems()
     {
         // Arrange
@@ -206,7 +202,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 14: Select con subcollection filtrada + ordenada
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithFilteredAndOrderedSubcollection_ReturnsOrderedResults()
     {
         // Arrange
@@ -281,7 +277,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 15: Select con subcollection filtrada + ordenada + limitada
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithFilteredOrderedLimitedSubcollection_ReturnsTopN()
     {
         // Arrange
@@ -363,7 +359,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 16: Select con múltiples subcollections (cliente con pedidos y líneas)
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithNestedSubcollections_ReturnsAllLevels()
     {
         // Arrange
@@ -456,7 +452,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 17: Query Completa (Where root + Select root + subcollection compleja)
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_CompleteQuery_WhereRootSelectRootAndComplexSubcollection()
     {
         // Arrange
@@ -603,7 +599,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 18: Agregaciones en subcollections (Sum, Count, Average)
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithSubcollectionSum_ReturnsSumOfField()
     {
         // Arrange
@@ -661,7 +657,7 @@ public class SelectSubcollectionTests
         result.TotalPedidos.Should().Be(500m); // 100 + 250 + 150
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithSubcollectionCount_ReturnsCountOfItems()
     {
         // Arrange
@@ -726,7 +722,7 @@ public class SelectSubcollectionTests
         result.CantidadPedidos.Should().Be(4);
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithSubcollectionAverage_ReturnsAverageOfField()
     {
         // Arrange
@@ -784,7 +780,7 @@ public class SelectSubcollectionTests
         result.PromedioTotal.Should().Be(200m); // (100 + 200 + 300) / 3
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithFilteredSubcollectionSum_ReturnsSumOfFilteredItems()
     {
         // Arrange
@@ -844,7 +840,7 @@ public class SelectSubcollectionTests
         result.TotalConfirmados.Should().Be(350m); // 100 + 250 (sin el cancelado)
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithMultipleAggregations_ReturnsAllAggregations()
     {
         // Arrange
@@ -910,7 +906,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 19: Proyecciones con tipos anidados devueltos
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithNestedAnonymousType_ReturnsNestedStructure()
     {
         // Arrange
@@ -966,7 +962,7 @@ public class SelectSubcollectionTests
         result.Resumen.Cantidad.Should().Be(2);
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithSubcollectionToAnonymousType_ReturnsProjectedItems()
     {
         // Arrange
@@ -1030,7 +1026,7 @@ public class SelectSubcollectionTests
         pedido2.EstadoTexto.Should().Be("Enviado");
     }
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithMixedAggregationsAndCollections_ReturnsAllData()
     {
         // Arrange
