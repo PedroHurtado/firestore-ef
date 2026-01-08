@@ -58,10 +58,9 @@ public class TestDbContext : DbContext
             });
 
             // Lists of ComplexType and GeoLocation are stored as arrays in Firestore
-            // EF Core doesn't support List<ComplexType> directly, so we ignore them for model validation
-            // but they will be serialized/deserialized by Firestore conventions
-            entity.Ignore(e => e.DireccionesEntrega);
-            entity.Ignore(e => e.Ubicaciones);
+            // Use ArrayOf() to configure them properly for projection/query support
+            //entity.ArrayOf(e => e.DireccionesEntrega);
+            //entity.ArrayOf(e => e.Ubicaciones).AsGeoPoints();
         });
     }
 }

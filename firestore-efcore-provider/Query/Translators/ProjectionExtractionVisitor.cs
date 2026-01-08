@@ -1,4 +1,5 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -221,10 +222,19 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         }
 
         /// <summary>
-        /// Analyzes a method call expression (could be a subcollection with operations)
+        /// Analyzes a method call expression (could be a subcollection with operations or EF.Property access)
         /// </summary>
         private void AnalyzeMethodCallExpression(MethodCallExpression methodCallExpr, ParameterExpression parameter)
         {
+            // Check if this is EF.Property<T>(entity, "PropertyName") - used by EF Core for array properties
+            if (IsEfPropertyCall(methodCallExpr, out var propertyName))
+            {
+                ResultType = ProjectionResultType.SingleField;
+                ClrType = methodCallExpr.Type;
+                Fields.Add(new FirestoreProjectedField(propertyName!, propertyName!, methodCallExpr.Type));
+                return;
+            }
+
             // Check if this is a LINQ operation on a navigation property
             var navigationInfo = ExtractNavigationFromMethodChain(methodCallExpr);
             if (navigationInfo != null)
@@ -243,6 +253,32 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     $"Method calls in projections are not supported: {methodCallExpr.Method.Name}. " +
                     "Projections must reference entity properties directly.");
             }
+        }
+
+        /// <summary>
+        /// Checks if a method call is EF.Property&lt;T&gt;(entity, "PropertyName").
+        /// EF Core uses this for accessing array/collection properties in projections.
+        /// </summary>
+        private static bool IsEfPropertyCall(MethodCallExpression methodCall, out string? propertyName)
+        {
+            propertyName = null;
+
+            // EF.Property is a static method named "Property" on EF class
+            if (methodCall.Method.Name != "Property" || !methodCall.Method.IsStatic)
+                return false;
+
+            // Should have 2 arguments: entity and property name
+            if (methodCall.Arguments.Count != 2)
+                return false;
+
+            // Second argument should be a constant string (property name)
+            if (methodCall.Arguments[1] is ConstantExpression constantExpr && constantExpr.Value is string name)
+            {
+                propertyName = name;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -274,9 +310,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     break;
 
                 case MethodCallExpression methodCallExpr:
+                    // Check if this is EF.Property<T>(entity, "PropertyName") - used for array properties
+                    if (IsEfPropertyCall(methodCallExpr, out var efPropertyName))
+                    {
+                        Fields.Add(new FirestoreProjectedField(efPropertyName!, resultName, methodCallExpr.Type, constructorParameterIndex));
+                    }
                     // Check if this is a subcollection operation
-                    var navInfo = ExtractNavigationFromMethodChain(methodCallExpr);
-                    if (navInfo != null)
+                    else if (ExtractNavigationFromMethodChain(methodCallExpr) is { } navInfo)
                     {
                         var subProj = CreateSubcollectionProjection(navInfo.NavigationName, resultName, navInfo.TargetClrType);
                         ExtractSubcollectionOperations(methodCallExpr, subProj);
@@ -538,23 +578,45 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         }
 
         /// <summary>
-        /// Checks if a member expression refers to a collection navigation property.
+        /// Checks if a member expression refers to a collection navigation property (subcollection).
+        /// Uses EF Core metadata to distinguish between navigation properties and ArrayOf fields.
         /// </summary>
-        private static bool IsCollectionNavigation(MemberExpression memberExpr)
+        private bool IsCollectionNavigation(MemberExpression memberExpr)
         {
-            var memberType = memberExpr.Type;
-
-            // Check if it's a generic collection (List<T>, ICollection<T>, etc.)
-            if (memberType.IsGenericType)
+            // Use EF Core metadata - the authoritative source
+            if (_entityType != null)
             {
-                var genericDef = memberType.GetGenericTypeDefinition();
-                return genericDef == typeof(List<>)
-                    || genericDef == typeof(IList<>)
-                    || genericDef == typeof(ICollection<>)
-                    || genericDef == typeof(IEnumerable<>);
+                var propertyName = memberExpr.Member.Name;
+
+                // Check if it's configured as ArrayOf (embedded array, not subcollection)
+                // ArrayOf properties are ignored by EF Core but have Firestore annotations
+                if (_entityType.IsArrayOf(propertyName))
+                    return false;
+
+                // If it's a navigation property, it's a subcollection
+                var navigation = _entityType.FindNavigation(propertyName);
+                if (navigation != null)
+                    return true;
+
+                // If it's a regular property, it's an ArrayOf field (not a subcollection)
+                var property = _entityType.FindProperty(propertyName);
+                if (property != null)
+                    return false;
             }
 
-            return false;
+            // Fallback when no metadata: assume collections are subcollections
+            // This maintains backward compatibility but should rarely be hit
+            var memberType = memberExpr.Type;
+            if (!memberType.IsGenericType)
+                return false;
+
+            var genericDef = memberType.GetGenericTypeDefinition();
+            return genericDef == typeof(List<>)
+                || genericDef == typeof(IList<>)
+                || genericDef == typeof(ICollection<>)
+                || genericDef == typeof(IEnumerable<>)
+                || genericDef == typeof(HashSet<>)
+                || genericDef == typeof(ISet<>);
         }
 
         /// <summary>
@@ -603,7 +665,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// <summary>
         /// Extracts navigation information from a method call chain.
         /// </summary>
-        private static NavigationInfo? ExtractNavigationFromMethodChain(MethodCallExpression methodCallExpr)
+        private NavigationInfo? ExtractNavigationFromMethodChain(MethodCallExpression methodCallExpr)
         {
             // Walk up the method chain to find the root member access
             Expression? current = methodCallExpr;

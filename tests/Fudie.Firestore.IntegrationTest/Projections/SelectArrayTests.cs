@@ -29,7 +29,7 @@ public class SelectArrayTests
 
     #region List of Primitives
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfStrings_ReturnsStringArray()
     {
         // Arrange
@@ -71,7 +71,7 @@ public class SelectArrayTests
         etiquetas.Should().Contain("premium");
     }
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfInts_ReturnsIntArray()
     {
         // Arrange
@@ -111,7 +111,7 @@ public class SelectArrayTests
         cantidades.Should().BeEquivalentTo([10, 25, 50, 100]);
     }
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfDoubles_ReturnsDoubleArray()
     {
         // Arrange
@@ -151,7 +151,7 @@ public class SelectArrayTests
         pesos.Should().BeEquivalentTo([1.5, 2.75, 3.25, 4.0]);
     }
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfDecimals_ReturnsDecimalArray()
     {
         // Arrange
@@ -195,7 +195,7 @@ public class SelectArrayTests
 
     #region List of Enums
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfEnums_ReturnsEnumArray()
     {
         // Arrange
@@ -241,7 +241,7 @@ public class SelectArrayTests
 
     #region List of GeoLocation
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfGeoLocations_ReturnsGeoLocationArray()
     {
         // Arrange
@@ -292,7 +292,7 @@ public class SelectArrayTests
 
     #region List of ComplexType
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_ListOfComplexTypes_ReturnsComplexTypeArray()
     {
         // Arrange
@@ -353,7 +353,7 @@ public class SelectArrayTests
 
     #region Projections with Arrays in Anonymous Types
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_AnonymousTypeWithMultipleArrays_ReturnsAllArrays()
     {
         // Arrange
@@ -406,7 +406,7 @@ public class SelectArrayTests
         result.Tags.Should().BeEquivalentTo([CategoriaProducto.Electronica, CategoriaProducto.Ropa]);
     }
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_AnonymousTypeWithGeoLocationArray_ReturnsGeoLocations()
     {
         // Arrange
@@ -456,7 +456,7 @@ public class SelectArrayTests
         result.Ubicaciones.Should().Contain(u => u.Latitude == 41.0);
     }
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_AnonymousTypeWithComplexTypeArray_ReturnsComplexTypes()
     {
         // Arrange
@@ -522,7 +522,7 @@ public class SelectArrayTests
 
     #region Complete Entity with Arrays
 
-    [Fact(Skip = "Pendiente: implementar ValueObjectList() para List<ComplexType> y List<GeoLocation>")]
+    [Fact]
     public async Task Select_CompleteEntityWithAllArrayTypes_ReturnsAllData()
     {
         // Arrange

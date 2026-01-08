@@ -38,6 +38,14 @@ public class ProjectionMaterializer : IProjectionMaterializer
             return MaterializePrimitiveValue(projection, data, targetType);
         }
 
+        // Handle List<T> projections (ArrayOf fields) - e.g., Select(p => p.Etiquetas)
+        if (IsCollectionType(targetType) && projection.Fields != null && projection.Fields.Count == 1)
+        {
+            var field = projection.Fields[0];
+            var arrayValue = GetNestedValue(data, field.FieldPath);
+            return _valueConverter.FromFirestore(arrayValue, targetType) ?? CreateEmptyCollection(targetType);
+        }
+
         // Handle ComplexType projection (e.g., Select(p => p.Direccion))
         // When projecting a single ComplexType, extract its sub-dictionary
         if (projection.Fields != null && projection.Fields.Count == 1)
@@ -123,6 +131,36 @@ public class ProjectionMaterializer : IProjectionMaterializer
             || type == typeof(TimeSpan)
             || type == typeof(Guid)
             || (Nullable.GetUnderlyingType(type) != null && IsPrimitiveOrSimpleType(Nullable.GetUnderlyingType(type)!));
+    }
+
+    private static bool IsCollectionType(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+
+        var genericDef = type.GetGenericTypeDefinition();
+        return genericDef == typeof(List<>)
+            || genericDef == typeof(IList<>)
+            || genericDef == typeof(ICollection<>)
+            || genericDef == typeof(IEnumerable<>)
+            || genericDef == typeof(HashSet<>)
+            || genericDef == typeof(ISet<>);
+    }
+
+    private static object CreateEmptyCollection(Type collectionType)
+    {
+        if (!collectionType.IsGenericType)
+            return new List<object>();
+
+        var elementType = collectionType.GetGenericArguments()[0];
+        var genericDef = collectionType.GetGenericTypeDefinition();
+
+        if (genericDef == typeof(HashSet<>) || genericDef == typeof(ISet<>))
+        {
+            return Activator.CreateInstance(typeof(HashSet<>).MakeGenericType(elementType))!;
+        }
+
+        return Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!;
     }
 
     private static bool IsAnonymousType(Type type)

@@ -151,10 +151,9 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         return result.ToArray();
     }
 
-    private static object ConvertCollectionFromFirestore(IEnumerable enumerable, Type targetType)
+    private object ConvertCollectionFromFirestore(IEnumerable enumerable, Type targetType)
     {
         var elementType = targetType.GetGenericArguments()[0];
-        var underlyingElementType = Nullable.GetUnderlyingType(elementType) ?? elementType;
 
         // Create List<T>
         var listType = typeof(List<>).MakeGenericType(elementType);
@@ -168,33 +167,14 @@ public class FirestoreValueConverter : IFirestoreValueConverter
                 continue;
             }
 
-            object? convertedItem;
-
-            // double → decimal
-            if (item is double d && underlyingElementType == typeof(decimal))
-            {
-                convertedItem = (decimal)d;
-            }
-            // string → enum
-            else if (item is string s && underlyingElementType.IsEnum)
-            {
-                convertedItem = Enum.Parse(underlyingElementType, s, ignoreCase: true);
-            }
-            // long → int
-            else if (item is long l && underlyingElementType == typeof(int))
-            {
-                convertedItem = (int)l;
-            }
-            // Timestamp → DateTime
-            else if (item is Timestamp ts && underlyingElementType == typeof(DateTime))
-            {
-                convertedItem = ts.ToDateTime();
-            }
-            else
-            {
-                convertedItem = item;
-            }
-
+            // Use FromFirestore recursively to handle all conversions:
+            // - GeoPoint → GeoLocation
+            // - Dictionary → ComplexType
+            // - double → decimal
+            // - string → enum
+            // - long → int
+            // - Timestamp → DateTime
+            var convertedItem = FromFirestore(item, elementType);
             list.Add(convertedItem);
         }
 
@@ -203,7 +183,16 @@ public class FirestoreValueConverter : IFirestoreValueConverter
 
     private static bool IsGenericList(Type type)
     {
-        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>);
+        if (!type.IsGenericType)
+            return false;
+
+        var genericDef = type.GetGenericTypeDefinition();
+        return genericDef == typeof(List<>)
+            || genericDef == typeof(IList<>)
+            || genericDef == typeof(ICollection<>)
+            || genericDef == typeof(IEnumerable<>)
+            || genericDef == typeof(HashSet<>)
+            || genericDef == typeof(ISet<>);
     }
 
     /// <summary>
