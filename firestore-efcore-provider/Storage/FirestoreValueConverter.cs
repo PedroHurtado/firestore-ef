@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace Firestore.EntityFrameworkCore.Storage;
 
@@ -91,6 +92,12 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is long ticks && actualTargetType == typeof(TimeSpan))
             return TimeSpan.FromTicks(ticks);
 
+        // GeoPoint → custom GeoLocation type (positional record with Latitude, Longitude)
+        if (value is GeoPoint geoPoint && IsGeoLocationType(actualTargetType))
+        {
+            return MaterializeGeoLocation(geoPoint, actualTargetType);
+        }
+
         // Collections: convert elements recursively
         if (value is IEnumerable enumerable && value is not string && value is not byte[])
         {
@@ -98,6 +105,12 @@ public class FirestoreValueConverter : IFirestoreValueConverter
             {
                 return ConvertCollectionFromFirestore(enumerable, targetType);
             }
+        }
+
+        // Dictionary → ComplexType (nested value objects like Coordenadas)
+        if (value is IDictionary<string, object> dict && IsComplexType(actualTargetType))
+        {
+            return MaterializeComplexType(dict, actualTargetType);
         }
 
         return value;
@@ -191,5 +204,173 @@ public class FirestoreValueConverter : IFirestoreValueConverter
     private static bool IsGenericList(Type type)
     {
         return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>);
+    }
+
+    /// <summary>
+    /// Determines if a type is a GeoLocation-like type (has Latitude and Longitude properties/parameters).
+    /// </summary>
+    private static bool IsGeoLocationType(Type type)
+    {
+        // Check for constructor with Latitude/Longitude parameters (positional record)
+        var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var ctor in constructors)
+        {
+            var parameters = ctor.GetParameters();
+            if (parameters.Length == 2)
+            {
+                var hasLatitude = parameters.Any(p =>
+                    p.Name?.Equals("Latitude", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lat", StringComparison.OrdinalIgnoreCase) == true);
+                var hasLongitude = parameters.Any(p =>
+                    p.Name?.Equals("Longitude", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lng", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lon", StringComparison.OrdinalIgnoreCase) == true);
+
+                if (hasLatitude && hasLongitude)
+                    return true;
+            }
+        }
+
+        // Check for properties Latitude/Longitude
+        var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var hasLatProp = props.Any(p => p.Name.Equals("Latitude", StringComparison.OrdinalIgnoreCase));
+        var hasLngProp = props.Any(p => p.Name.Equals("Longitude", StringComparison.OrdinalIgnoreCase));
+
+        return hasLatProp && hasLngProp;
+    }
+
+    /// <summary>
+    /// Materializes a GeoLocation-like type from a Firestore GeoPoint.
+    /// </summary>
+    private static object MaterializeGeoLocation(GeoPoint geoPoint, Type targetType)
+    {
+        // Try constructor with Latitude, Longitude parameters (positional record)
+        var constructors = targetType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var ctor in constructors)
+        {
+            var parameters = ctor.GetParameters();
+            if (parameters.Length == 2)
+            {
+                var latParam = parameters.FirstOrDefault(p =>
+                    p.Name?.Equals("Latitude", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lat", StringComparison.OrdinalIgnoreCase) == true);
+                var lngParam = parameters.FirstOrDefault(p =>
+                    p.Name?.Equals("Longitude", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lng", StringComparison.OrdinalIgnoreCase) == true ||
+                    p.Name?.Equals("Lon", StringComparison.OrdinalIgnoreCase) == true);
+
+                if (latParam != null && lngParam != null)
+                {
+                    var args = new object?[2];
+                    args[Array.IndexOf(parameters, latParam)] = geoPoint.Latitude;
+                    args[Array.IndexOf(parameters, lngParam)] = geoPoint.Longitude;
+                    return ctor.Invoke(args);
+                }
+            }
+        }
+
+        // Fallback: use property setters
+        var instance = Activator.CreateInstance(targetType)!;
+        var latProp = targetType.GetProperty("Latitude", BindingFlags.Public | BindingFlags.Instance);
+        var lngProp = targetType.GetProperty("Longitude", BindingFlags.Public | BindingFlags.Instance);
+
+        latProp?.SetValue(instance, geoPoint.Latitude);
+        lngProp?.SetValue(instance, geoPoint.Longitude);
+
+        return instance;
+    }
+
+    /// <summary>
+    /// Determines if a type is a complex type (value object) that can be materialized from a dictionary.
+    /// Complex types are non-primitive classes with a parameterless or single-argument constructor.
+    /// </summary>
+    private static bool IsComplexType(Type type)
+    {
+        // Exclude primitives, strings, and other simple types
+        if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal) ||
+            type == typeof(DateTime) || type == typeof(DateTimeOffset) ||
+            type == typeof(TimeSpan) || type == typeof(Guid) || type == typeof(byte[]))
+            return false;
+
+        // Exclude interfaces and abstract types
+        if (type.IsInterface || type.IsAbstract)
+            return false;
+
+        // Exclude collections
+        if (typeof(IEnumerable).IsAssignableFrom(type) && type != typeof(string))
+            return false;
+
+        // Must be a class or struct with properties
+        return (type.IsClass || type.IsValueType) && type.GetProperties().Length > 0;
+    }
+
+    /// <summary>
+    /// Materializes a ComplexType from a Firestore dictionary.
+    /// Supports both constructor-based and property-setter initialization.
+    /// </summary>
+    private object MaterializeComplexType(IDictionary<string, object> data, Type targetType)
+    {
+        var constructor = GetBestConstructor(targetType);
+        var parameters = constructor.GetParameters();
+
+        if (parameters.Length == 0)
+        {
+            // Use parameterless constructor and property setters
+            var instance = Activator.CreateInstance(targetType)!;
+
+            foreach (var prop in targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanWrite) continue;
+
+                if (data.TryGetValue(prop.Name, out var propValue) && propValue != null)
+                {
+                    var convertedValue = FromFirestore(propValue, prop.PropertyType);
+                    prop.SetValue(instance, convertedValue);
+                }
+            }
+
+            return instance;
+        }
+
+        // Use constructor with parameters
+        var args = new object?[parameters.Length];
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var param = parameters[i];
+            var paramName = param.Name!;
+
+            // Try to find value in dictionary (case-insensitive)
+            var dictKey = data.Keys.FirstOrDefault(k =>
+                k.Equals(paramName, StringComparison.OrdinalIgnoreCase));
+
+            if (dictKey != null && data[dictKey] != null)
+            {
+                args[i] = FromFirestore(data[dictKey], param.ParameterType);
+            }
+            else
+            {
+                args[i] = param.ParameterType.IsValueType
+                    ? Activator.CreateInstance(param.ParameterType)
+                    : null;
+            }
+        }
+
+        return constructor.Invoke(args);
+    }
+
+    private static ConstructorInfo GetBestConstructor(Type type)
+    {
+        var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+
+        // Prefer parameterless constructor for value objects
+        var parameterless = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
+        if (parameterless != null)
+            return parameterless;
+
+        // Otherwise, prefer constructor with most parameters
+        return constructors
+            .OrderByDescending(c => c.GetParameters().Length)
+            .First();
     }
 }
