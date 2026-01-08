@@ -53,8 +53,17 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             // Detect Id optimization:
             // 1. First check IsIdOnlyQuery/IdValueExpression (used by FindAsync)
             // 2. Then check FilterResults with PrimaryKeyPropertyName
+            // NOTE: Skip optimization if there's a projection with specific fields,
+            // because GetDocumentAsync returns ALL fields and defeats the purpose of projections.
             string? documentId = null;
-            if (ast.IsIdOnlyQuery && ast.IdValueExpression != null)
+            bool hasProjectionWithFields = ast.Projection?.Fields != null && ast.Projection.Fields.Count > 0;
+
+            if (hasProjectionWithFields)
+            {
+                // Don't optimize to document query - use collection query path for field selection
+                documentId = null;
+            }
+            else if (ast.IsIdOnlyQuery && ast.IdValueExpression != null)
             {
                 documentId = _expressionEvaluator.EvaluateIdExpression(ast.IdValueExpression, queryContext);
             }
