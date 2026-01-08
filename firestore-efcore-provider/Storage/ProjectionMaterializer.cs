@@ -291,9 +291,12 @@ public class ProjectionMaterializer : IProjectionMaterializer
         var parentPath = parentSnapshot.Reference.Path;
         var subcollectionPrefix = $"{parentPath}/{subcollection.CollectionPath}/";
 
+        // Calculate expected depth: parentPath depth + 2 (for collection name and document id)
+        var expectedDepth = GetPathDepth(parentPath) + 2;
+
         var subcollectionSnapshots = allSnapshots
             .Where(kv => kv.Key.StartsWith(subcollectionPrefix, StringComparison.Ordinal))
-            .Where(kv => GetPathDepth(kv.Key) == GetPathDepth(subcollectionPrefix) + 1)
+            .Where(kv => GetPathDepth(kv.Key) == expectedDepth)
             .Select(kv => kv.Value)
             .ToList();
 
@@ -314,7 +317,7 @@ public class ProjectionMaterializer : IProjectionMaterializer
         }
 
         // Create the appropriate list type
-        return CreateTypedList(items, elementType, targetListType);
+        return CreateTypedCollection(items, elementType, targetListType);
     }
 
     private object MaterializeSubcollectionItem(
@@ -518,18 +521,52 @@ public class ProjectionMaterializer : IProjectionMaterializer
             .FirstOrDefault();
     }
 
-    private static object CreateTypedList(List<object> items, Type elementType, Type targetListType)
+    private static object CreateTypedCollection(List<object> items, Type elementType, Type targetCollectionType)
     {
-        var listType = typeof(List<>).MakeGenericType(elementType);
-        var typedList = Activator.CreateInstance(listType)!;
-        var addMethod = listType.GetMethod("Add")!;
+        // Determine which concrete collection type to create based on targetCollectionType
+        Type concreteType;
+
+        if (targetCollectionType.IsGenericType)
+        {
+            var genericDef = targetCollectionType.GetGenericTypeDefinition();
+
+            if (genericDef == typeof(HashSet<>) ||
+                genericDef == typeof(ISet<>))
+            {
+                concreteType = typeof(HashSet<>).MakeGenericType(elementType);
+            }
+            else if (genericDef == typeof(List<>) ||
+                     genericDef == typeof(IList<>) ||
+                     genericDef == typeof(ICollection<>) ||
+                     genericDef == typeof(IEnumerable<>) ||
+                     genericDef == typeof(IReadOnlyList<>) ||
+                     genericDef == typeof(IReadOnlyCollection<>))
+            {
+                concreteType = typeof(List<>).MakeGenericType(elementType);
+            }
+            else
+            {
+                // Try to use the target type directly if it's a concrete type
+                concreteType = targetCollectionType.IsClass && !targetCollectionType.IsAbstract
+                    ? targetCollectionType
+                    : typeof(List<>).MakeGenericType(elementType);
+            }
+        }
+        else
+        {
+            // Fallback to List<T>
+            concreteType = typeof(List<>).MakeGenericType(elementType);
+        }
+
+        var collection = Activator.CreateInstance(concreteType)!;
+        var addMethod = concreteType.GetMethod("Add")!;
 
         foreach (var item in items)
         {
-            addMethod.Invoke(typedList, new[] { item });
+            addMethod.Invoke(collection, new[] { item });
         }
 
-        return typedList;
+        return collection;
     }
 
     private static int GetPathDepth(string path)

@@ -2,6 +2,7 @@ using Firestore.EntityFrameworkCore.Infrastructure;
 using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -298,6 +299,11 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     ProcessProjectionArgument(unaryExpr.Operand, resultName, parameter, constructorParameterIndex);
                     break;
 
+                // Handle EF Core's MaterializeCollectionNavigationExpression (Extension node type)
+                case Expression expr when expr.NodeType == ExpressionType.Extension:
+                    ProcessExtensionExpression(expr, resultName, parameter, constructorParameterIndex);
+                    break;
+
                 case ConstantExpression:
                     throw new NotSupportedException(
                         $"Constant values are not supported in projections. Field '{resultName}' uses a constant.");
@@ -314,6 +320,97 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     throw new NotSupportedException(
                         $"Expression type '{argument.NodeType}' is not supported in projection field '{resultName}'.");
             }
+        }
+
+        /// <summary>
+        /// Processes EF Core extension expressions like MaterializeCollectionNavigationExpression.
+        /// </summary>
+        private void ProcessExtensionExpression(
+            Expression expr,
+            string resultName,
+            ParameterExpression parameter,
+            int constructorParameterIndex)
+        {
+            // Handle MaterializeCollectionNavigationExpression directly using EF Core's public API
+            if (expr is MaterializeCollectionNavigationExpression materializeExpr)
+            {
+                var navigation = materializeExpr.Navigation;
+                if (navigation != null)
+                {
+                    var subcollection = CreateSubcollectionProjection(navigation.Name, resultName);
+                    Subcollections.Add(subcollection);
+                    return;
+                }
+
+                // Fallback: try to extract from Subquery
+                if (materializeExpr.Subquery != null)
+                {
+                    var navInfo = ExtractNavigationFromExpression(materializeExpr.Subquery);
+                    if (navInfo != null)
+                    {
+                        var subcollection = CreateSubcollectionProjection(navInfo.NavigationName, resultName, navInfo.TargetClrType);
+                        Subcollections.Add(subcollection);
+                        return;
+                    }
+                }
+
+                // Last resort: use the result name and expression type to create subcollection
+                var elementType = GetCollectionElementType(expr.Type);
+                if (elementType != null)
+                {
+                    var subcollection = CreateSubcollectionProjection(resultName, resultName, elementType);
+                    Subcollections.Add(subcollection);
+                    return;
+                }
+            }
+
+            throw new NotSupportedException(
+                $"Extension expression type '{expr.GetType().Name}' is not supported in projection field '{resultName}'.");
+        }
+
+        /// <summary>
+        /// Extracts navigation info from an expression tree.
+        /// </summary>
+        private NavigationInfo? ExtractNavigationFromExpression(Expression expression)
+        {
+            // Try to find navigation from method chain
+            if (expression is MethodCallExpression methodCall)
+            {
+                return ExtractNavigationFromMethodChain(methodCall);
+            }
+
+            // Try to find navigation from member expression
+            if (expression is MemberExpression memberExpr && IsCollectionNavigation(memberExpr))
+            {
+                return new NavigationInfo(memberExpr.Member.Name);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Gets the element type from a collection type.
+        /// </summary>
+        private static Type? GetCollectionElementType(Type collectionType)
+        {
+            if (collectionType.IsGenericType)
+            {
+                var genericDef = collectionType.GetGenericTypeDefinition();
+                if (genericDef == typeof(IEnumerable<>) ||
+                    genericDef == typeof(ICollection<>) ||
+                    genericDef == typeof(IList<>) ||
+                    genericDef == typeof(List<>) ||
+                    genericDef == typeof(HashSet<>))
+                {
+                    return collectionType.GetGenericArguments()[0];
+                }
+            }
+
+            // Check interfaces for other collection types
+            var enumerableInterface = collectionType.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+
+            return enumerableInterface?.GetGenericArguments()[0];
         }
 
         /// <summary>

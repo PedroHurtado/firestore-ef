@@ -29,7 +29,7 @@ public class SelectSubcollectionTests
 
     #region Ciclo 11: Select con subcollection completa
 
-    [Fact(Skip = "Pendiente: corregir ProjectionMaterializer para subcollections en proyecciones")]
+    [Fact]
     public async Task Select_WithSubcollection_ReturnsRootFieldsAndSubcollection()
     {
         // Arrange
