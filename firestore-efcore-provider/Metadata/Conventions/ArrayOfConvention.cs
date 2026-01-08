@@ -24,6 +24,9 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     // Almacena los tipos de elementos que se han marcado como ArrayOf para limpiarlos después
     private static readonly HashSet<Type> _arrayOfElementTypes = [];
 
+    // Almacena las propiedades que podrían ser ArrayOf Reference pendientes de validar
+    private static readonly List<(Type EntityType, string PropertyName, Type ElementType)> _pendingReferenceArrays = [];
+
     public void ProcessEntityTypeAdded(
         IConventionEntityTypeBuilder entityTypeBuilder,
         IConventionContext<IConventionEntityTypeBuilder> context)
@@ -53,9 +56,14 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
                 continue;
 
             // Si el elementType tiene PK structure, es probable que sea una entidad real
-            // NO aplicar convention automática - requiere config explícita
+            // Ignorar la propiedad AHORA para evitar que EF Core cree FK inversa
+            // y guardar para procesar en ModelFinalizing cuando sepamos si es entidad registrada
             if (ConventionHelpers.HasPrimaryKeyStructure(elementType))
+            {
+                IgnoreProperty(entityTypeBuilder, propertyInfo.Name);
+                _pendingReferenceArrays.Add((clrType, propertyInfo.Name, elementType));
                 continue;
+            }
 
             // Caso 1: Es GeoPoint puro (Lat/Lng sin Id) → ArrayOf GeoPoint
             if (ConventionHelpers.IsGeoPointType(elementType))
@@ -90,7 +98,27 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
         // Paso 1: Auto-detectar ArrayOf References
         AutoDetectArrayOfReferences(model);
 
-        // Paso 2: Limpiar entidades que son ArrayOf elements
+        // Paso 2: Procesar ArrayOf References pendientes (propiedades con PK structure)
+        foreach (var (entityClrType, propertyName, elementType) in _pendingReferenceArrays)
+        {
+            var entityType = model.FindEntityType(entityClrType);
+            if (entityType == null)
+                continue;
+
+            // ✅ Omitir si ya es SubCollection
+            var navigation = entityType.FindNavigation(propertyName);
+            if (navigation != null && navigation.IsSubCollection())
+                continue;
+
+            // El elementType es una entidad registrada → aplicar ArrayOf Reference
+            if (model.FindEntityType(elementType) != null)
+            {
+                ApplyArrayOfReference(entityType, propertyName, elementType);
+            }
+        }
+        _pendingReferenceArrays.Clear();
+
+        // Paso 3: Limpiar entidades que son ArrayOf elements
         var entitiesToRemove = model.GetEntityTypes()
             .Where(et => _arrayOfElementTypes.Contains(et.ClrType))
             .ToList();
@@ -109,6 +137,7 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     /// <summary>
     /// Auto-detecta List&lt;T&gt; donde T es una entidad registrada en el modelo
     /// y aplica ArrayOf Reference automáticamente.
+    /// También elimina las navegaciones y FKs inversas que EF Core haya creado.
     /// </summary>
     private static void AutoDetectArrayOfReferences(IConventionModel model)
     {

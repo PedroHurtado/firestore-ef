@@ -314,6 +314,9 @@ namespace Firestore.EntityFrameworkCore.Storage
             // 4. Deserializar referencias a otras entidades
             DeserializeReferences(entity, data, entityType);
 
+            // 5. Deserializar propiedades ArrayOf (arrays de embedded, geopoints, references)
+            DeserializeArrayOfProperties(entity, data, entityType, relatedEntities);
+
             return entity;
         }
 
@@ -746,6 +749,414 @@ namespace Firestore.EntityFrameworkCore.Storage
                 ?? throw new InvalidOperationException(
                     $"Type '{type.Name}' must have a 'Longitude' or 'Longitud' property to use HasGeoPoint()");
         }
+
+#region ArrayOf Deserialization
+
+        /// <summary>
+        /// Deserializa propiedades marcadas como ArrayOf (Embedded, GeoPoint, Reference).
+        /// </summary>
+        private void DeserializeArrayOfProperties(
+            object entity,
+            IDictionary<string, object> data,
+            IEntityType entityType,
+            IReadOnlyDictionary<string, object>? relatedEntities)
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var propertyInfo in clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                var propertyName = propertyInfo.Name;
+
+                // Verificar si está configurada como ArrayOf
+                var arrayType = entityType.GetArrayOfType(propertyName);
+                if (arrayType == null)
+                    continue;
+
+                // Obtener el valor del diccionario de datos
+                if (!data.TryGetValue(propertyName, out var value) || value == null)
+                    continue;
+
+                // Verificar que es un array
+                if (value is not IEnumerable<object> arrayValue)
+                    continue;
+
+                try
+                {
+                    var elementType = entityType.GetArrayOfElementClrType(propertyName);
+                    if (elementType == null)
+                    {
+                        // Intentar inferir del tipo de propiedad
+                        var propType = propertyInfo.PropertyType;
+                        if (propType.IsGenericType)
+                        {
+                            elementType = propType.GetGenericArguments().FirstOrDefault();
+                        }
+                    }
+
+                    if (elementType == null)
+                    {
+                        _logger.LogWarning("Could not determine element type for ArrayOf property {PropertyName}", propertyName);
+                        continue;
+                    }
+
+                    object? deserializedCollection = arrayType switch
+                    {
+                        ArrayOfAnnotations.ArrayType.Embedded => DeserializeArrayOfEmbedded(arrayValue, elementType, propertyInfo.PropertyType, entityType, propertyName, relatedEntities),
+                        ArrayOfAnnotations.ArrayType.GeoPoint => DeserializeArrayOfGeoPoints(arrayValue, elementType, propertyInfo.PropertyType),
+                        ArrayOfAnnotations.ArrayType.Reference => DeserializeArrayOfReferences(arrayValue, elementType, propertyInfo.PropertyType, relatedEntities),
+                        _ => null
+                    };
+
+                    if (deserializedCollection != null)
+                    {
+                        propertyInfo.SetValue(entity, deserializedCollection);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize ArrayOf property {PropertyName}", propertyName);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deserializa un array de objetos embebidos (maps → List&lt;T&gt;).
+        /// </summary>
+        private object DeserializeArrayOfEmbedded(
+            IEnumerable<object> arrayValue,
+            Type elementType,
+            Type propertyType,
+            IEntityType entityType,
+            string propertyName,
+            IReadOnlyDictionary<string, object>? relatedEntities)
+        {
+            var collection = CreateTypedCollection(elementType, propertyType);
+
+            foreach (var item in arrayValue)
+            {
+                if (item is IDictionary<string, object> map)
+                {
+                    var element = DeserializeEmbeddedElement(map, elementType, entityType, propertyName, relatedEntities);
+                    if (element != null)
+                    {
+                        AddToCollection(collection, element);
+                    }
+                }
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Deserializa un elemento embebido de un array.
+        /// </summary>
+        private object? DeserializeEmbeddedElement(
+            IDictionary<string, object> map,
+            Type elementType,
+            IEntityType entityType,
+            string propertyName,
+            IReadOnlyDictionary<string, object>? relatedEntities)
+        {
+            // Crear instancia del elemento
+            var instance = CreateInstanceWithBestConstructor(elementType, map);
+            if (instance == null)
+                return null;
+
+            // Poblar propiedades simples
+            foreach (var prop in elementType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanWrite)
+                    continue;
+
+                if (map.TryGetValue(prop.Name, out var value) && value != null)
+                {
+                    try
+                    {
+                        // Verificar si es una referencia anidada (DocumentReference)
+                        if (value is DocumentReference docRef)
+                        {
+                            // Buscar en relatedEntities
+                            if (relatedEntities != null && relatedEntities.TryGetValue(docRef.Path, out var relatedEntity))
+                            {
+                                prop.SetValue(instance, relatedEntity);
+                            }
+                            continue;
+                        }
+
+                        // Verificar si es un array anidado
+                        if (value is IEnumerable<object> nestedArray && !prop.PropertyType.IsAssignableFrom(typeof(string)))
+                        {
+                            var nestedElementType = GetCollectionElementType(prop.PropertyType);
+                            if (nestedElementType != null)
+                            {
+                                // Determinar tipo de array anidado
+                                // First check if it's an array of DocumentReferences (ArrayOf Reference)
+                                if (IsArrayOfDocumentReferences(nestedArray))
+                                {
+                                    var nestedCollection = DeserializeArrayOfReferences(nestedArray, nestedElementType, prop.PropertyType, relatedEntities);
+                                    prop.SetValue(instance, nestedCollection);
+                                }
+                                else if (ConventionHelpers.IsGeoPointType(nestedElementType))
+                                {
+                                    var nestedCollection = DeserializeArrayOfGeoPoints(nestedArray, nestedElementType, prop.PropertyType);
+                                    prop.SetValue(instance, nestedCollection);
+                                }
+                                else if (!ConventionHelpers.IsPrimitiveOrSimpleType(nestedElementType))
+                                {
+                                    var nestedCollection = DeserializeArrayOfEmbedded(nestedArray, nestedElementType, prop.PropertyType, entityType, propertyName, relatedEntities);
+                                    prop.SetValue(instance, nestedCollection);
+                                }
+                                continue;
+                            }
+                        }
+
+                        // Conversión normal
+                        var convertedValue = ConvertToTargetType(value, prop.PropertyType);
+                        prop.SetValue(instance, convertedValue);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogTrace(ex, "Failed to set property {PropertyName} on embedded element", prop.Name);
+                    }
+                }
+            }
+
+            return instance;
+        }
+
+        /// <summary>
+        /// Deserializa un array de GeoPoints nativos a List&lt;T&gt; donde T tiene Lat/Lng.
+        /// </summary>
+        private object DeserializeArrayOfGeoPoints(
+            IEnumerable<object> arrayValue,
+            Type elementType,
+            Type propertyType)
+        {
+            var collection = CreateTypedCollection(elementType, propertyType);
+
+            foreach (var item in arrayValue)
+            {
+                if (item is GeoPoint geoPoint)
+                {
+                    var element = CreateGeoPointInstance(elementType, geoPoint);
+                    if (element != null)
+                    {
+                        AddToCollection(collection, element);
+                    }
+                }
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Crea una instancia del tipo GeoPoint personalizado.
+        /// </summary>
+        private object? CreateGeoPointInstance(Type elementType, GeoPoint geoPoint)
+        {
+            // Intentar constructor con 2 doubles (para records)
+            var constructor = elementType.GetConstructors()
+                .FirstOrDefault(c =>
+                {
+                    var parameters = c.GetParameters();
+                    return parameters.Length == 2 &&
+                           parameters.All(p => p.ParameterType == typeof(double));
+                });
+
+            if (constructor != null)
+            {
+                var parameters = constructor.GetParameters();
+                var args = new object[2];
+
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    var paramName = parameters[i].Name;
+                    if (paramName != null &&
+                        (paramName.Equals("latitude", StringComparison.OrdinalIgnoreCase) ||
+                         paramName.Equals("lat", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        args[i] = geoPoint.Latitude;
+                    }
+                    else
+                    {
+                        args[i] = geoPoint.Longitude;
+                    }
+                }
+
+                return constructor.Invoke(args);
+            }
+
+            // Fallback: constructor sin parámetros + setear propiedades
+            var instance = Activator.CreateInstance(elementType);
+            if (instance == null)
+                return null;
+
+            var latProp = ConventionHelpers.GetLatitudeProperty(elementType);
+            var lonProp = ConventionHelpers.GetLongitudeProperty(elementType);
+
+            latProp?.SetValue(instance, geoPoint.Latitude);
+            lonProp?.SetValue(instance, geoPoint.Longitude);
+
+            return instance;
+        }
+
+        /// <summary>
+        /// Deserializa un array de DocumentReferences a List&lt;T&gt; de entidades.
+        /// </summary>
+        private object DeserializeArrayOfReferences(
+            IEnumerable<object> arrayValue,
+            Type elementType,
+            Type propertyType,
+            IReadOnlyDictionary<string, object>? relatedEntities)
+        {
+            var collection = CreateTypedCollection(elementType, propertyType);
+
+            if (relatedEntities == null)
+                return collection;
+
+            foreach (var item in arrayValue)
+            {
+                if (item is DocumentReference docRef)
+                {
+                    if (relatedEntities.TryGetValue(docRef.Path, out var entity))
+                    {
+                        AddToCollection(collection, entity);
+                    }
+                }
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Checks if the enumerable contains DocumentReferences (ArrayOf Reference).
+        /// </summary>
+        private static bool IsArrayOfDocumentReferences(IEnumerable<object> array)
+        {
+            foreach (var item in array)
+            {
+                // Check first non-null item
+                if (item is DocumentReference)
+                    return true;
+                if (item != null)
+                    return false; // Not a DocumentReference
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Crea una colección del tipo apropiado (List&lt;T&gt; o HashSet&lt;T&gt;).
+        /// </summary>
+        private static object CreateTypedCollection(Type elementType, Type propertyType)
+        {
+            // Si es HashSet<T>
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
+                return Activator.CreateInstance(hashSetType)!;
+            }
+
+            // Default: List<T>
+            var listType = typeof(List<>).MakeGenericType(elementType);
+            return Activator.CreateInstance(listType)!;
+        }
+
+        /// <summary>
+        /// Crea una instancia usando el mejor constructor disponible.
+        /// </summary>
+        private static object? CreateInstanceWithBestConstructor(Type type, IDictionary<string, object> data)
+        {
+            // Primero intentar constructor sin parámetros
+            var parameterlessConstructor = type.GetConstructors()
+                .FirstOrDefault(c => c.GetParameters().Length == 0);
+
+            if (parameterlessConstructor != null)
+            {
+                return parameterlessConstructor.Invoke(Array.Empty<object>());
+            }
+
+            // Buscar constructor con parámetros que coincidan con los datos
+            foreach (var constructor in type.GetConstructors().OrderByDescending(c => c.GetParameters().Length))
+            {
+                var parameters = constructor.GetParameters();
+                var args = new object?[parameters.Length];
+                var allMatched = true;
+
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    var param = parameters[i];
+                    var dataKey = data.Keys.FirstOrDefault(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+
+                    if (dataKey != null && data.TryGetValue(dataKey, out var value))
+                    {
+                        args[i] = ConvertValueToType(value, param.ParameterType);
+                    }
+                    else if (param.HasDefaultValue)
+                    {
+                        args[i] = param.DefaultValue;
+                    }
+                    else
+                    {
+                        allMatched = false;
+                        break;
+                    }
+                }
+
+                if (allMatched)
+                {
+                    return constructor.Invoke(args);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Convierte un valor al tipo destino (helper estático).
+        /// </summary>
+        private static object? ConvertValueToType(object? value, Type targetType)
+        {
+            if (value == null)
+                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+
+            if (targetType.IsAssignableFrom(value.GetType()))
+                return value;
+
+            // Conversiones comunes de Firestore
+            if (targetType == typeof(decimal) && value is double d)
+                return (decimal)d;
+
+            if (targetType == typeof(int) && value is long l)
+                return (int)l;
+
+            if (targetType == typeof(DateTime) && value is Google.Cloud.Firestore.Timestamp ts)
+                return ts.ToDateTime();
+
+            if (targetType == typeof(TimeSpan) && value is long ticks)
+                return TimeSpan.FromTicks(ticks);
+
+            try
+            {
+                return Convert.ChangeType(value, targetType);
+            }
+            catch
+            {
+                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+            }
+        }
+
+        /// <summary>
+        /// Obtiene el tipo de elemento de una colección genérica.
+        /// </summary>
+        private static Type? GetCollectionElementType(Type type)
+        {
+            if (type.IsGenericType)
+                return type.GetGenericArguments().FirstOrDefault();
+
+            return null;
+        }
+
+        #endregion
 
         #region Navigation Assignment
 

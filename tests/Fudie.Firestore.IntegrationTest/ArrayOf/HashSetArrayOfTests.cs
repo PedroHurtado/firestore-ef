@@ -123,7 +123,7 @@ public class HashSetArrayOfTests
         };
 
         // Act
-        context.Productos.Add(producto);
+        context.Productos.Add(producto);        
         await context.SaveChangesAsync();
 
         // Assert
@@ -136,6 +136,11 @@ public class HashSetArrayOfTests
 
         var docRef = (DocumentReference)proveedores[0];
         docRef.Id.Should().BeOneOf(prov1Id, prov2Id); // HashSet no garantiza orden
+
+        // Verificar que NO se creó FK inversa en Proveedor
+        var proveedorRawData = await GetDocumentRawData<Proveedor>(prov1Id);
+        proveedorRawData.Should().NotContainKey("ProductoConHashSet",
+            "ArrayOf Reference no debe crear FK inversa en la entidad referenciada");
     }
 
     #endregion

@@ -291,6 +291,14 @@ public class ProductoHashSetDbContext(DbContextOptions<ProductoHashSetDbContext>
     public DbSet<Proveedor> Proveedores => Set<Proveedor>();
 
     // Sin OnModelCreating - todo auto-detectado por conventions
+
+    /*protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProductoConHashSet>(entity =>
+        {
+           entity.ArrayOf(p=>p.Proveedores).AsReferences();
+        });
+    }*/
 }
 
 // ============================================================================

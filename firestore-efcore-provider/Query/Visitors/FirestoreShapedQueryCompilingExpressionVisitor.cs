@@ -36,6 +36,9 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
             // Add ComplexType Includes to the AST
             FirestoreQueryExpression.AddComplexTypeIncludes(firestoreQueryExpression, QueryCompilationContext);
 
+            // Add ArrayOf Reference Includes to the AST
+            FirestoreQueryExpression.AddArrayOfIncludes(firestoreQueryExpression, QueryCompilationContext);
+
             // Determine result type and query kind
             Type resultType;
             QueryKind queryKind;

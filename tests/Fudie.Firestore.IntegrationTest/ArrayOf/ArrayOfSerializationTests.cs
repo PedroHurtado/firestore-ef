@@ -155,6 +155,11 @@ public class ArrayOfSerializationTests
         var docRef = (DocumentReference)etiquetas[0];
         docRef.Id.Should().Be(tag1Id);
         docRef.Path.Should().Contain("Etiquetas");
+
+        // Verificar que NO se creó FK inversa en Etiqueta
+        var etiquetaRawData = await GetDocumentRawData<Etiqueta>(tag1Id);
+        etiquetaRawData.Should().NotContainKey("ProductoConEtiquetas",
+            "ArrayOf Reference no debe crear FK inversa en la entidad referenciada");
     }
 
     #region Helpers

@@ -19,6 +19,7 @@ namespace Firestore.EntityFrameworkCore.Query
     public class FirestoreQueryCompilationContext : QueryCompilationContext
     {
         private readonly List<IncludeInfo> _complexTypeIncludes = new();
+        private readonly List<IncludeInfo> _arrayOfIncludes = new();
 
         public FirestoreQueryCompilationContext(
             QueryCompilationContextDependencies dependencies,
@@ -33,12 +34,27 @@ namespace Firestore.EntityFrameworkCore.Query
         public IReadOnlyList<IncludeInfo> ComplexTypeIncludes => _complexTypeIncludes;
 
         /// <summary>
+        /// IncludeInfo for ArrayOf Reference properties.
+        /// These are extracted and translated before EF Core processes them.
+        /// </summary>
+        public IReadOnlyList<IncludeInfo> ArrayOfIncludes => _arrayOfIncludes;
+
+        /// <summary>
         /// Adds a ComplexType include for later processing.
         /// Called by ComplexTypeIncludeTranslator.
         /// </summary>
         internal void AddComplexTypeInclude(IncludeInfo includeInfo)
         {
             _complexTypeIncludes.Add(includeInfo);
+        }
+
+        /// <summary>
+        /// Adds an ArrayOf Reference include for later processing.
+        /// Called by ArrayOfIncludeTranslator.
+        /// </summary>
+        internal void AddArrayOfInclude(IncludeInfo includeInfo)
+        {
+            _arrayOfIncludes.Add(includeInfo);
         }
     }
 }

@@ -1,13 +1,13 @@
-using Google.Api.Gax;
-using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
 using Fudie.Firestore.IntegrationTest.Helpers;
 using Fudie.Firestore.IntegrationTest.Helpers.ArrayOf;
 
-namespace Fudie.Firestore.IntegrationTest.ArrayOf;
+namespace Fudie.Firestore.IntegrationTest.ArrayOf.Query;
 
 /// <summary>
-/// Tests de integración para ArrayOf con CONFIGURACIÓN MÍNIMA.
+/// Tests de integración para ArrayOf con CONFIGURACIÓN MÍNIMA - DESERIALIZACIÓN con LINQ.
 /// Demuestra que las conventions auto-detectan correctamente los tipos de ArrayOf.
+/// Patrón: Guardar con EF Core → Leer con LINQ (Include para References) → Verificar estructura.
 ///
 /// AUTO-DETECTADO (sin config):
 /// - CASO 1: List&lt;Horario&gt; → Embedded (clase sin Id)
@@ -19,11 +19,11 @@ namespace Fudie.Firestore.IntegrationTest.ArrayOf;
 /// - CASO 5: ItemMenu.Plato → Reference() (navegación dentro de ComplexType anidado)
 /// </summary>
 [Collection(nameof(FirestoreTestCollection))]
-public class RestauranteMinimalConfigTests
+public class RestauranteMinimalConfigTests_Query
 {
     private readonly FirestoreTestFixture _fixture;
 
-    public RestauranteMinimalConfigTests(FirestoreTestFixture fixture)
+    public RestauranteMinimalConfigTests_Query(FirestoreTestFixture fixture)
     {
         _fixture = fixture;
     }
@@ -31,7 +31,7 @@ public class RestauranteMinimalConfigTests
     #region CASO 1: ArrayOf Embedded Simple - AUTO-DETECTADO
 
     [Fact]
-    public async Task Caso1_ArrayOfEmbedded_AutoDetected_ShouldPersistAsArrayOfMaps()
+    public async Task Caso1_ArrayOfEmbedded_AutoDetected_ShouldDeserializeAsListOfObjects()
     {
         // Arrange
         var restauranteId = FirestoreTestFixture.GenerateId("rest");
@@ -48,19 +48,21 @@ public class RestauranteMinimalConfigTests
             ]
         };
 
-        // Act
         context.Restaurantes.Add(restaurante);
         await context.SaveChangesAsync();
 
+        // Act - Leer con LINQ
+        using var readContext = _fixture.CreateContext<RestauranteMinimalConfigDbContext>();
+        var result = await readContext.Restaurantes
+            .FirstOrDefaultAsync(r => r.Id == restauranteId);
+
         // Assert
-        var rawData = await GetDocumentRawData<Restaurante>(restauranteId);
-        rawData.Should().ContainKey("Horarios");
-
-        var horarios = ((IEnumerable<object>)rawData["Horarios"]).ToList();
-        horarios.Should().HaveCount(2);
-
-        var primerHorario = horarios[0] as Dictionary<string, object>;
-        primerHorario!["Dia"].Should().Be("Lunes");
+        result.Should().NotBeNull();
+        result!.Nombre.Should().Be("La Tasca");
+        result.Horarios.Should().HaveCount(2);
+        result.Horarios[0].Dia.Should().Be("Lunes");
+        result.Horarios[0].Apertura.Should().Be(TimeSpan.FromHours(9));
+        result.Horarios[1].Dia.Should().Be("Martes");
     }
 
     #endregion
@@ -68,7 +70,7 @@ public class RestauranteMinimalConfigTests
     #region CASO 2: ArrayOf GeoPoints - AUTO-DETECTADO
 
     [Fact]
-    public async Task Caso2_ArrayOfGeoPoints_AutoDetected_ShouldPersistAsNativeGeoPoints()
+    public async Task Caso2_ArrayOfGeoPoints_AutoDetected_ShouldDeserializeAsListOfCoordinates()
     {
         // Arrange
         var restauranteId = FirestoreTestFixture.GenerateId("rest");
@@ -85,21 +87,20 @@ public class RestauranteMinimalConfigTests
             ]
         };
 
-        // Act
         context.Restaurantes.Add(restaurante);
         await context.SaveChangesAsync();
 
+        // Act - Leer con LINQ
+        using var readContext = _fixture.CreateContext<RestauranteMinimalConfigDbContext>();
+        var result = await readContext.Restaurantes
+            .FirstOrDefaultAsync(r => r.Id == restauranteId);
+
         // Assert
-        var rawData = await GetDocumentRawData<Restaurante>(restauranteId);
-        rawData.Should().ContainKey("ZonasCobertura");
-
-        var zonas = ((IEnumerable<object>)rawData["ZonasCobertura"]).ToList();
-        zonas.Should().HaveCount(2);
-        zonas[0].Should().BeOfType<GeoPoint>();
-
-        var primerPunto = (GeoPoint)zonas[0];
-        primerPunto.Latitude.Should().BeApproximately(40.4168, 0.0001);
-        primerPunto.Longitude.Should().BeApproximately(-3.7038, 0.0001);
+        result.Should().NotBeNull();
+        result!.ZonasCobertura.Should().HaveCount(2);
+        result.ZonasCobertura[0].Latitude.Should().BeApproximately(40.4168, 0.0001);
+        result.ZonasCobertura[0].Longitude.Should().BeApproximately(-3.7038, 0.0001);
+        result.ZonasCobertura[1].Latitude.Should().BeApproximately(40.4200, 0.0001);
     }
 
     #endregion
@@ -107,7 +108,7 @@ public class RestauranteMinimalConfigTests
     #region CASO 3: ArrayOf References - AUTO-DETECTADO
 
     [Fact]
-    public async Task Caso3_ArrayOfReferences_AutoDetected_ShouldPersistAsDocumentReferences()
+    public async Task Caso3_ArrayOfReferences_AutoDetected_ShouldDeserializeWithInclude()
     {
         // Arrange
         var restauranteId = FirestoreTestFixture.GenerateId("rest");
@@ -126,25 +127,22 @@ public class RestauranteMinimalConfigTests
             Categorias = [categoria1, categoria2]
         };
 
-        // Act
         context.Restaurantes.Add(restaurante);
         await context.SaveChangesAsync();
 
+        // Act - Leer con LINQ + Include
+        using var readContext = _fixture.CreateContext<RestauranteMinimalConfigDbContext>();
+        var result = await readContext.Restaurantes
+            .Include(r => r.Categorias)
+            .FirstOrDefaultAsync(r => r.Id == restauranteId);
+
         // Assert
-        var rawData = await GetDocumentRawData<Restaurante>(restauranteId);
-        rawData.Should().ContainKey("Categorias");
-
-        var categorias = ((IEnumerable<object>)rawData["Categorias"]).ToList();
-        categorias.Should().HaveCount(2);
-        categorias[0].Should().BeOfType<DocumentReference>();
-
-        var docRef = (DocumentReference)categorias[0];
-        docRef.Id.Should().Be(cat1Id);
-
-        // Verificar que NO se creó FK inversa en CategoriaRestaurante
-        var categoriaRawData = await GetDocumentRawData<CategoriaRestaurante>(cat1Id);
-        categoriaRawData.Should().NotContainKey("Restaurante",
-            "ArrayOf Reference auto-detectado no debe crear FK inversa en la entidad referenciada");
+        result.Should().NotBeNull();
+        result!.Categorias.Should().HaveCount(2);
+        result.Categorias[0].Id.Should().Be(cat1Id);
+        result.Categorias[0].Nombre.Should().Be("Italiana");
+        result.Categorias[1].Id.Should().Be(cat2Id);
+        result.Categorias[1].Nombre.Should().Be("Mediterránea");
     }
 
     #endregion
@@ -152,7 +150,7 @@ public class RestauranteMinimalConfigTests
     #region CASO 4: ArrayOf Embedded con Reference - REQUIERE CONFIG
 
     [Fact]
-    public async Task Caso4_ArrayOfEmbeddedWithReference_ShouldPersistWithDocumentReference()
+    public async Task Caso4_ArrayOfEmbeddedWithReference_ShouldDeserializeWithNestedInclude()
     {
         // Arrange
         var restauranteId = FirestoreTestFixture.GenerateId("rest");
@@ -177,24 +175,24 @@ public class RestauranteMinimalConfigTests
             ]
         };
 
-        // Act
         context.Restaurantes.Add(restaurante);
         await context.SaveChangesAsync();
 
+        // Act - Leer con LINQ + Include para la referencia dentro del embedded
+        using var readContext = _fixture.CreateContext<RestauranteMinimalConfigDbContext>();
+        var result = await readContext.Restaurantes
+            .Include(r => r.Certificaciones)
+            .ThenInclude(c => c.Certificador)
+            .FirstOrDefaultAsync(r => r.Id == restauranteId);
+
         // Assert
-        var rawData = await GetDocumentRawData<Restaurante>(restauranteId);
-        rawData.Should().ContainKey("Certificaciones");
-
-        var certificaciones = ((IEnumerable<object>)rawData["Certificaciones"]).ToList();
-        certificaciones.Should().HaveCount(1);
-
-        var primeraCert = certificaciones[0] as Dictionary<string, object>;
-        primeraCert!["Nombre"].Should().Be("ISO 9001");
-        primeraCert.Should().ContainKey("Certificador");
-        primeraCert["Certificador"].Should().BeOfType<DocumentReference>();
-
-        var certRef = (DocumentReference)primeraCert["Certificador"];
-        certRef.Id.Should().Be(certId);
+        result.Should().NotBeNull();
+        result!.Certificaciones.Should().HaveCount(1);
+        result.Certificaciones[0].Nombre.Should().Be("ISO 9001");
+        result.Certificaciones[0].Certificador.Should().NotBeNull();
+        result.Certificaciones[0].Certificador!.Id.Should().Be(certId);
+        result.Certificaciones[0].Certificador!.Nombre.Should().Be("Bureau Veritas");
+        result.Certificaciones[0].Certificador!.Pais.Should().Be("Francia");
     }
 
     #endregion
@@ -202,7 +200,7 @@ public class RestauranteMinimalConfigTests
     #region CASO 5: ArrayOf Embedded Anidado con Reference - REQUIERE CONFIG
 
     [Fact]
-    public async Task Caso5_ArrayOfNestedEmbeddedWithReference_ShouldPersistNestedStructure()
+    public async Task Caso5_ArrayOfNestedEmbeddedWithReference_ShouldDeserializeNestedStructure()
     {
         // Arrange
         var restauranteId = FirestoreTestFixture.GenerateId("rest");
@@ -240,66 +238,31 @@ public class RestauranteMinimalConfigTests
             ]
         };
 
-        // Act
         context.Restaurantes.Add(restaurante);
         await context.SaveChangesAsync();
 
+        // Act - Leer con LINQ + Include anidado
+        using var readContext = _fixture.CreateContext<RestauranteMinimalConfigDbContext>();
+        var result = await readContext.Restaurantes
+            .Include(r => r.Menus)
+            .ThenInclude(m => m.Secciones)
+            .ThenInclude(s => s.Items)
+            .ThenInclude(i => i.Plato)                       
+            .FirstOrDefaultAsync(r => r.Id == restauranteId);
+
         // Assert
-        var rawData = await GetDocumentRawData<Restaurante>(restauranteId);
-        rawData.Should().ContainKey("Menus");
-
-        var menus = ((IEnumerable<object>)rawData["Menus"]).ToList();
-        menus.Should().HaveCount(1);
-
-        var primerMenu = menus[0] as Dictionary<string, object>;
-        primerMenu!["Nombre"].Should().Be("Carta Principal");
-        primerMenu.Should().ContainKey("Secciones");
-
-        var secciones = ((IEnumerable<object>)primerMenu["Secciones"]).ToList();
-        var primeraSeccion = secciones[0] as Dictionary<string, object>;
-        primeraSeccion!["Titulo"].Should().Be("Entrantes");
-        primeraSeccion.Should().ContainKey("Items");
-
-        var items = ((IEnumerable<object>)primeraSeccion["Items"]).ToList();
-        var primerItem = items[0] as Dictionary<string, object>;
-        primerItem!["Descripcion"].Should().Be("Ración completa");
-        primerItem.Should().ContainKey("Plato");
-        primerItem["Plato"].Should().BeOfType<DocumentReference>();
-
-        var platoRef = (DocumentReference)primerItem["Plato"];
-        platoRef.Id.Should().Be(platoId);
+        result.Should().NotBeNull();
+        result!.Menus.Should().HaveCount(1);
+        result.Menus[0].Nombre.Should().Be("Carta Principal");
+        result.Menus[0].Secciones.Should().HaveCount(1);
+        result.Menus[0].Secciones[0].Titulo.Should().Be("Entrantes");
+        result.Menus[0].Secciones[0].Items.Should().HaveCount(1);
+        result.Menus[0].Secciones[0].Items[0].Descripcion.Should().Be("Ración completa");
+        result.Menus[0].Secciones[0].Items[0].Plato.Should().NotBeNull();
+        result.Menus[0].Secciones[0].Items[0].Plato!.Id.Should().Be(platoId);
+        result.Menus[0].Secciones[0].Items[0].Plato!.Nombre.Should().Be("Patatas Bravas");
+        result.Menus[0].Secciones[0].Items[0].Plato!.Precio.Should().Be(8.50m);
     }
-
-    #endregion
-
-    #region Helpers
-
-    private async Task<Dictionary<string, object>> GetDocumentRawData<T>(string documentId)
-    {
-        var firestoreDb = await new FirestoreDbBuilder
-        {
-            ProjectId = FirestoreTestFixture.ProjectId,
-            EmulatorDetection = EmulatorDetection.EmulatorOnly
-        }.BuildAsync();
-
-        var collectionName = GetCollectionName<T>();
-        var docSnapshot = await firestoreDb
-            .Collection(collectionName)
-            .Document(documentId)
-            .GetSnapshotAsync();
-
-        docSnapshot.Exists.Should().BeTrue($"El documento {documentId} debe existir en {collectionName}");
-        return docSnapshot.ToDictionary();
-    }
-
-#pragma warning disable EF1001
-    private static string GetCollectionName<T>()
-    {
-        var logger = new Microsoft.Extensions.Logging.Abstractions.NullLogger<global::Firestore.EntityFrameworkCore.Infrastructure.Internal.FirestoreCollectionManager>();
-        var collectionManager = new global::Firestore.EntityFrameworkCore.Infrastructure.Internal.FirestoreCollectionManager(logger);
-        return collectionManager.GetCollectionName(typeof(T));
-    }
-#pragma warning restore EF1001
 
     #endregion
 }

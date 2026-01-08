@@ -36,6 +36,10 @@ namespace Firestore.EntityFrameworkCore.Query
             var complexTypeIncludeTranslator = new ComplexTypeIncludeTranslator(QueryCompilationContext, _collectionManager);
             query = complexTypeIncludeTranslator.Visit(query);
 
+            // Extract, translate to IncludeInfo, and remove ArrayOf Reference Includes before EF Core processes them
+            var arrayOfIncludeTranslator = new ArrayOfIncludeTranslator(QueryCompilationContext, _collectionManager);
+            query = arrayOfIncludeTranslator.Visit(query);
+
             // Transform TakeLast before EF Core's NavigationExpandingExpressionVisitor rejects it
             var takeLastTransformer = new TakeLastTransformingVisitor();
             query = takeLastTransformer.Visit(query);

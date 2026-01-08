@@ -606,6 +606,12 @@ namespace Firestore.EntityFrameworkCore.Storage
                 // Omitir colecciones (se manejan en SerializeEntityReferenceCollections)
                 if (navigation.IsCollection) continue;
 
+                // ⚠️ Omitir navegaciones inversas de ArrayOf References
+                // Si la entidad destino tiene un ArrayOf Reference que apunta a esta entidad,
+                // esta navegación es una FK inversa automática de EF Core que no debe serializarse
+                if (IsInverseOfArrayOfReference(navigation))
+                    continue;
+
                 var relatedEntity = navigation.PropertyInfo?.GetValue(entity);
                 if (relatedEntity == null) continue;
 
@@ -629,6 +635,44 @@ namespace Firestore.EntityFrameworkCore.Storage
                     .Collection(collectionName)
                     .Document(relatedId.ToString()!);
             }
+        }
+
+        /// <summary>
+        /// Verifica si una navegación es la inversa de un ArrayOf Reference.
+        /// Busca en la entidad destino si hay alguna propiedad de colección
+        /// del tipo de la entidad actual configurada como ArrayOf Reference.
+        /// </summary>
+        private static bool IsInverseOfArrayOfReference(INavigation navigation)
+        {
+            // Solo aplica a navegaciones de referencia (no colecciones)
+            if (navigation.IsCollection)
+                return false;
+
+            var targetEntityType = navigation.TargetEntityType;
+            var sourceClrType = navigation.DeclaringEntityType.ClrType;
+
+            // Buscar en targetEntityType todas las propiedades ArrayOf Reference
+            // que apunten al tipo de la entidad actual
+            foreach (var prop in targetEntityType.ClrType.GetProperties())
+            {
+                // Verificar si es una colección
+                if (!Metadata.Conventions.ConventionHelpers.IsGenericCollection(prop.PropertyType))
+                    continue;
+
+                // Verificar si el elemento de la colección es del tipo de la entidad actual
+                var elementType = Metadata.Conventions.ConventionHelpers.GetCollectionElementType(prop.PropertyType);
+                if (elementType != sourceClrType)
+                    continue;
+
+                // Verificar si está configurada como ArrayOf Reference
+                var arrayType = targetEntityType.GetArrayOfType(prop.Name);
+                if (arrayType == Metadata.Conventions.ArrayOfAnnotations.ArrayType.Reference)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // ✅ Serializar colecciones de referencias de entidades

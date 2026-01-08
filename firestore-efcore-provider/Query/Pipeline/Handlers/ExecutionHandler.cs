@@ -156,17 +156,41 @@ public class ExecutionHandler : IQueryPipelineHandler
             }
             else
             {
-                // Reference: FK → single document
-                var docRef = GetNestedDocumentReference(parentDoc.ToDictionary(), include.NavigationName);
-                if (docRef == null || allSnapshots.ContainsKey(docRef.Path))
-                    continue;
+                // Reference: FK → single document or ArrayOf References → multiple documents
+                var data = parentDoc.ToDictionary();
 
-                var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
-                if (!doc.Exists)
-                    continue;
+                // Check if it's an array of DocumentReferences (ArrayOf Reference)
+                var docRefs = GetNestedDocumentReferences(data, include.NavigationName);
+                if (docRefs != null && docRefs.Count > 0)
+                {
+                    // ArrayOf References: load each referenced document
+                    foreach (var docRef in docRefs)
+                    {
+                        if (allSnapshots.ContainsKey(docRef.Path))
+                            continue;
 
-                allSnapshots[doc.Reference.Path] = doc;
-                await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                        var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+                        if (!doc.Exists)
+                            continue;
+
+                        allSnapshots[doc.Reference.Path] = doc;
+                        await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                    }
+                }
+                else
+                {
+                    // Single reference: FK → single document
+                    var docRef = GetNestedDocumentReference(data, include.NavigationName);
+                    if (docRef == null || allSnapshots.ContainsKey(docRef.Path))
+                        continue;
+
+                    var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+                    if (!doc.Exists)
+                        continue;
+
+                    allSnapshots[doc.Reference.Path] = doc;
+                    await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                }
             }
         }
     }
@@ -189,6 +213,91 @@ public class ExecutionHandler : IQueryPipelineHandler
         }
 
         return current as DocumentReference;
+    }
+
+    /// <summary>
+    /// Gets an array of DocumentReferences from a nested path in the document data.
+    /// Used for ArrayOf Reference properties (e.g., HashSet&lt;Proveedor&gt;).
+    /// Also handles paths through arrays (e.g., "Secciones.EtiquetasDestacadas" where Secciones is an array).
+    /// </summary>
+    private static List<DocumentReference>? GetNestedDocumentReferences(
+        IDictionary<string, object> data,
+        string navigationPath)
+    {
+        var parts = navigationPath.Split('.');
+        return GetNestedDocumentReferencesRecursive(data, parts, 0);
+    }
+
+    /// <summary>
+    /// Recursively navigates the path, handling both dictionaries and arrays.
+    /// Collects DocumentReferences from the final path segment, whether single or array.
+    /// </summary>
+    private static List<DocumentReference>? GetNestedDocumentReferencesRecursive(
+        object? current,
+        string[] pathParts,
+        int partIndex)
+    {
+        if (current == null)
+            return null;
+
+        // End of path: check what we have
+        if (partIndex >= pathParts.Length)
+        {
+            // Single DocumentReference
+            if (current is DocumentReference singleRef)
+            {
+                return [singleRef];
+            }
+
+            // Array of DocumentReferences
+            if (current is IEnumerable<object> enumerable && current is not string)
+            {
+                var refs = new List<DocumentReference>();
+                foreach (var item in enumerable)
+                {
+                    if (item is DocumentReference docRef)
+                        refs.Add(docRef);
+                }
+                return refs.Count > 0 ? refs : null;
+            }
+            return null;
+        }
+
+        var part = pathParts[partIndex];
+
+        // Case 1: Current is a dictionary - navigate into it
+        if (current is IDictionary<string, object> dict)
+        {
+            if (dict.TryGetValue(part, out var next))
+            {
+                return GetNestedDocumentReferencesRecursive(next, pathParts, partIndex + 1);
+            }
+            return null;
+        }
+
+        // Case 2: Current is an array - iterate and collect from each element
+        if (current is IEnumerable<object> array && current is not string)
+        {
+            var allRefs = new List<DocumentReference>();
+            foreach (var item in array)
+            {
+                // Each item should be a dictionary (map/embedded object)
+                if (item is IDictionary<string, object> itemDict)
+                {
+                    if (itemDict.TryGetValue(part, out var next))
+                    {
+                        var refs = GetNestedDocumentReferencesRecursive(next, pathParts, partIndex + 1);
+                        if (refs != null)
+                        {
+                            allRefs.AddRange(refs);
+                        }
+                    }
+                }
+            }
+            return allRefs.Count > 0 ? allRefs : null;
+        }
+
+        return null;
     }
 
     /// <summary>

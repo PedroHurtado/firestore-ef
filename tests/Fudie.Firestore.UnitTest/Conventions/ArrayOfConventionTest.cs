@@ -127,7 +127,7 @@ public class ArrayOfConventionTest
     }
 
     [Fact]
-    public void ProcessEntityTypeAdded_ListOfEntity_DoesNotApply()
+    public void ProcessEntityTypeAdded_ListOfEntity_IgnoresPropertyForLaterProcessing()
     {
         // Arrange - List<Producto> donde Producto tiene Id
         var convention = new ArrayOfConvention();
@@ -137,10 +137,12 @@ public class ArrayOfConventionTest
         // Act
         convention.ProcessEntityTypeAdded(entityTypeBuilder.Object, context.Object);
 
-        // Assert - No debería aplicar porque Producto tiene estructura de PK
+        // Assert - No aplica ArrayOf annotation todavía, pero SÍ ignora la propiedad
+        // para evitar que EF Core cree FK inversa. La propiedad será procesada
+        // en ModelFinalizing cuando sepamos si T es una entidad registrada.
         var annotations = getAnnotations();
         annotations.Should().NotContainKey($"{ArrayOfAnnotations.Type}:Productos");
-        wasIgnored("Productos").Should().BeFalse();
+        wasIgnored("Productos").Should().BeTrue(); // Se ignora para evitar FK inversa
     }
 
     [Fact]

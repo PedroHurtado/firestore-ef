@@ -177,7 +177,24 @@ public class ConvertHandler : IQueryPipelineHandler
             return roots.Select(doc => DeserializeEntity(doc, entityType, relatedEntities)).ToList();
         }
 
-        foreach (var item in related.OrderByDescending(x => x.Depth))
+        // Two-phase deserialization to handle FK references correctly:
+        // Phase 1: Deserialize root-level references first (depth=1, not subcollections)
+        // Phase 2: Deserialize subcollections from deepest to shallowest
+        // This ensures FK targets are available when subcollection entities are deserialized
+
+        // Phase 1: Root-level references (depth=1)
+        foreach (var item in related.Where(x => x.Depth == 1))
+        {
+            var itemEntityType = FindEntityTypeForPath(item.RelativePath, includes, model);
+            if (itemEntityType == null)
+                continue;
+
+            var entity = DeserializeEntity(item.Snapshot, itemEntityType.ClrType, relatedEntities);
+            relatedEntities[item.Path] = entity;
+        }
+
+        // Phase 2: Subcollections (depth > 1), deepest first
+        foreach (var item in related.Where(x => x.Depth > 1).OrderByDescending(x => x.Depth))
         {
             var itemEntityType = FindEntityTypeForPath(item.RelativePath, includes, model);
             if (itemEntityType == null)

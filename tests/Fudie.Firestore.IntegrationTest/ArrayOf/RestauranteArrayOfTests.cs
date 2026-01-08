@@ -131,6 +131,11 @@ public class RestauranteArrayOfTests
 
         var docRef = (DocumentReference)categorias[0];
         docRef.Id.Should().Be(cat1Id);
+
+        // Verificar que NO se creó FK inversa en CategoriaRestaurante
+        var categoriaRawData = await GetDocumentRawData<CategoriaRestaurante>(cat1Id);
+        categoriaRawData.Should().NotContainKey("Restaurante",
+            "ArrayOf Reference no debe crear FK inversa en la entidad referenciada");
     }
 
     #endregion
