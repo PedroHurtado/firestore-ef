@@ -3,6 +3,7 @@ using Firestore.EntityFrameworkCore.Query.Projections;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace Firestore.EntityFrameworkCore.Query.Resolved
 {
@@ -21,7 +22,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     {
         public override string ToString()
         {
-            var operatorSymbol = Operator switch
+            var op = Operator switch
             {
                 FirestoreOperator.EqualTo => "==",
                 FirestoreOperator.NotEqualTo => "!=",
@@ -36,9 +37,18 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 _ => Operator.ToString()
             };
 
-            var pkIndicator = IsPrimaryKey ? " [PK]" : "";
-            return $"{PropertyName} {operatorSymbol} {Value}{pkIndicator}";
+            var valueStr = FormatValue(Value);
+            var pk = IsPrimaryKey ? " [PK]" : "";
+            return $"{PropertyName} {op} {valueStr}{pk}";
         }
+
+        private static string FormatValue(object? value) => value switch
+        {
+            null => "null",
+            string s => $"\"{s}\"",
+            IEnumerable<object> list => $"[{string.Join(", ", list.Select(FormatValue))}]",
+            _ => value.ToString() ?? "null"
+        };
     }
 
     /// <summary>
@@ -47,45 +57,45 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     /// </summary>
     public record ResolvedOrFilterGroup(IReadOnlyList<ResolvedWhereClause> Clauses)
     {
-        public override string ToString() => $"OR({string.Join(", ", Clauses)})";
+        public override string ToString() => Clauses.Count switch
+        {
+            0 => "OR()",
+            1 => Clauses[0].ToString(),
+            _ => $"({string.Join(" || ", Clauses)})"
+        };
     }
 
     /// <summary>
     /// Resolved version of FirestoreFilterResult.
     /// Contains resolved clauses and groups.
-    /// The Executor/Resolver will use this to apply filters - no need to "expand" into separate lists.
     /// </summary>
     public record ResolvedFilterResult(
         IReadOnlyList<ResolvedWhereClause> AndClauses,
         ResolvedOrFilterGroup? OrGroup = null,
         IReadOnlyList<ResolvedOrFilterGroup>? NestedOrGroups = null)
     {
-        /// <summary>
-        /// Indicates if this result contains a top-level OR group (pure OR expression)
-        /// </summary>
         public bool IsOrGroup => OrGroup != null && AndClauses.Count == 0 && (NestedOrGroups == null || NestedOrGroups.Count == 0);
-
-        /// <summary>
-        /// Indicates if this result has nested OR groups (AND with OR pattern)
-        /// </summary>
         public bool HasNestedOrGroups => NestedOrGroups != null && NestedOrGroups.Count > 0;
 
-        /// <summary>
-        /// Creates an empty result
-        /// </summary>
         public static ResolvedFilterResult Empty => new(Array.Empty<ResolvedWhereClause>());
+        public static ResolvedFilterResult FromClause(ResolvedWhereClause clause) => new(new[] { clause });
+        public static ResolvedFilterResult FromOrGroup(ResolvedOrFilterGroup orGroup) => new(Array.Empty<ResolvedWhereClause>(), orGroup);
 
-        /// <summary>
-        /// Creates a result with a single AND clause
-        /// </summary>
-        public static ResolvedFilterResult FromClause(ResolvedWhereClause clause)
-            => new(new[] { clause });
+        public override string ToString()
+        {
+            var parts = new List<string>();
 
-        /// <summary>
-        /// Creates a result with an OR group
-        /// </summary>
-        public static ResolvedFilterResult FromOrGroup(ResolvedOrFilterGroup orGroup)
-            => new(Array.Empty<ResolvedWhereClause>(), orGroup);
+            if (AndClauses.Count > 0)
+                parts.Add(string.Join(" && ", AndClauses));
+
+            if (OrGroup != null)
+                parts.Add(OrGroup.ToString());
+
+            if (NestedOrGroups != null && NestedOrGroups.Count > 0)
+                parts.AddRange(NestedOrGroups.Select(g => g.ToString()));
+
+            return parts.Count == 0 ? "(empty)" : string.Join(" && ", parts);
+        }
     }
 
     #endregion
@@ -94,12 +104,10 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreOrderByClause.
-    /// Note: OrderBy doesn't have Expressions, so this is effectively the same structure.
-    /// Included for consistency in the resolved types hierarchy.
     /// </summary>
     public record ResolvedOrderByClause(string PropertyName, bool Descending = false)
     {
-        public override string ToString() => $"{PropertyName} {(Descending ? "DESC" : "ASC")}";
+        public override string ToString() => Descending ? $"{PropertyName} DESC" : PropertyName;
     }
 
     #endregion
@@ -108,50 +116,28 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestorePaginationInfo.
-    /// Contains resolved int values instead of Expressions.
     /// </summary>
     public record ResolvedPaginationInfo(
         int? Limit = null,
         int? LimitToLast = null,
         int? Skip = null)
     {
-        /// <summary>
-        /// Whether any pagination is configured.
-        /// </summary>
         public bool HasPagination => Limit.HasValue || LimitToLast.HasValue || Skip.HasValue;
-
-        /// <summary>
-        /// Whether Limit is set.
-        /// </summary>
         public bool HasLimit => Limit.HasValue;
-
-        /// <summary>
-        /// Whether LimitToLast is set.
-        /// </summary>
         public bool HasLimitToLast => LimitToLast.HasValue;
-
-        /// <summary>
-        /// Whether Skip is set.
-        /// </summary>
         public bool HasSkip => Skip.HasValue;
 
-        /// <summary>
-        /// Empty pagination info (no limits or skip).
-        /// </summary>
         public static ResolvedPaginationInfo None => new();
 
         public override string ToString()
         {
+            if (!HasPagination) return "";
+
             var parts = new List<string>();
-
-            if (Limit.HasValue)
-                parts.Add($"Limit={Limit.Value}");
-            if (LimitToLast.HasValue)
-                parts.Add($"LimitToLast={LimitToLast.Value}");
-            if (Skip.HasValue)
-                parts.Add($"Skip={Skip.Value}");
-
-            return parts.Count > 0 ? string.Join(", ", parts) : "None";
+            if (Skip.HasValue) parts.Add($".Skip({Skip.Value})");
+            if (Limit.HasValue) parts.Add($".Take({Limit.Value})");
+            if (LimitToLast.HasValue) parts.Add($".TakeLast({LimitToLast.Value})");
+            return string.Join("", parts);
         }
     }
 
@@ -161,16 +147,14 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreCursor.
-    /// Note: Cursor already contains resolved values (no Expressions).
-    /// Included for consistency in the resolved types hierarchy.
     /// </summary>
     public record ResolvedCursor(string DocumentId, IReadOnlyList<object?>? OrderByValues = null)
     {
         public override string ToString()
         {
             if (OrderByValues == null || OrderByValues.Count == 0)
-                return $"Cursor({DocumentId})";
-            return $"Cursor({DocumentId}, [{string.Join(", ", OrderByValues)}])";
+                return $".StartAfter(\"{DocumentId}\")";
+            return $".StartAfter(\"{DocumentId}\", [{string.Join(", ", OrderByValues)}])";
         }
     }
 
@@ -180,66 +164,65 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of IncludeInfo.
-    /// Contains the resolved collection path and optional document ID for GetDocumentAsync optimization.
-    /// The Executor just executes - no logic needed.
     /// </summary>
     public record ResolvedInclude(
         string NavigationName,
         bool IsCollection,
         Type TargetEntityType,
-
-        // Path resolved by Resolver - relative to parent document
-        // e.g., "categories" for menus/{id}/categories
         string CollectionPath,
-
-        // If set, use GetDocumentAsync instead of query (Id optimization)
-        // e.g., "cat-456" for menus/{id}/categories/cat-456
         string? DocumentId,
-
-        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
         ResolvedPaginationInfo Pagination,
-
-        // Nested includes
         IReadOnlyList<ResolvedInclude> NestedIncludes)
     {
-        /// <summary>
-        /// Whether this is a document query (GetDocumentAsync) vs collection query.
-        /// </summary>
         public bool IsDocumentQuery => DocumentId != null;
+        public bool HasOperations => FilterResults.Count > 0 || OrderByClauses.Count > 0 || Pagination.HasPagination;
 
-        /// <summary>
-        /// Whether this include has any filter/ordering/limit operations.
-        /// </summary>
-        public bool HasOperations =>
-            FilterResults.Count > 0 ||
-            OrderByClauses.Count > 0 ||
-            Pagination.HasPagination;
-
-        /// <summary>
-        /// Total count of filter clauses across all FilterResults.
-        /// </summary>
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
             (fr.OrGroup?.Clauses.Count ?? 0) +
             (fr.NestedOrGroups?.Sum(og => og.Clauses.Count) ?? 0));
 
-        public override string ToString()
+        public override string ToString() => ToString(0);
+
+        public string ToString(int indent)
         {
-            var parts = new List<string> { NavigationName };
-            if (IsCollection) parts.Add("[Collection]");
+            var sb = new StringBuilder();
+            var prefix = new string(' ', indent * 2);
+
+            // Include header
+            sb.Append($"{prefix}.Include({NavigationName}");
+            if (IsCollection) sb.Append(" [SubCollection]");
+            sb.AppendLine(")");
+
+            // Execution path
             if (DocumentId != null)
-                parts.Add($"Doc({DocumentId})");
-            if (FilterResults.Count > 0)
-                parts.Add($"Where({TotalFilterCount})");
-            if (OrderByClauses.Count > 0)
-                parts.Add($"OrderBy({OrderByClauses.Count})");
-            if (Pagination.HasLimit)
-                parts.Add($"Take({Pagination.Limit})");
-            if (Pagination.HasSkip)
-                parts.Add($"Skip({Pagination.Skip})");
-            return string.Join(".", parts);
+            {
+                sb.AppendLine($"{prefix}  → GetDocument: {CollectionPath}/{DocumentId}");
+            }
+            else
+            {
+                sb.AppendLine($"{prefix}  → Query: {CollectionPath}");
+
+                if (FilterResults.Count > 0)
+                {
+                    foreach (var filter in FilterResults)
+                        sb.AppendLine($"{prefix}    .Where({filter})");
+                }
+
+                if (OrderByClauses.Count > 0)
+                    sb.AppendLine($"{prefix}    .OrderBy({string.Join(", ", OrderByClauses)})");
+
+                if (Pagination.HasPagination)
+                    sb.AppendLine($"{prefix}    {Pagination}");
+            }
+
+            // Nested includes
+            foreach (var nested in NestedIncludes)
+                sb.Append(nested.ToString(indent + 1));
+
+            return sb.ToString();
         }
     }
 
@@ -249,7 +232,6 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreProjectionDefinition.
-    /// Note: Projection doesn't have Expressions directly, but subcollections do.
     /// </summary>
     public record ResolvedProjectionDefinition(
         ProjectionResultType ResultType,
@@ -257,55 +239,48 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         IReadOnlyList<FirestoreProjectedField>? Fields,
         IReadOnlyList<ResolvedSubcollectionProjection> Subcollections)
     {
-        /// <summary>
-        /// Whether this projection has fields to select (not Entity projection).
-        /// </summary>
         public bool HasFields => Fields != null && Fields.Count > 0;
-
-        /// <summary>
-        /// Whether this projection includes subcollections.
-        /// </summary>
         public bool HasSubcollections => Subcollections.Count > 0;
+
+        public override string ToString()
+        {
+            var sb = new StringBuilder();
+            sb.Append($"Projection({ResultType} → {ClrType.Name})");
+
+            if (HasFields)
+                sb.Append($" Fields=[{string.Join(", ", Fields!.Select(f => f.FieldPath))}]");
+
+            if (HasSubcollections)
+            {
+                sb.AppendLine();
+                foreach (var sub in Subcollections)
+                    sb.AppendLine($"  {sub}");
+            }
+
+            return sb.ToString();
+        }
     }
 
     /// <summary>
     /// Resolved version of FirestoreSubcollectionProjection.
-    /// Contains the resolved collection path and optional document ID for GetDocumentAsync optimization.
     /// </summary>
     public record ResolvedSubcollectionProjection(
         string NavigationName,
         string ResultName,
         Type TargetEntityType,
-
-        // Path resolved by Resolver - relative to parent document
         string CollectionPath,
-
-        // If set, use GetDocumentAsync instead of query (Id optimization)
         string? DocumentId,
-
-        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
         ResolvedPaginationInfo Pagination,
-
         IReadOnlyList<FirestoreProjectedField>? Fields,
         FirestoreAggregationType? Aggregation,
         string? AggregationPropertyName,
         IReadOnlyList<ResolvedSubcollectionProjection> NestedSubcollections)
     {
-        /// <summary>
-        /// Whether this is a document query (GetDocumentAsync) vs collection query.
-        /// </summary>
         public bool IsDocumentQuery => DocumentId != null;
-
-        /// <summary>
-        /// Indicates if this is an aggregation projection.
-        /// </summary>
         public bool IsAggregation => Aggregation.HasValue && Aggregation != FirestoreAggregationType.None;
 
-        /// <summary>
-        /// Total count of filter clauses across all FilterResults.
-        /// </summary>
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
             (fr.OrGroup?.Clauses.Count ?? 0) +
@@ -313,18 +288,28 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         public override string ToString()
         {
-            var parts = new List<string> { NavigationName };
-            if (DocumentId != null)
-                parts.Add($"Doc({DocumentId})");
-            if (FilterResults.Count > 0)
-                parts.Add($"Where({TotalFilterCount})");
-            if (OrderByClauses.Count > 0)
-                parts.Add($"OrderBy({OrderByClauses.Count})");
-            if (Pagination.HasLimit)
-                parts.Add($"Take({Pagination.Limit})");
-            if (Aggregation.HasValue)
-                parts.Add($"{Aggregation}");
-            return string.Join(".", parts);
+            var sb = new StringBuilder();
+            sb.Append($".{ResultName}");
+
+            if (IsAggregation)
+            {
+                sb.Append($" = {Aggregation}({AggregationPropertyName ?? "*"})");
+            }
+            else if (DocumentId != null)
+            {
+                sb.Append($" → GetDocument: {CollectionPath}/{DocumentId}");
+            }
+            else
+            {
+                sb.Append($" → Query: {CollectionPath}");
+                if (FilterResults.Count > 0)
+                    sb.Append($".Where({string.Join(" && ", FilterResults)})");
+                if (OrderByClauses.Count > 0)
+                    sb.Append($".OrderBy({string.Join(", ", OrderByClauses)})");
+                sb.Append(Pagination);
+            }
+
+            return sb.ToString();
         }
     }
 
@@ -334,76 +319,30 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
     /// <summary>
     /// Resolved version of FirestoreQueryExpression.
-    /// Contains all resolved values ready for execution by FirestoreQueryExecutor.
-    /// No Expressions, no EF Core types - pure data ready for SDK calls.
-    ///
-    /// The Executor is now "dumb" - it just builds SDK calls from this data.
-    /// All logic (path resolution, Id optimization, PK detection) is done by the Resolver.
+    /// Contains all resolved values ready for execution.
     /// </summary>
     public record ResolvedFirestoreQuery(
-        // Path resolved by Resolver - e.g., "menus" or for nested queries
         string CollectionPath,
         Type EntityClrType,
-
-        // If set, use GetDocumentAsync instead of query (Id optimization)
-        // e.g., "menu-123" for menus/menu-123
         string? DocumentId,
-
-        // Filters (only applied if DocumentId is null)
         IReadOnlyList<ResolvedFilterResult> FilterResults,
-
-        // OrderBy (already pure)
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
-
-        // Pagination (resolved)
         ResolvedPaginationInfo Pagination,
-
-        // Cursor (already pure)
         ResolvedCursor? StartAfterCursor,
-
-        // Includes (resolved with paths)
         IReadOnlyList<ResolvedInclude> Includes,
-
-        // Aggregation (already pure)
         FirestoreAggregationType AggregationType,
         string? AggregationPropertyName,
         Type? AggregationResultType,
-
-        // Projection (resolved)
         ResolvedProjectionDefinition? Projection,
-
-        // Behavior flags
         bool ReturnDefault,
         Type? ReturnType)
     {
-        /// <summary>
-        /// Whether this is a document query (GetDocumentAsync) vs collection query.
-        /// </summary>
         public bool IsDocumentQuery => DocumentId != null;
-
-        /// <summary>
-        /// Whether this is an aggregation query.
-        /// </summary>
         public bool IsAggregation => AggregationType != FirestoreAggregationType.None;
-
-        /// <summary>
-        /// Whether this query has a projection.
-        /// </summary>
         public bool HasProjection => Projection != null;
-
-        /// <summary>
-        /// Whether this is a Count query.
-        /// </summary>
         public bool IsCountQuery => AggregationType == FirestoreAggregationType.Count;
-
-        /// <summary>
-        /// Whether this is an Any query.
-        /// </summary>
         public bool IsAnyQuery => AggregationType == FirestoreAggregationType.Any;
 
-        /// <summary>
-        /// Total count of filter clauses across all FilterResults.
-        /// </summary>
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
             (fr.OrGroup?.Clauses.Count ?? 0) +
@@ -411,32 +350,66 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
         public override string ToString()
         {
-            var parts = new List<string>();
+            var sb = new StringBuilder();
 
-            if (DocumentId != null)
-                parts.Add($"Document: {CollectionPath}/{DocumentId}");
-            else
-                parts.Add($"Collection: {CollectionPath}");
+            // Header
+            sb.AppendLine($"═══ ResolvedQuery: {EntityClrType.Name} ═══");
 
-            if (FilterResults.Count > 0)
-                parts.Add($"Filters: {TotalFilterCount} clauses in {FilterResults.Count} results");
-
-            if (OrderByClauses.Count > 0)
-                parts.Add($"OrderBy: [{string.Join(", ", OrderByClauses)}]");
-
-            if (Pagination.HasLimit)
-                parts.Add($"Limit: {Pagination.Limit}");
-
-            if (Pagination.HasSkip)
-                parts.Add($"Skip: {Pagination.Skip}");
-
-            if (StartAfterCursor != null)
-                parts.Add($"StartAfter: {StartAfterCursor}");
-
+            // Execution path
             if (IsAggregation)
-                parts.Add($"Aggregation: {AggregationType}");
+            {
+                sb.AppendLine($"Type: Aggregation ({AggregationType})");
+                if (AggregationPropertyName != null)
+                    sb.AppendLine($"Property: {AggregationPropertyName}");
+            }
+            else if (DocumentId != null)
+            {
+                sb.AppendLine($"Type: GetDocument");
+                sb.AppendLine($"Path: {CollectionPath}/{DocumentId}");
+            }
+            else
+            {
+                sb.AppendLine($"Type: Query");
+                sb.AppendLine($"Collection: {CollectionPath}");
+            }
 
-            return string.Join(" | ", parts);
+            // Filters
+            if (FilterResults.Count > 0)
+            {
+                sb.AppendLine($"Filters ({TotalFilterCount} clauses):");
+                foreach (var filter in FilterResults)
+                    sb.AppendLine($"  .Where({filter})");
+            }
+
+            // OrderBy
+            if (OrderByClauses.Count > 0)
+                sb.AppendLine($"OrderBy: {string.Join(", ", OrderByClauses)}");
+
+            // Pagination
+            if (Pagination.HasPagination)
+                sb.AppendLine($"Pagination: {Pagination}");
+
+            // Cursor
+            if (StartAfterCursor != null)
+                sb.AppendLine($"Cursor: {StartAfterCursor}");
+
+            // Projection
+            if (Projection != null)
+                sb.AppendLine($"Projection: {Projection}");
+
+            // Includes
+            if (Includes.Count > 0)
+            {
+                sb.AppendLine($"Includes ({Includes.Count}):");
+                foreach (var include in Includes)
+                    sb.Append(include.ToString(1));
+            }
+
+            // Behavior
+            if (ReturnDefault)
+                sb.AppendLine("ReturnDefault: true");
+
+            return sb.ToString();
         }
     }
 

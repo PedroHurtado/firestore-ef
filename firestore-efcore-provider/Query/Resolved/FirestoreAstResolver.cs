@@ -61,8 +61,17 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 documentId = DetectIdOptimization(ast.FilterResults, ast.PrimaryKeyPropertyName, queryContext);
             }
 
-            // Resolve filters (pass EntityType for null validation)
-            var filterResults = ResolveFilterResults(ast.FilterResults, queryContext, ast.EntityType);
+            // When DocumentId is set, don't include FilterResults - they cause confusion during debugging
+            // The ExecutionHandler will use GetDocumentAsync directly with the DocumentId
+            IReadOnlyList<ResolvedFilterResult> filterResults;
+            if (documentId != null)
+            {
+                filterResults = Array.Empty<ResolvedFilterResult>();
+            }
+            else
+            {
+                filterResults = ResolveFilterResults(ast.FilterResults, queryContext, ast.EntityType);
+            }
 
             // Resolve OrderBy
             var orderByClauses = ast.OrderByClauses
