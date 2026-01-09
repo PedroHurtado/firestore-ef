@@ -174,9 +174,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
                 parts.Add("LimitToLast=<expr>");
 
             if (Skip.HasValue)
-                parts.Add($"Skip={Skip.Value}");
+                parts.Add($"Offset={Skip.Value}");
             else if (SkipExpression != null)
-                parts.Add("Skip=<expr>");
+                parts.Add("Offset=<expr>");
 
             return parts.Count > 0 ? string.Join(", ", parts) : "None";
         }

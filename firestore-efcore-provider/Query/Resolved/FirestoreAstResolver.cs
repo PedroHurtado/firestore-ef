@@ -61,33 +61,37 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 documentId = DetectIdOptimization(ast.FilterResults, ast.PrimaryKeyPropertyName, queryContext);
             }
 
-            // When DocumentId is set, don't include FilterResults - they cause confusion during debugging
+            // When DocumentId is set, don't include query operations - they're not used in GetDocument
             // The ExecutionHandler will use GetDocumentAsync directly with the DocumentId
             IReadOnlyList<ResolvedFilterResult> filterResults;
+            IReadOnlyList<ResolvedOrderByClause> orderByClauses;
+            ResolvedPaginationInfo pagination;
+            ResolvedCursor? cursor = null;
+
             if (documentId != null)
             {
+                // GetDocument mode - clear all query operations
                 filterResults = Array.Empty<ResolvedFilterResult>();
+                orderByClauses = Array.Empty<ResolvedOrderByClause>();
+                pagination = ResolvedPaginationInfo.None;
             }
             else
             {
+                // Query mode - resolve all operations
                 filterResults = ResolveFilterResults(ast.FilterResults, queryContext, ast.EntityType);
-            }
 
-            // Resolve OrderBy
-            var orderByClauses = ast.OrderByClauses
-                .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
-                .ToList();
+                orderByClauses = ast.OrderByClauses
+                    .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
+                    .ToList();
 
-            // Resolve Pagination
-            var pagination = ResolvePagination(ast.Pagination, queryContext);
+                pagination = ResolvePagination(ast.Pagination, queryContext);
 
-            // Resolve Cursor
-            ResolvedCursor? cursor = null;
-            if (ast.StartAfterCursor != null)
-            {
-                cursor = new ResolvedCursor(
-                    ast.StartAfterCursor.DocumentId,
-                    ast.StartAfterCursor.OrderByValues);
+                if (ast.StartAfterCursor != null)
+                {
+                    cursor = new ResolvedCursor(
+                        ast.StartAfterCursor.DocumentId,
+                        ast.StartAfterCursor.OrderByValues);
+                }
             }
 
             // Resolve Includes
@@ -295,23 +299,29 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             // Detect Id optimization
             string? documentId = DetectIdOptimization(include.FilterResults, include.PrimaryKeyPropertyName, queryContext);
 
-            // When DocumentId is set, don't include FilterResults - they cause confusion during debugging
-            // The ExecutionHandler will use GetDocumentAsync directly with the DocumentId
+            // When DocumentId is set, don't include query operations - they're not used in GetDocument
             IReadOnlyList<ResolvedFilterResult> filterResults;
+            IReadOnlyList<ResolvedOrderByClause> orderByClauses;
+            ResolvedPaginationInfo pagination;
+
             if (documentId != null)
             {
+                // GetDocument mode - clear all query operations
                 filterResults = Array.Empty<ResolvedFilterResult>();
+                orderByClauses = Array.Empty<ResolvedOrderByClause>();
+                pagination = ResolvedPaginationInfo.None;
             }
             else
             {
+                // Query mode - resolve all operations
                 filterResults = ResolveFilterResults(include.FilterResults, queryContext, targetEntityType);
+
+                orderByClauses = include.OrderByClauses
+                    .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
+                    .ToList();
+
+                pagination = ResolvePagination(include.Pagination, queryContext);
             }
-
-            var orderByClauses = include.OrderByClauses
-                .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
-                .ToList();
-
-            var pagination = ResolvePagination(include.Pagination, queryContext);
 
             return new ResolvedInclude(
                 NavigationName: include.NavigationName,
@@ -355,22 +365,29 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             // Detect Id optimization
             string? documentId = DetectIdOptimization(subcollection.FilterResults, subcollection.PrimaryKeyPropertyName, queryContext);
 
-            // When DocumentId is set, don't include FilterResults
+            // When DocumentId is set, don't include query operations - they're not used in GetDocument
             IReadOnlyList<ResolvedFilterResult> filterResults;
+            IReadOnlyList<ResolvedOrderByClause> orderByClauses;
+            ResolvedPaginationInfo pagination;
+
             if (documentId != null)
             {
+                // GetDocument mode - clear all query operations
                 filterResults = Array.Empty<ResolvedFilterResult>();
+                orderByClauses = Array.Empty<ResolvedOrderByClause>();
+                pagination = ResolvedPaginationInfo.None;
             }
             else
             {
+                // Query mode - resolve all operations
                 filterResults = ResolveFilterResults(subcollection.FilterResults, queryContext, targetEntityType);
+
+                orderByClauses = subcollection.OrderByClauses
+                    .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
+                    .ToList();
+
+                pagination = ResolvePagination(subcollection.Pagination, queryContext);
             }
-
-            var orderByClauses = subcollection.OrderByClauses
-                .Select(o => new ResolvedOrderByClause(o.PropertyName, o.Descending))
-                .ToList();
-
-            var pagination = ResolvePagination(subcollection.Pagination, queryContext);
 
             var nestedSubcollections = subcollection.NestedSubcollections
                 .Select(s => ResolveSubcollectionProjection(s, queryContext))

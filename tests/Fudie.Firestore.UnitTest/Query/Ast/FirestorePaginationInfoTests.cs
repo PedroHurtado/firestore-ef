@@ -352,7 +352,7 @@ namespace Fudie.Firestore.UnitTest.Query.Ast
             var result = pagination.ToString();
 
             // Assert
-            Assert.Contains("Skip=5", result);
+            Assert.Contains("Offset=5", result);
         }
 
         [Fact]
@@ -382,7 +382,7 @@ namespace Fudie.Firestore.UnitTest.Query.Ast
 
             // Assert
             Assert.Contains("Limit=10", result);
-            Assert.Contains("Skip=5", result);
+            Assert.Contains("Offset=5", result);
         }
 
         #endregion

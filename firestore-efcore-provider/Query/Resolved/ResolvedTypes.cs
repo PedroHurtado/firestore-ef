@@ -134,9 +134,9 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             if (!HasPagination) return "";
 
             var parts = new List<string>();
-            if (Skip.HasValue) parts.Add($".Skip({Skip.Value})");
-            if (Limit.HasValue) parts.Add($".Take({Limit.Value})");
-            if (LimitToLast.HasValue) parts.Add($".TakeLast({LimitToLast.Value})");
+            if (Skip.HasValue) parts.Add($".Offset({Skip.Value})");
+            if (Limit.HasValue) parts.Add($".Limit({Limit.Value})");
+            if (LimitToLast.HasValue) parts.Add($".LimitToLast({LimitToLast.Value})");
             return string.Join("", parts);
         }
     }
@@ -266,9 +266,11 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
 
             if (HasSubcollections)
             {
-                sb.AppendLine();
                 foreach (var sub in Subcollections)
-                    sb.AppendLine($"  {sub}");
+                {
+                    sb.AppendLine();
+                    sb.Append($"  {sub.ToString(1)}");
+                }
             }
 
             return sb.ToString();
@@ -294,20 +296,29 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     {
         public bool IsDocumentQuery => DocumentId != null;
         public bool IsAggregation => Aggregation.HasValue && Aggregation != FirestoreAggregationType.None;
+        public bool HasFields => Fields != null && Fields.Count > 0;
+        public bool HasNestedSubcollections => NestedSubcollections.Count > 0;
 
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
             (fr.OrGroup?.Clauses.Count ?? 0) +
             (fr.NestedOrGroups?.Sum(og => og.Clauses.Count) ?? 0));
 
-        public override string ToString()
+        public override string ToString() => ToString(0);
+
+        public string ToString(int indent)
         {
             var sb = new StringBuilder();
-            sb.Append($".{ResultName}");
+            var prefix = new string(' ', indent * 2);
+
+            sb.Append($"{prefix}.{ResultName}");
 
             if (IsAggregation)
             {
-                sb.Append($" = {Aggregation}({AggregationPropertyName ?? "*"})");
+                sb.Append($" → {CollectionPath}");
+                if (FilterResults.Count > 0)
+                    sb.Append($".Where({string.Join(" && ", FilterResults)})");
+                sb.Append($".{Aggregation}({AggregationPropertyName ?? "*"})");
             }
             else if (DocumentId != null)
             {
@@ -321,6 +332,18 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 if (OrderByClauses.Count > 0)
                     sb.Append($".OrderBy({string.Join(", ", OrderByClauses)})");
                 sb.Append(Pagination);
+            }
+
+            // Show projected fields
+            if (HasFields)
+                sb.Append($" [{string.Join(", ", Fields!.Select(f => f.FieldPath))}]");
+
+            // Show nested subcollections recursively
+            if (HasNestedSubcollections)
+            {
+                sb.AppendLine();
+                foreach (var nested in NestedSubcollections)
+                    sb.AppendLine(nested.ToString(indent + 1));
             }
 
             return sb.ToString();
@@ -371,40 +394,45 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             {
                 var prop = AggregationPropertyName != null ? $"({AggregationPropertyName})" : "";
                 sb.AppendLine($"{CollectionPath}.{AggregationType}{prop}");
+
+                // Aggregations can have filters
+                if (FilterResults.Count > 0)
+                {
+                    foreach (var filter in FilterResults)
+                        sb.AppendLine($"  .Where({filter})");
+                }
             }
             else if (DocumentId != null)
             {
+                // GetDocument is a direct document fetch - no filters, orderby, pagination needed
                 sb.AppendLine($"GetDocument: {CollectionPath}/{DocumentId}");
             }
             else
             {
+                // Query mode - show all query operations
                 sb.AppendLine($"Query: {CollectionPath}");
+
+                if (FilterResults.Count > 0)
+                {
+                    foreach (var filter in FilterResults)
+                        sb.AppendLine($"  .Where({filter})");
+                }
+
+                if (OrderByClauses.Count > 0)
+                    sb.AppendLine($"  .OrderBy({string.Join(", ", OrderByClauses)})");
+
+                if (Pagination.HasPagination)
+                    sb.AppendLine($"  {Pagination}");
+
+                if (StartAfterCursor != null)
+                    sb.AppendLine($"  {StartAfterCursor}");
             }
 
-            // Filters
-            if (FilterResults.Count > 0)
-            {
-                foreach (var filter in FilterResults)
-                    sb.AppendLine($"  .Where({filter})");
-            }
-
-            // OrderBy
-            if (OrderByClauses.Count > 0)
-                sb.AppendLine($"  .OrderBy({string.Join(", ", OrderByClauses)})");
-
-            // Pagination
-            if (Pagination.HasPagination)
-                sb.AppendLine($"  {Pagination}");
-
-            // Cursor
-            if (StartAfterCursor != null)
-                sb.AppendLine($"  {StartAfterCursor}");
-
-            // Projection
+            // Projection - applies to both GetDocument and Query
             if (Projection != null)
                 sb.AppendLine($"  .{Projection}");
 
-            // Includes
+            // Includes - applies to both GetDocument and Query
             if (Includes.Count > 0)
             {
                 foreach (var include in Includes)

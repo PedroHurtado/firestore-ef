@@ -96,7 +96,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
 
             var group = new ResolvedOrFilterGroup(clauses);
 
-            Assert.StartsWith("OR(", group.ToString());
+            // Format: (clause1 || clause2)
+            Assert.Contains("||", group.ToString());
         }
 
         #endregion
@@ -167,7 +168,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             var clause = new ResolvedOrderByClause("Name");
 
             Assert.False(clause.Descending);
-            Assert.Contains("ASC", clause.ToString());
+            // ASC is implicit - only shows property name
+            Assert.Equal("Name", clause.ToString());
         }
 
         [Fact]
@@ -230,8 +232,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
             var pagination = new ResolvedPaginationInfo(Limit: 10, Skip: 5);
 
             var str = pagination.ToString();
-            Assert.Contains("Limit=10", str);
-            Assert.Contains("Skip=5", str);
+            Assert.Contains(".Limit(10)", str);
+            Assert.Contains(".Offset(5)", str);
         }
 
         #endregion
@@ -629,9 +631,9 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 ReturnType: null);
 
             var str = query.ToString();
-            Assert.Contains("Collection: products", str);
-            Assert.Contains("Filters", str);
-            Assert.Contains("Limit: 20", str);
+            Assert.Contains("Query: products", str);
+            Assert.Contains("Where", str);
+            Assert.Contains(".Limit(20)", str);
         }
 
         [Fact]

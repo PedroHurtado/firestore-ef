@@ -265,9 +265,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             if (_orderByClauses.Count > 0)
                 parts.Add($"OrderBy({_orderByClauses.Count})");
             if (Take.HasValue || TakeExpression != null)
-                parts.Add($"Take({Take?.ToString() ?? "expr"})");
+                parts.Add($"Limit({Take?.ToString() ?? "expr"})");
             if (Skip.HasValue || SkipExpression != null)
-                parts.Add($"Skip({Skip?.ToString() ?? "expr"})");
+                parts.Add($"Offset({Skip?.ToString() ?? "expr"})");
             return string.Join(".", parts);
         }
 
