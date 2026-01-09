@@ -178,6 +178,7 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     {
         public bool IsDocumentQuery => DocumentId != null;
         public bool HasOperations => FilterResults.Count > 0 || OrderByClauses.Count > 0 || Pagination.HasPagination;
+        public bool IsReference => !IsCollection;
 
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
@@ -191,10 +192,9 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             var sb = new StringBuilder();
             var prefix = new string(' ', indent * 2);
 
-            // Include header
-            sb.Append($"{prefix}.Include({NavigationName}");
-            if (IsCollection) sb.Append(" [SubCollection]");
-            sb.AppendLine(")");
+            // Include header con tipo de navegación
+            var navType = IsCollection ? "SubCollection" : "Reference";
+            sb.AppendLine($"{prefix}.Include({NavigationName}) [{navType}]");
 
             // Execution path
             if (DocumentId != null)
@@ -242,13 +242,27 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         public bool HasFields => Fields != null && Fields.Count > 0;
         public bool HasSubcollections => Subcollections.Count > 0;
 
+        private static string GetCleanTypeName(Type type)
+        {
+            // Si es tipo anónimo generado por el compilador, simplificarlo
+            if (type.Name.StartsWith("<>") || type.Name.Contains("AnonymousType"))
+                return "AnonymousType";
+            return type.Name;
+        }
+
         public override string ToString()
         {
             var sb = new StringBuilder();
-            sb.Append($"Projection({ResultType} → {ClrType.Name})");
+
+            // Solo mostrar el tipo si no es anónimo (aporta información)
+            var typeName = GetCleanTypeName(ClrType);
+            if (typeName == "AnonymousType")
+                sb.Append("Select");
+            else
+                sb.Append($"Select → {typeName}");
 
             if (HasFields)
-                sb.Append($" Fields=[{string.Join(", ", Fields!.Select(f => f.FieldPath))}]");
+                sb.Append($" [{string.Join(", ", Fields!.Select(f => f.FieldPath))}]");
 
             if (HasSubcollections)
             {
@@ -352,62 +366,50 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         {
             var sb = new StringBuilder();
 
-            // Header
-            sb.AppendLine($"═══ ResolvedQuery: {EntityClrType.Name} ═══");
-
-            // Execution path
+            // Execution path - línea principal
             if (IsAggregation)
             {
-                sb.AppendLine($"Type: Aggregation ({AggregationType})");
-                if (AggregationPropertyName != null)
-                    sb.AppendLine($"Property: {AggregationPropertyName}");
+                var prop = AggregationPropertyName != null ? $"({AggregationPropertyName})" : "";
+                sb.AppendLine($"{CollectionPath}.{AggregationType}{prop}");
             }
             else if (DocumentId != null)
             {
-                sb.AppendLine($"Type: GetDocument");
-                sb.AppendLine($"Path: {CollectionPath}/{DocumentId}");
+                sb.AppendLine($"GetDocument: {CollectionPath}/{DocumentId}");
             }
             else
             {
-                sb.AppendLine($"Type: Query");
-                sb.AppendLine($"Collection: {CollectionPath}");
+                sb.AppendLine($"Query: {CollectionPath}");
             }
 
             // Filters
             if (FilterResults.Count > 0)
             {
-                sb.AppendLine($"Filters ({TotalFilterCount} clauses):");
                 foreach (var filter in FilterResults)
                     sb.AppendLine($"  .Where({filter})");
             }
 
             // OrderBy
             if (OrderByClauses.Count > 0)
-                sb.AppendLine($"OrderBy: {string.Join(", ", OrderByClauses)}");
+                sb.AppendLine($"  .OrderBy({string.Join(", ", OrderByClauses)})");
 
             // Pagination
             if (Pagination.HasPagination)
-                sb.AppendLine($"Pagination: {Pagination}");
+                sb.AppendLine($"  {Pagination}");
 
             // Cursor
             if (StartAfterCursor != null)
-                sb.AppendLine($"Cursor: {StartAfterCursor}");
+                sb.AppendLine($"  {StartAfterCursor}");
 
             // Projection
             if (Projection != null)
-                sb.AppendLine($"Projection: {Projection}");
+                sb.AppendLine($"  .{Projection}");
 
             // Includes
             if (Includes.Count > 0)
             {
-                sb.AppendLine($"Includes ({Includes.Count}):");
                 foreach (var include in Includes)
                     sb.Append(include.ToString(1));
             }
-
-            // Behavior
-            if (ReturnDefault)
-                sb.AppendLine("ReturnDefault: true");
 
             return sb.ToString();
         }
