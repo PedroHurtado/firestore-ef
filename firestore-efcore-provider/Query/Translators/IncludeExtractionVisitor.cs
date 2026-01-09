@@ -45,8 +45,13 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     DetectedNavigations.Add(navigation);
 
                     // Obtener información completa de la navegación
-                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var targetEntityType = navigation.TargetEntityType;
+                    var targetClrType = targetEntityType.ClrType;
                     var collectionName = _collectionManager.GetCollectionName(targetClrType);
+
+                    // Get primary key property name from EF Core metadata
+                    var pkProperties = targetEntityType.FindPrimaryKey()?.Properties;
+                    var primaryKeyPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
 
                     // For ThenInclude chains, the parent type is tracked via the context stack
                     // When we're inside a NavigationExpression of a parent include, the stack
@@ -65,7 +70,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                         navigation.IsCollection,
                         collectionName,
                         targetClrType,
-                        primaryKeyPropertyName: null,
+                        primaryKeyPropertyName: primaryKeyPropertyName,
                         parentClrType: parentClrType);
 
                     // Extraer operaciones del NavigationExpression

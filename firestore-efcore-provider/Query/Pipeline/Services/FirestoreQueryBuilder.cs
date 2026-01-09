@@ -161,9 +161,17 @@ public class FirestoreQueryBuilder : IQueryBuilder
     private static Filter CreateFilter(ResolvedWhereClause clause)
     {
         var value = clause.Value;
-        var fieldPath = clause.PropertyName == "Id"
+        // Use IsPrimaryKey flag to determine if this is a document ID filter
+        // The flag is set by FirestoreAstResolver using EF Core metadata
+        var fieldPath = clause.IsPrimaryKey
             ? FieldPath.DocumentId
             : new FieldPath(clause.PropertyName.Split('.'));
+
+        // Firestore document IDs must be strings - convert non-string PK values
+        if (clause.IsPrimaryKey && value != null && value is not string)
+        {
+            value = value.ToString();
+        }
 
         return clause.Operator switch
         {

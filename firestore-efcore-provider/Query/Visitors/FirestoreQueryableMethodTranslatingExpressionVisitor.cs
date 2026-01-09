@@ -33,7 +33,12 @@ namespace Firestore.EntityFrameworkCore.Query.Visitors
         protected override ShapedQueryExpression CreateShapedQueryExpression(IEntityType entityType)
         {
             var collectionName = _collectionManager.GetCollectionName(entityType.ClrType);
-            var queryExpression = new FirestoreQueryExpression(entityType, collectionName);
+
+            // Get primary key property name from EF Core metadata
+            var pkProperties = entityType.FindPrimaryKey()?.Properties;
+            var primaryKeyPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+
+            var queryExpression = new FirestoreQueryExpression(entityType, collectionName, primaryKeyPropertyName);
 
             var entityShaperExpression = new StructuralTypeShaperExpression(
                 entityType,

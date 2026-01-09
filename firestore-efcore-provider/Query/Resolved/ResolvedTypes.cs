@@ -16,7 +16,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
     public record ResolvedWhereClause(
         string PropertyName,
         FirestoreOperator Operator,
-        object? Value)
+        object? Value,
+        bool IsPrimaryKey = false)
     {
         public override string ToString()
         {
@@ -35,7 +36,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 _ => Operator.ToString()
             };
 
-            return $"{PropertyName} {operatorSymbol} {Value}";
+            var pkIndicator = IsPrimaryKey ? " [PK]" : "";
+            return $"{PropertyName} {operatorSymbol} {Value}{pkIndicator}";
         }
     }
 

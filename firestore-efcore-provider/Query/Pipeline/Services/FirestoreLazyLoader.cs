@@ -152,8 +152,12 @@ public class FirestoreLazyLoader : ILazyLoader
         var foreignKey = navigation.ForeignKey;
         var principalKey = foreignKey.PrincipalKey;
 
+        // Get primary key property name from EF Core metadata
+        var pkProperties = targetEntityType.FindPrimaryKey()?.Properties;
+        var primaryKeyPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+
         // Create base query expression
-        var ast = new FirestoreQueryExpression(targetEntityType, collectionName);
+        var ast = new FirestoreQueryExpression(targetEntityType, collectionName, primaryKeyPropertyName);
 
         if (navigation.IsCollection)
         {

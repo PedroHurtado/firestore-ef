@@ -129,6 +129,98 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             return filterResults.Select(fr => ResolveFilterResult(fr, queryContext, entityType)).ToList();
         }
 
+        /// <summary>
+        /// Resolves filter results with a PK name fallback from the AST.
+        /// This is used for Includes and Projections where the target entity might not be
+        /// found in the model at resolution time, but we still know the PK name from metadata.
+        /// </summary>
+        private IReadOnlyList<ResolvedFilterResult> ResolveFilterResultsWithPkFallback(
+            IReadOnlyList<FirestoreFilterResult> filterResults,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType,
+            string? pkPropertyNameFallback)
+        {
+            return filterResults.Select(fr => ResolveFilterResultWithPkFallback(fr, queryContext, entityType, pkPropertyNameFallback)).ToList();
+        }
+
+        private ResolvedFilterResult ResolveFilterResultWithPkFallback(
+            FirestoreFilterResult filterResult,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType,
+            string? pkPropertyNameFallback)
+        {
+            var andClauses = filterResult.AndClauses
+                .Select(c => ResolveWhereClauseWithPkFallback(c, queryContext, entityType, pkPropertyNameFallback))
+                .ToList();
+
+            ResolvedOrFilterGroup? orGroup = null;
+            if (filterResult.OrGroup != null)
+            {
+                orGroup = ResolveOrFilterGroupWithPkFallback(filterResult.OrGroup, queryContext, entityType, pkPropertyNameFallback);
+            }
+
+            IReadOnlyList<ResolvedOrFilterGroup>? nestedOrGroups = null;
+            if (filterResult.NestedOrGroups.Count > 0)
+            {
+                nestedOrGroups = filterResult.NestedOrGroups
+                    .Select(g => ResolveOrFilterGroupWithPkFallback(g, queryContext, entityType, pkPropertyNameFallback))
+                    .ToList();
+            }
+
+            return new ResolvedFilterResult(andClauses, orGroup, nestedOrGroups);
+        }
+
+        private ResolvedOrFilterGroup ResolveOrFilterGroupWithPkFallback(
+            FirestoreOrFilterGroup orGroup,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType,
+            string? pkPropertyNameFallback)
+        {
+            var clauses = orGroup.Clauses
+                .Select(c => ResolveWhereClauseWithPkFallback(c, queryContext, entityType, pkPropertyNameFallback))
+                .ToList();
+            return new ResolvedOrFilterGroup(clauses);
+        }
+
+        private ResolvedWhereClause ResolveWhereClauseWithPkFallback(
+            FirestoreWhereClause clause,
+            IFirestoreQueryContext queryContext,
+            IEntityType? entityType,
+            string? pkPropertyNameFallback)
+        {
+            var value = _expressionEvaluator.EvaluateWhereClause(clause, queryContext);
+
+            // Validate null filter - requires PersistNullValues configured
+            if (value == null && entityType != null)
+            {
+                ValidateNullFilter(clause.PropertyName, entityType);
+            }
+
+            // Convert CLR value to Firestore-compatible type
+            var convertedValue = _valueConverter.ToFirestore(value, clause.EnumType);
+
+            // Determine if this clause filters by primary key
+            // First try EF Core metadata, then fallback to PK name from AST
+            var isPrimaryKey = false;
+            if (entityType != null)
+            {
+                var pkProperties = entityType.FindPrimaryKey()?.Properties;
+                var pkPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+                isPrimaryKey = pkPropertyName != null && clause.PropertyName == pkPropertyName;
+            }
+            else if (pkPropertyNameFallback != null)
+            {
+                // Fallback: use PK name from AST when entityType is not available
+                isPrimaryKey = clause.PropertyName == pkPropertyNameFallback;
+            }
+
+            return new ResolvedWhereClause(
+                clause.PropertyName,
+                clause.Operator,
+                convertedValue,
+                isPrimaryKey);
+        }
+
         private ResolvedFilterResult ResolveFilterResult(
             FirestoreFilterResult filterResult,
             IFirestoreQueryContext queryContext,
@@ -184,10 +276,21 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             // Pass EnumType for int-to-enum-string conversion when EF Core parameterizes enums
             var convertedValue = _valueConverter.ToFirestore(value, clause.EnumType);
 
+            // Determine if this clause filters by primary key
+            // Use EF Core metadata - the authoritative source for PK name
+            var isPrimaryKey = false;
+            if (entityType != null)
+            {
+                var pkProperties = entityType.FindPrimaryKey()?.Properties;
+                var pkPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+                isPrimaryKey = pkPropertyName != null && clause.PropertyName == pkPropertyName;
+            }
+
             return new ResolvedWhereClause(
                 clause.PropertyName,
                 clause.Operator,
-                convertedValue);
+                convertedValue,
+                isPrimaryKey);
         }
 
         /// <summary>
@@ -196,9 +299,11 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         /// </summary>
         private static void ValidateNullFilter(string propertyName, IEntityType entityType)
         {
-            // Skip validation for Id property - it's the document ID and handled separately
-            // Also, if we get null for Id, it's likely a parameter evaluation issue, not an actual null filter
-            if (propertyName == "Id")
+            // Skip validation for primary key property - it's the document ID and handled separately
+            // Also, if we get null for PK, it's likely a parameter evaluation issue, not an actual null filter
+            var pkProperties = entityType.FindPrimaryKey()?.Properties;
+            var pkPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+            if (pkPropertyName != null && propertyName == pkPropertyName)
                 return;
 
             // Get property from model - support nested properties
@@ -303,11 +408,16 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             var collectionPath = include.CollectionName;
             var targetClrType = include.TargetClrType;
 
+            // Get target entity type from model for PK detection in filters
+            var targetEntityType = queryContext.Model?.FindEntityType(targetClrType);
+
             // Detect Id optimization from filters using PrimaryKeyPropertyName from AST
             string? documentId = DetectIdOptimization(include.FilterResults, include.PrimaryKeyPropertyName, queryContext);
 
-            // Resolve filters
-            var filterResults = ResolveFilterResults(include.FilterResults, queryContext);
+            // Resolve filters - pass entityType for IsPrimaryKey detection
+            // Use PrimaryKeyPropertyName from AST as fallback when entityType is not available
+            var filterResults = ResolveFilterResultsWithPkFallback(
+                include.FilterResults, queryContext, targetEntityType, include.PrimaryKeyPropertyName);
 
             // Resolve OrderBy
             var orderByClauses = include.OrderByClauses
@@ -356,11 +466,16 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             var collectionPath = subcollection.CollectionName;
             var targetClrType = subcollection.TargetClrType;
 
+            // Get target entity type from model for PK detection in filters
+            var targetEntityType = queryContext.Model?.FindEntityType(targetClrType);
+
             // Detect Id optimization using PrimaryKeyPropertyName from AST
             string? documentId = DetectIdOptimization(subcollection.FilterResults, subcollection.PrimaryKeyPropertyName, queryContext);
 
-            // Resolve filters
-            var filterResults = ResolveFilterResults(subcollection.FilterResults, queryContext);
+            // Resolve filters - pass entityType for IsPrimaryKey detection
+            // Use PrimaryKeyPropertyName from AST as fallback when entityType is not available
+            var filterResults = ResolveFilterResultsWithPkFallback(
+                subcollection.FilterResults, queryContext, targetEntityType, subcollection.PrimaryKeyPropertyName);
 
             // Resolve OrderBy
             var orderByClauses = subcollection.OrderByClauses

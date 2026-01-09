@@ -80,6 +80,14 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is string s && actualTargetType.IsEnum)
             return Enum.Parse(actualTargetType, s, ignoreCase: true);
 
+        // string → Guid (document IDs are stored as strings in Firestore)
+        if (value is string guidStr && actualTargetType == typeof(Guid))
+            return Guid.Parse(guidStr);
+
+        // string → numeric types (document IDs may be numeric but stored as strings)
+        if (value is string numStr && IsNumericType(actualTargetType))
+            return Convert.ChangeType(numStr, actualTargetType);
+
         // long → int (Firestore may return long for integers)
         if (value is long l && actualTargetType == typeof(int))
             return (int)l;

@@ -957,7 +957,7 @@ namespace Firestore.EntityFrameworkCore.Storage
         {
             var type = value.GetType();
 
-            // ✅ Buscar la propiedad especificada o "Id" por defecto
+            // Buscar la propiedad especificada o la PK del modelo
             PropertyInfo? property;
             if (propertyName != null)
             {
@@ -968,10 +968,31 @@ namespace Firestore.EntityFrameworkCore.Storage
             }
             else
             {
-                property = type.GetProperty("Id");
+                // Use EF Core metadata to find the primary key - the authoritative source
+                var entityType = _model.FindEntityType(type);
+                if (entityType != null)
+                {
+                    var pkProperties = entityType.FindPrimaryKey()?.Properties;
+                    var pkPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+                    if (pkPropertyName != null)
+                    {
+                        property = type.GetProperty(pkPropertyName);
+                    }
+                    else
+                    {
+                        property = null;
+                    }
+                }
+                else
+                {
+                    // Fallback for types not registered in model (ComplexTypes)
+                    // Try convention: "Id" or "{TypeName}Id"
+                    property = type.GetProperty("Id") ?? type.GetProperty($"{type.Name}Id");
+                }
+
                 if (property == null)
                     throw new InvalidOperationException(
-                        $"El tipo '{type.Name}' debe tener una propiedad 'Id' o especificar una con HasReference(x => x.Property)");
+                        $"El tipo '{type.Name}' debe tener una clave primaria configurada o especificar una con HasReference(x => x.Property)");
             }
 
             var propertyValue = property.GetValue(value)?.ToString();

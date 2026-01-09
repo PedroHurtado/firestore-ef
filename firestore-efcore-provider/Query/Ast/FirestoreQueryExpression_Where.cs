@@ -72,9 +72,11 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             }
 
             // Check for ID-only queries (optimization: use GetDocumentAsync instead of query)
-            // Only valid when there's a SINGLE Id == clause with NO other filters
+            // Only valid when there's a SINGLE PK == clause with NO other filters
             // Legacy: kept for backward compatibility with FirestoreQueryExecutor
-            if (clauses.Count == 1 && clauses[0].PropertyName == "Id")
+            // Use PrimaryKeyPropertyName from AST (set from EF Core metadata)
+            var pkName = ast.PrimaryKeyPropertyName ?? "Id";
+            if (clauses.Count == 1 && clauses[0].PropertyName == pkName)
             {
                 var whereClause = clauses[0];
                 if (whereClause.Operator != FirestoreOperator.EqualTo)
@@ -83,7 +85,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
                         "Firestore ID queries only support the '==' operator.");
                 }
 
-                // If there are already other filters, treat Id as a normal filter
+                // If there are already other filters, treat PK as a normal filter
                 // (executor will use FieldPath.DocumentId)
                 if (ast.Filters.Count > 0 || ast.OrFilterGroups.Count > 0)
                 {
@@ -106,9 +108,9 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
             // convert it to a normal query with FieldPath.DocumentId
             if (ast.IsIdOnlyQuery)
             {
-                // Create Id clause from the existing IdValueExpression
+                // Create PK clause from the existing IdValueExpression
                 var idClause = new FirestoreWhereClause(
-                    "Id", FirestoreOperator.EqualTo, ast.IdValueExpression!, null);
+                    pkName, FirestoreOperator.EqualTo, ast.IdValueExpression!, null);
 
                 // Create new query without IdValueExpression (will use FieldPath.DocumentId)
                 // Clear IdValueExpression by setting filters with the id clause

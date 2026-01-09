@@ -182,8 +182,10 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
 
             var clause = clauses[0];
 
-            // Solo aplica si es la propiedad Id
-            if (clause.PropertyName != "Id")
+            // Solo aplica si es la propiedad de clave primaria
+            // Use PrimaryKeyPropertyName from AST (set from EF Core metadata)
+            var pkName = ast.PrimaryKeyPropertyName ?? "Id";
+            if (clause.PropertyName != pkName)
                 return null;
 
             // Solo soporta operador ==

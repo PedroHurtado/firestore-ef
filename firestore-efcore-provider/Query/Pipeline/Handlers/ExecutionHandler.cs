@@ -143,15 +143,31 @@ public class ExecutionHandler : IQueryPipelineHandler
         {
             if (include.IsCollection)
             {
-                // SubCollection: query N documents
-                var query = _queryBuilder.BuildInclude(parentDoc.Reference.Path, include);
-                var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
-
-                foreach (var doc in snapshot.Documents)
+                // Optimization: If filtering by PK only, use GetDocumentAsync instead of query
+                if (include.IsDocumentQuery)
                 {
-                    if (!doc.Exists) continue;
-                    allSnapshots[doc.Reference.Path] = doc;
-                    await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                    var subCollectionRef = parentDoc.Reference.Collection(include.CollectionPath);
+                    var docRef = subCollectionRef.Document(include.DocumentId!);
+                    var doc = await _client.GetDocumentByReferenceAsync(docRef, cancellationToken);
+
+                    if (doc.Exists)
+                    {
+                        allSnapshots[doc.Reference.Path] = doc;
+                        await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                    }
+                }
+                else
+                {
+                    // SubCollection: query N documents
+                    var query = _queryBuilder.BuildInclude(parentDoc.Reference.Path, include);
+                    var snapshot = await _client.ExecuteQueryAsync(query, cancellationToken);
+
+                    foreach (var doc in snapshot.Documents)
+                    {
+                        if (!doc.Exists) continue;
+                        allSnapshots[doc.Reference.Path] = doc;
+                        await LoadIncludesRecursiveAsync(doc, include.NestedIncludes, allSnapshots, cancellationToken);
+                    }
                 }
             }
             else

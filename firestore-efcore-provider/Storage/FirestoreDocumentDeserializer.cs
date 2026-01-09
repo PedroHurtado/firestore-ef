@@ -332,11 +332,8 @@ namespace Firestore.EntityFrameworkCore.Storage
                 return;
             }
 
-            // Convertir el documentId (string) al tipo de la clave
-            object keyValue = keyProperty.ClrType == typeof(string)
-                ? documentId
-                : Convert.ChangeType(documentId, keyProperty.ClrType);
-
+            // Convertir el documentId (string) al tipo de la clave usando el ValueConverter centralizado
+            var keyValue = _valueConverter.FromFirestore(documentId, keyProperty.ClrType);
             keyProperty.PropertyInfo?.SetValue(entity, keyValue);
         }
 

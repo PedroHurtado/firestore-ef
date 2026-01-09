@@ -46,9 +46,12 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
 
                 if (navigation != null)
                 {
-                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var targetEntityType = navigation.TargetEntityType;
+                    var targetClrType = targetEntityType.ClrType;
                     var collectionName = _collectionManager.GetCollectionName(targetClrType);
-                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType);
+                    var pkProperties = targetEntityType.FindPrimaryKey()?.Properties;
+                    var primaryKeyPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType, primaryKeyPropertyName);
                 }
             }
 
@@ -57,9 +60,12 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             {
                 if (navigation.TargetEntityType.ClrType == innerEntityType.ClrType)
                 {
-                    var targetClrType = navigation.TargetEntityType.ClrType;
+                    var targetEntityType = navigation.TargetEntityType;
+                    var targetClrType = targetEntityType.ClrType;
                     var collectionName = _collectionManager.GetCollectionName(targetClrType);
-                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType);
+                    var pkProperties = targetEntityType.FindPrimaryKey()?.Properties;
+                    var primaryKeyPropertyName = pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
+                    return new IncludeInfo(navigation.Name, navigation.IsCollection, collectionName, targetClrType, primaryKeyPropertyName);
                 }
             }
 

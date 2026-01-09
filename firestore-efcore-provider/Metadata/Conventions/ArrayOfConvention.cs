@@ -86,8 +86,9 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
 
     /// <summary>
     /// Se ejecuta al final del proceso de construcción del modelo.
-    /// 1. Auto-detecta ArrayOf References cuando List&lt;T&gt; y T es entidad registrada
-    /// 2. Elimina entidades descubiertas incorrectamente por EF Core
+    /// 1. Limpia ArrayOf de propiedades que son SubCollections (configuradas después en OnModelCreating)
+    /// 2. Auto-detecta ArrayOf References cuando List&lt;T&gt; y T es entidad registrada
+    /// 3. Elimina entidades descubiertas incorrectamente por EF Core
     /// </summary>
     public void ProcessModelFinalizing(
         IConventionModelBuilder modelBuilder,
@@ -95,10 +96,15 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     {
         var model = modelBuilder.Metadata;
 
-        // Paso 1: Auto-detectar ArrayOf References
+        // Paso 1: Limpiar ArrayOf de propiedades que son SubCollections
+        // Esto ocurre cuando SubCollection se configura en OnModelCreating DESPUÉS de que
+        // ProcessEntityTypeAdded haya aplicado ArrayOf Embedded
+        CleanupArrayOfForSubCollections(model);
+
+        // Paso 2: Auto-detectar ArrayOf References
         AutoDetectArrayOfReferences(model);
 
-        // Paso 2: Procesar ArrayOf References pendientes (propiedades con PK structure)
+        // Paso 3: Procesar ArrayOf References pendientes (propiedades con PK structure)
         foreach (var (entityClrType, propertyName, elementType) in _pendingReferenceArrays)
         {
             var entityType = model.FindEntityType(entityClrType);
@@ -118,7 +124,7 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
         }
         _pendingReferenceArrays.Clear();
 
-        // Paso 3: Limpiar entidades que son ArrayOf elements
+        // Paso 4: Limpiar entidades que son ArrayOf elements
         var entitiesToRemove = model.GetEntityTypes()
             .Where(et => _arrayOfElementTypes.Contains(et.ClrType))
             .ToList();
@@ -132,6 +138,36 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
         }
 
         _arrayOfElementTypes.Clear();
+    }
+
+    /// <summary>
+    /// Limpia las anotaciones ArrayOf de propiedades que fueron configuradas como SubCollection
+    /// en OnModelCreating. Esto ocurre porque ProcessEntityTypeAdded se ejecuta antes de
+    /// OnModelCreating y puede marcar una propiedad como ArrayOf Embedded cuando en realidad
+    /// será una SubCollection.
+    /// </summary>
+    private static void CleanupArrayOfForSubCollections(IConventionModel model)
+    {
+        foreach (var entityType in model.GetEntityTypes())
+        {
+            foreach (var navigation in entityType.GetNavigations())
+            {
+                if (!navigation.IsCollection)
+                    continue;
+
+                if (!navigation.IsSubCollection())
+                    continue;
+
+                // Esta navegación es SubCollection - limpiar cualquier anotación ArrayOf
+                var propertyName = navigation.Name;
+                if (entityType.IsArrayOf(propertyName))
+                {
+                    var mutableEntityType = (IMutableEntityType)entityType;
+                    mutableEntityType.RemoveAnnotation($"{ArrayOfAnnotations.Type}:{propertyName}");
+                    mutableEntityType.RemoveAnnotation($"{ArrayOfAnnotations.ElementClrType}:{propertyName}");
+                }
+            }
+        }
     }
 
     /// <summary>
