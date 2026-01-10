@@ -946,9 +946,13 @@ namespace Firestore.EntityFrameworkCore.Storage
             // ✅ Para otros tipos, buscar converter en property O en typeMapping
             var converter = property.GetValueConverter() ?? property.GetTypeMapping()?.Converter;
 
-            return converter != null
-                ? converter.ConvertToProvider(value)
-                : value;
+            if (converter != null)
+            {
+                return converter.ConvertToProvider(value);
+            }
+
+            // ✅ Fallback: usar _valueConverter para DateTime→UTC, decimal→double, enum→string
+            return _valueConverter.ToFirestore(value);
         }
 
         private Google.Cloud.Firestore.DocumentReference ConvertToFirestoreReference(
