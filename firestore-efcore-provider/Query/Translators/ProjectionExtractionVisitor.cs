@@ -503,7 +503,10 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
 
         /// <summary>
         /// Builds the field path for nested member access (e.g., "Direccion.Ciudad").
-        /// For LeftJoin projections, replaces Outer/Inner prefixes with actual collection names.
+        /// For LeftJoin projections, handles Outer/Inner prefixes appropriately:
+        /// - For root entity fields: strips prefix entirely (Libro.Outer.Titulo → Titulo)
+        /// - For FK/Reference fields: uses collection name as prefix (Autors.Nombre)
+        /// The FirestoreQueryBuilder expects collection names to match with includes.
         /// </summary>
         private string BuildFieldPath(MemberExpression memberExpr)
         {
@@ -515,63 +518,46 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             {
                 var memberName = member.Member.Name;
 
-                // Check if this is a LeftJoin prefix (Outer/Inner)
-                // If so, get the collection name from the entity type
-                if (IsLeftJoinPrefix(member))
+                // Skip "Outer" - this is the root entity in EF Core LeftJoin
+                if (memberName == "Outer")
                 {
-                    // When member is "Outer" or "Inner":
-                    // - member.Member.Name = "Outer" or "Inner"
-                    // - member.Type = the entity type (Libro, Autor, etc.)
-                    collectionPrefix = _collectionManager.GetCollectionName(member.Type);
                     current = member.Expression;
                     continue;
+                }
+
+                // "Inner" represents a navigation - use target collection name as prefix
+                if (memberName == "Inner")
+                {
+                    var innerType = member.Type;
+                    collectionPrefix = _collectionManager.GetCollectionName(innerType);
+                    current = member.Expression;
+                    continue;
+                }
+
+                // Check if this member is a navigation property on our entity type
+                if (_entityType != null)
+                {
+                    var navigation = _entityType.FindNavigation(memberName);
+                    if (navigation != null)
+                    {
+                        // Use target collection name as prefix
+                        collectionPrefix = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
+                        current = member.Expression;
+                        continue;
+                    }
                 }
 
                 parts.Insert(0, memberName);
                 current = member.Expression;
             }
 
-            // Prepend collection name if we found a LeftJoin prefix
+            // Prepend collection prefix if we found one (it's a FK/Reference field)
             if (collectionPrefix != null)
             {
                 parts.Insert(0, collectionPrefix);
             }
 
             return string.Join(".", parts);
-        }
-
-        /// <summary>
-        /// Checks if a member expression is an EF Core LeftJoin prefix (Outer/Inner).
-        /// EF Core uses Outer/Inner properties when translating Include() via LeftJoin.
-        /// The member type will be the entity type (not a primitive).
-        /// </summary>
-        private bool IsLeftJoinPrefix(MemberExpression member)
-        {
-            var memberName = member.Member.Name;
-
-            // Only check for known LeftJoin prefixes
-            if (memberName != "Outer" && memberName != "Inner")
-                return false;
-
-            // member.Type is the entity type (Libro, Autor, etc.)
-            // Verify it's a known entity type in our collection manager
-            var memberType = member.Type;
-
-            // Skip primitive types, strings, value types - these are not entity types
-            if (memberType.IsPrimitive || memberType == typeof(string) || memberType.IsValueType)
-                return false;
-
-            // Check if this type is managed by Firestore (it's an entity)
-            // Collection manager will return a valid collection name for entities
-            try
-            {
-                var collectionName = _collectionManager.GetCollectionName(memberType);
-                return !string.IsNullOrEmpty(collectionName);
-            }
-            catch
-            {
-                return false;
-            }
         }
 
         /// <summary>
@@ -937,6 +923,10 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                     // These are just materializers, no additional processing needed
                     break;
 
+                case "LeftJoin":
+                    ProcessSubcollectionLeftJoin(methodCall, subcollection);
+                    break;
+
                 // Unsupported subcollection operations
                 case "Skip":
                     throw new NotSupportedException(
@@ -1105,6 +1095,39 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 return unary.Operand as LambdaExpression;
             }
             return expression as LambdaExpression;
+        }
+
+        /// <summary>
+        /// Processes a LeftJoin in a subcollection, creating an IncludeInfo for the FK navigation.
+        /// Uses the same logic as FirestoreLeftJoinTranslator.
+        /// </summary>
+        private void ProcessSubcollectionLeftJoin(
+            MethodCallExpression methodCall,
+            FirestoreSubcollectionProjection subcollection)
+        {
+            // LeftJoin signature: LeftJoin(outer, inner, outerKeySelector, innerKeySelector, resultSelector)
+            // Arguments[2] is the outerKeySelector containing the FK property
+            if (methodCall.Arguments.Count < 3)
+                return;
+
+            var outerKeySelector = ExtractLambda(methodCall.Arguments[2]);
+            if (outerKeySelector == null)
+                return;
+
+            // Get the entity type from the subcollection
+            var subcollectionEntityType = _entityType?.Model.FindEntityType(subcollection.TargetClrType);
+            if (subcollectionEntityType == null)
+                return;
+
+            // Use FirestoreLeftJoinTranslator to create the IncludeInfo
+            var translator = new FirestoreLeftJoinTranslator(_collectionManager);
+            var innerEntityType = subcollectionEntityType; // The inner is the related entity
+            var includeInfo = translator.Translate(outerKeySelector, subcollectionEntityType, innerEntityType);
+
+            if (includeInfo != null)
+            {
+                //subcollection.Includes.Add(includeInfo);
+            }
         }
 
         /// <summary>

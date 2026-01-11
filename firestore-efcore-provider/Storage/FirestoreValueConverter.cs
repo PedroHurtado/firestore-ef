@@ -72,6 +72,13 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         var underlyingType = Nullable.GetUnderlyingType(targetType);
         var actualTargetType = underlyingType ?? targetType;
 
+        // DocumentReference → entity type: return null (shallow loading)
+        // When a navigation property is stored as DocumentReference but wasn't projected,
+        // we return null instead of trying to convert to the entity type.
+        // This supports shallow loading where only explicitly projected data is loaded.
+        if (value is DocumentReference && actualTargetType != typeof(DocumentReference))
+            return null;
+
         // double → decimal
         if (value is double d && actualTargetType == typeof(decimal))
             return (decimal)d;

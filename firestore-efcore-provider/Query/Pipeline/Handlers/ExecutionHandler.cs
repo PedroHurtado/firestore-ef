@@ -123,6 +123,12 @@ public class ExecutionHandler : IQueryPipelineHandler
             .WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots)
             .WithMetadata(PipelineMetadataKeys.SubcollectionAggregations, subcollectionAggregations);
         var items = allSnapshots.Values.Cast<object>().ToList();
+
+        var debugData = allSnapshots.Values
+            .OfType<Google.Cloud.Firestore.DocumentSnapshot>()
+            .Select(s => new { s.Id, Data = s.ToDictionary() })
+            .ToList();
+            
         return new PipelineResult.Materialized(items, contextWithData);
     }
 
@@ -374,8 +380,8 @@ public class ExecutionHandler : IQueryPipelineHandler
 
                 var key = $"{parentDoc.Reference.Path}:{subcollection.ResultName}";
                 aggregations[key] = ExtractAggregationValue(
-                    snapshot, 
-                    subcollection.Aggregation ?? FirestoreAggregationType.Count, 
+                    snapshot,
+                    subcollection.Aggregation ?? FirestoreAggregationType.Count,
                     subcollection.AggregationPropertyName,
                     throwOnEmptyAverage: false);
             }

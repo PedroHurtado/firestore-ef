@@ -47,7 +47,7 @@ public class FirestoreQueryBuilder : IQueryBuilder
                 .Limit(1);
         }
 
-        query = ApplyProjection(query, resolvedQuery.Projection);
+        query = ApplyProjection(query, resolvedQuery.Projection, resolvedQuery.Includes, resolvedQuery.CollectionPath);
         query = ApplyPagination(query, resolvedQuery.Pagination);
 
         if (resolvedQuery.StartAfterCursor != null)
@@ -200,12 +200,115 @@ public class FirestoreQueryBuilder : IQueryBuilder
         return query;
     }
 
-    private static FirestoreQuery ApplyProjection(FirestoreQuery query, ResolvedProjectionDefinition? projection)
+    private static FirestoreQuery ApplyProjection(
+        FirestoreQuery query,
+        ResolvedProjectionDefinition? projection,
+        IReadOnlyList<ResolvedInclude>? includes = null,
+        string? rootCollectionPath = null)
     {
         if (projection == null || !projection.HasFields)
             return query;
 
-        return query.Select(projection.Fields!.Select(f => f.FieldPath).ToArray());
+        // If no Reference includes, use original behavior exactly as before
+        var referenceNavigations = BuildReferenceNavigationMap(includes);
+        if (referenceNavigations.Count == 0)
+        {
+            return query.Select(projection.Fields!.Select(f => f.FieldPath).ToArray());
+        }
+
+        // With References:
+        // - Replace reference collection fields with navigation name (e.g., "Autors.Nombre" → "Autor")
+        // - Strip root collection prefix from root fields (e.g., "Libros.Titulo" → "Titulo")
+        // - Keep ComplexType paths as-is (e.g., "Direccion.Ciudad")
+        var fieldPaths = new HashSet<string>();
+
+        foreach (var field in projection.Fields!)
+        {
+            var fieldPath = field.FieldPath;
+
+            // Check if this field belongs to a Reference navigation
+            // e.g., "Autors.Nombre" → should project "Autor" (the DocumentReference field)
+            var referenceField = GetReferenceFieldName(fieldPath, referenceNavigations);
+            if (referenceField != null)
+            {
+                fieldPaths.Add(referenceField);
+            }
+            else
+            {
+                // Check if it starts with root collection prefix (e.g., "Libros.Titulo" → "Titulo")
+                var cleanedPath = StripRootCollectionPrefix(fieldPath, rootCollectionPath);
+                fieldPaths.Add(cleanedPath);
+            }
+        }
+
+        return query.Select(fieldPaths.ToArray());
+    }
+
+    /// <summary>
+    /// Strips the root collection prefix from a field path if present.
+    /// "Libros.Titulo" with rootCollectionPath="Libros" → "Titulo"
+    /// "Direccion.Ciudad" with rootCollectionPath="Libros" → "Direccion.Ciudad" (no change)
+    /// </summary>
+    private static string StripRootCollectionPrefix(string fieldPath, string? rootCollectionPath)
+    {
+        if (string.IsNullOrEmpty(rootCollectionPath))
+            return fieldPath;
+
+        var prefix = rootCollectionPath + ".";
+        if (fieldPath.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return fieldPath[prefix.Length..];
+        }
+
+        return fieldPath;
+    }
+
+    /// <summary>
+    /// Builds a map of Reference collection paths to navigation names.
+    /// </summary>
+    private static Dictionary<string, string> BuildReferenceNavigationMap(IReadOnlyList<ResolvedInclude>? includes)
+    {
+        var map = new Dictionary<string, string>();
+        if (includes == null)
+            return map;
+
+        foreach (var include in includes)
+        {
+            if (include.IsReference)
+            {
+                map[include.CollectionPath] = include.NavigationName;
+            }
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Checks if a field path belongs to a Reference navigation and returns the navigation name.
+    /// Handles both partial projections (e.g., "Autors.Nombre" → "Autor") and
+    /// full entity projections (e.g., "Autors" → "Autor").
+    /// </summary>
+    private static string? GetReferenceFieldName(string fieldPath, Dictionary<string, string> referenceNavigations)
+    {
+        // Check for full entity projection (e.g., "Autors" → "Autor")
+        // This happens when projecting the complete FK entity: Select(l => l.Autor)
+        if (referenceNavigations.TryGetValue(fieldPath, out var fullEntityNavigation))
+        {
+            return fullEntityNavigation;
+        }
+
+        // Check for partial projection (e.g., "Autors.Nombre" → "Autor")
+        var dotIndex = fieldPath.IndexOf('.');
+        if (dotIndex <= 0)
+            return null;
+
+        var collectionPrefix = fieldPath[..dotIndex];
+
+        if (referenceNavigations.TryGetValue(collectionPrefix, out var navigationName))
+        {
+            return navigationName;
+        }
+
+        return null;
     }
 
     private static FirestoreQuery ApplyPagination(FirestoreQuery query, ResolvedPaginationInfo pagination)

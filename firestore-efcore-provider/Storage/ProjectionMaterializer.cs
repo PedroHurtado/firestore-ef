@@ -236,8 +236,18 @@ public class ProjectionMaterializer : IProjectionMaterializer
 
             if (field != null)
             {
-                var fieldValue = GetNestedValue(data, field.FieldPath);
-                args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
+                // Use ResolveFieldValue to handle collection prefixes and Reference navigation
+                var fieldValue = ResolveFieldValue(field.FieldPath, data, rootSnapshot, allSnapshots);
+
+                // Handle full Reference entity projection (e.g., l.Autor where Autor is complete entity)
+                if (fieldValue is ReferenceSnapshotWrapper wrapper)
+                {
+                    args[i] = MaterializeFullEntity(wrapper.Snapshot, wrapper.Snapshot.ToDictionary(), param.ParameterType);
+                }
+                else
+                {
+                    args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
+                }
                 continue;
             }
 
@@ -323,8 +333,18 @@ public class ProjectionMaterializer : IProjectionMaterializer
                         }
                         else
                         {
-                            var fieldValue = GetNestedValue(data, field.FieldPath);
-                            value = _valueConverter.FromFirestore(fieldValue, prop.PropertyType);
+                            // Use ResolveFieldValue to handle collection prefixes and Reference navigation
+                            var fieldValue = ResolveFieldValue(field.FieldPath, data, rootSnapshot, allSnapshots);
+
+                            // Handle full Reference entity projection (e.g., l.Autor where Autor is complete entity)
+                            if (fieldValue is ReferenceSnapshotWrapper wrapper)
+                            {
+                                value = MaterializeFullEntity(wrapper.Snapshot, wrapper.Snapshot.ToDictionary(), prop.PropertyType);
+                            }
+                            else
+                            {
+                                value = _valueConverter.FromFirestore(fieldValue, prop.PropertyType);
+                            }
                         }
                     }
                     // 4. Try direct field match from document
@@ -404,7 +424,15 @@ public class ProjectionMaterializer : IProjectionMaterializer
                 return _valueConverter.FromFirestore(rootSnapshot.Id, param.ParameterType);
             }
 
-            var fieldValue = GetNestedValue(data, field.FieldPath);
+            // Use ResolveFieldValue to handle collection prefixes and Reference navigation
+            var fieldValue = ResolveFieldValue(field.FieldPath, data, rootSnapshot, allSnapshots);
+
+            // Handle full Reference entity projection (e.g., l.Autor where Autor is complete entity)
+            if (fieldValue is ReferenceSnapshotWrapper wrapper)
+            {
+                return MaterializeFullEntity(wrapper.Snapshot, wrapper.Snapshot.ToDictionary(), param.ParameterType);
+            }
+
             return _valueConverter.FromFirestore(fieldValue, param.ParameterType);
         }
 
@@ -678,6 +706,144 @@ public class ProjectionMaterializer : IProjectionMaterializer
         }
 
         return current;
+    }
+
+    /// <summary>
+    /// Resolves a field value from the appropriate source, handling collection prefixes.
+    /// Paths like "Libros.Titulo" are resolved from root data, paths like "Autors.Nombre"
+    /// are resolved from the referenced document in allSnapshots.
+    /// Full entity paths like "Autors" return the complete snapshot dictionary for materialization.
+    /// Supports nested references (e.g., PaisEntities.Nombre where Pais is referenced from Autor).
+    /// </summary>
+    private object? ResolveFieldValue(
+        string fieldPath,
+        IDictionary<string, object> rootData,
+        DocumentSnapshot rootSnapshot,
+        IReadOnlyDictionary<string, DocumentSnapshot> allSnapshots)
+    {
+        var dotIndex = fieldPath.IndexOf('.');
+        if (dotIndex <= 0)
+        {
+            // No dot - could be direct field access or full Reference entity projection
+            var directValue = GetNestedValue(rootData, fieldPath);
+            if (directValue != null)
+            {
+                return directValue;
+            }
+
+            // Check if fieldPath is a collection name for a full Reference entity projection
+            // e.g., fieldPath = "Autors" when projecting l.Autor (full entity)
+            // Look for a DocumentReference in rootData that points to this collection
+            var result = FindReferenceInData(fieldPath, null, rootData, allSnapshots);
+            if (result != null)
+                return result;
+
+            return null;
+        }
+
+        var prefix = fieldPath[..dotIndex];
+        var remainder = fieldPath[(dotIndex + 1)..];
+
+        // Check if the prefix corresponds to a DocumentReference in rootData
+        // This handles Reference navigation fields like "Autor" storing a DocumentReference
+        var refResult = FindReferenceInData(prefix, remainder, rootData, allSnapshots);
+        if (refResult != null)
+            return refResult;
+
+        // Not a reference prefix - might be a root collection prefix or ComplexType
+        // Try to get from rootData directly first (handles ComplexType paths like "Direccion.Ciudad")
+        var directValueNested = GetNestedValue(rootData, fieldPath);
+        if (directValueNested != null)
+        {
+            return directValueNested;
+        }
+
+        // If not found, try stripping the prefix (handles root collection prefix like "Libros.Titulo")
+        // Only do this if the prefix looks like a collection name (matches root collection pattern)
+        var rootCollectionName = ExtractCollectionNameFromPath(rootSnapshot.Reference.Path);
+        if (prefix.Equals(rootCollectionName, StringComparison.OrdinalIgnoreCase))
+        {
+            return GetNestedValue(rootData, remainder);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Finds a DocumentReference matching the collection prefix and resolves the field from it.
+    /// Searches recursively through all snapshots to handle nested references.
+    /// </summary>
+    private object? FindReferenceInData(
+        string collectionPrefix,
+        string? fieldRemainder,
+        IDictionary<string, object> data,
+        IReadOnlyDictionary<string, DocumentSnapshot> allSnapshots)
+    {
+        // First, check direct references in the current data
+        foreach (var kvp in data)
+        {
+            if (kvp.Value is DocumentReference docRef)
+            {
+                var refCollectionName = ExtractCollectionNameFromPath(docRef.Path);
+                if (collectionPrefix.Equals(refCollectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (allSnapshots.TryGetValue(docRef.Path, out var refSnapshot))
+                    {
+                        if (fieldRemainder == null)
+                        {
+                            // Full entity projection
+                            return new ReferenceSnapshotWrapper(refSnapshot);
+                        }
+                        var refData = refSnapshot.ToDictionary();
+                        return GetNestedValue(refData, fieldRemainder);
+                    }
+                    return null;
+                }
+            }
+        }
+
+        // Not found in current data - search in referenced documents (nested references)
+        foreach (var kvp in data)
+        {
+            if (kvp.Value is DocumentReference docRef)
+            {
+                if (allSnapshots.TryGetValue(docRef.Path, out var refSnapshot))
+                {
+                    var refData = refSnapshot.ToDictionary();
+                    var nestedResult = FindReferenceInData(collectionPrefix, fieldRemainder, refData, allSnapshots);
+                    if (nestedResult != null)
+                        return nestedResult;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Wrapper class to identify when a full Reference entity snapshot should be materialized.
+    /// </summary>
+    private sealed class ReferenceSnapshotWrapper
+    {
+        public DocumentSnapshot Snapshot { get; }
+        public ReferenceSnapshotWrapper(DocumentSnapshot snapshot) => Snapshot = snapshot;
+    }
+
+    /// <summary>
+    /// Extracts the collection name from a Firestore document path.
+    /// "projects/p/databases/d/documents/Libros/doc-id" → "Libros"
+    /// "Autors/autor-id" → "Autors"
+    /// </summary>
+    private static string ExtractCollectionNameFromPath(string path)
+    {
+        // Handle full path with "/documents/" prefix
+        const string marker = "/documents/";
+        var markerIndex = path.IndexOf(marker, StringComparison.Ordinal);
+        var relativePath = markerIndex >= 0 ? path[(markerIndex + marker.Length)..] : path;
+
+        // Collection name is the first segment
+        var slashIndex = relativePath.IndexOf('/');
+        return slashIndex > 0 ? relativePath[..slashIndex] : relativePath;
     }
 
     private static Type? GetListElementType(Type listType)
