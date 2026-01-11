@@ -21,7 +21,10 @@ public class FirestoreProjectionTranslatorTests
         var collectionManagerMock = new Mock<IFirestoreCollectionManager>();
         collectionManagerMock.Setup(m => m.GetCollectionName(It.IsAny<Type>()))
             .Returns((Type t) => t.Name.ToLower() + "s");
-        _translator = new FirestoreProjectionTranslator(collectionManagerMock.Object);
+        _translator = new FirestoreProjectionTranslator(
+            collectionManagerMock.Object,
+            null,
+            Array.Empty<IncludeInfo>());
     }
 
     #region Test Entities

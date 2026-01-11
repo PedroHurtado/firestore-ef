@@ -30,6 +30,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
     {
         private readonly IFirestoreCollectionManager _collectionManager;
         private readonly IEntityType? _entityType;
+        private readonly IReadOnlyList<IncludeInfo> _pendingIncludes;
         private readonly FirestoreWhereTranslator _whereTranslator = new();
         private readonly FirestoreOrderByTranslator _orderByTranslator = new();
         private readonly FirestoreLimitTranslator _limitTranslator = new();
@@ -39,10 +40,15 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// </summary>
         /// <param name="collectionManager">Manager for resolving Firestore collection names.</param>
         /// <param name="entityType">The source entity type for navigation resolution.</param>
-        public ProjectionExtractionVisitor(IFirestoreCollectionManager collectionManager, IEntityType? entityType = null)
+        /// <param name="pendingIncludes">List of pending includes from LeftJoin translations.</param>
+        public ProjectionExtractionVisitor(
+            IFirestoreCollectionManager collectionManager,
+            IEntityType? entityType,
+            IReadOnlyList<IncludeInfo> pendingIncludes)
         {
             _collectionManager = collectionManager ?? throw new ArgumentNullException(nameof(collectionManager));
             _entityType = entityType;
+            _pendingIncludes = pendingIncludes ?? throw new ArgumentNullException(nameof(pendingIncludes));
         }
 
         /// <summary>
@@ -507,41 +513,43 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
         /// - For root entity fields: strips prefix entirely (Libro.Outer.Titulo → Titulo)
         /// - For FK/Reference fields: uses collection name as prefix (Autors.Nombre)
         /// The FirestoreQueryBuilder expects collection names to match with includes.
-        /// </summary>
+        /// </summary>       
+
         private string BuildFieldPath(MemberExpression memberExpr)
         {
             var parts = new List<string>();
             Expression? current = memberExpr;
-            string? collectionPrefix = null;
+            string? navigationPrefix = null;
+            Type? pendingInnerType = null;
+            int outerDepth = 0;
 
             while (current is MemberExpression member)
             {
                 var memberName = member.Member.Name;
 
-                // Skip "Outer" - this is the root entity in EF Core LeftJoin
                 if (memberName == "Outer")
                 {
+                    outerDepth++;
                     current = member.Expression;
                     continue;
                 }
 
-                // "Inner" represents a navigation - use target collection name as prefix
                 if (memberName == "Inner")
                 {
-                    var innerType = member.Type;
-                    collectionPrefix = _collectionManager.GetCollectionName(innerType);
+                    pendingInnerType = member.Type;
                     current = member.Expression;
                     continue;
                 }
 
-                // Check if this member is a navigation property on our entity type
                 if (_entityType != null)
                 {
                     var navigation = _entityType.FindNavigation(memberName);
                     if (navigation != null)
                     {
-                        // Use target collection name as prefix
-                        collectionPrefix = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
+                        var collectionName = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
+                        navigationPrefix = HasDuplicateReferenceToCollection(collectionName)
+                            ? memberName
+                            : collectionName;
                         current = member.Expression;
                         continue;
                     }
@@ -551,13 +559,26 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 current = member.Expression;
             }
 
-            // Prepend collection prefix if we found one (it's a FK/Reference field)
-            if (collectionPrefix != null)
+            // Resolver Inner al final cuando conocemos outerDepth
+            if (pendingInnerType != null)
             {
-                parts.Insert(0, collectionPrefix);
+                navigationPrefix = ResolveInnerNavigation(pendingInnerType, outerDepth);
+            }
+
+            if (navigationPrefix != null)
+            {
+                parts.Insert(0, navigationPrefix);
             }
 
             return string.Join(".", parts);
+        }
+
+        /// <summary>
+        /// Checks if there are multiple reference navigations pointing to the same collection.
+        /// </summary>
+        private bool HasDuplicateReferenceToCollection(string collectionName)
+        {
+            return _pendingIncludes.Count(i => !i.IsCollection && i.CollectionName == collectionName) > 1;
         }
 
         /// <summary>
@@ -1056,7 +1077,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             var nestedEntityType = navigation?.TargetEntityType;
 
             // Extract projected fields from the nested select
-            var nestedVisitor = new ProjectionExtractionVisitor(_collectionManager, nestedEntityType);
+            var nestedVisitor = new ProjectionExtractionVisitor(_collectionManager, nestedEntityType, _pendingIncludes);
             var nestedDefinition = nestedVisitor.Extract(selectorLambda);
 
             if (nestedDefinition?.Fields != null)
@@ -1211,6 +1232,26 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
                 NavigationName = navigationName;
                 TargetClrType = targetClrType;
             }
+        }
+
+        private string ResolveInnerNavigation(Type innerType, int outerDepth)
+        {
+            var candidates = _pendingIncludes
+                .Where(i => !i.IsCollection && i.TargetClrType == innerType)
+                .ToList();
+
+            if (candidates.Count <= 1)
+            {
+                return _collectionManager.GetCollectionName(innerType);
+            }
+
+            var index = candidates.Count - 1 - outerDepth;
+            if (index >= 0 && index < candidates.Count)
+            {
+                return candidates[index].NavigationName;
+            }
+
+            return _collectionManager.GetCollectionName(innerType);
         }
     }
 }

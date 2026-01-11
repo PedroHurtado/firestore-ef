@@ -738,6 +738,15 @@ public class ProjectionMaterializer : IProjectionMaterializer
             var directValue = GetNestedValue(rootData, fieldPath);
             if (directValue != null)
             {
+                // If it's a DocumentReference, resolve it to the full entity snapshot
+                if (directValue is DocumentReference docRef)
+                {
+                    if (allSnapshots.TryGetValue(docRef.Path, out var refSnapshot))
+                    {
+                        return new ReferenceSnapshotWrapper(refSnapshot);
+                    }
+                    return null;
+                }
                 return directValue;
             }
 
@@ -782,6 +791,9 @@ public class ProjectionMaterializer : IProjectionMaterializer
     /// <summary>
     /// Finds a DocumentReference matching the collection prefix and resolves the field from it.
     /// Searches recursively through all snapshots to handle nested references.
+    /// Supports matching by:
+    /// - Collection name from path (e.g., "Autors" matches DocumentReference to Autors collection)
+    /// - Navigation property name (e.g., "AutorPrincipal" matches the property key in data)
     /// </summary>
     private object? FindReferenceInData(
         string collectionPrefix,
@@ -795,7 +807,12 @@ public class ProjectionMaterializer : IProjectionMaterializer
             if (kvp.Value is DocumentReference docRef)
             {
                 var refCollectionName = ExtractCollectionNameFromPath(docRef.Path);
-                if (collectionPrefix.Equals(refCollectionName, StringComparison.OrdinalIgnoreCase))
+
+                // Match by collection name OR by navigation property name (for multiple FKs to same type)
+                var matchesByCollection = collectionPrefix.Equals(refCollectionName, StringComparison.OrdinalIgnoreCase);
+                var matchesByPropertyName = collectionPrefix.Equals(kvp.Key, StringComparison.OrdinalIgnoreCase);
+
+                if (matchesByCollection || matchesByPropertyName)
                 {
                     if (allSnapshots.TryGetValue(docRef.Path, out var refSnapshot))
                     {

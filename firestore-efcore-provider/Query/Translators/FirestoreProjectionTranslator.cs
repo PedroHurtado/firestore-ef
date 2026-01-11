@@ -1,6 +1,8 @@
 using Firestore.EntityFrameworkCore.Infrastructure;
+using Firestore.EntityFrameworkCore.Query.Ast;
 using Firestore.EntityFrameworkCore.Query.Projections;
 using Microsoft.EntityFrameworkCore.Metadata;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 
 namespace Firestore.EntityFrameworkCore.Query.Translators
@@ -13,16 +15,22 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
     {
         private readonly IFirestoreCollectionManager _collectionManager;
         private readonly IEntityType? _entityType;
+        private readonly IReadOnlyList<IncludeInfo> _pendingIncludes;
 
         /// <summary>
         /// Creates a new FirestoreProjectionTranslator with the required dependencies.
         /// </summary>
         /// <param name="collectionManager">Manager for resolving Firestore collection names.</param>
         /// <param name="entityType">The source entity type for navigation resolution.</param>
-        public FirestoreProjectionTranslator(IFirestoreCollectionManager collectionManager, IEntityType? entityType = null)
+        /// <param name="pendingIncludes">List of pending includes from LeftJoin translations.</param>
+        public FirestoreProjectionTranslator(
+            IFirestoreCollectionManager collectionManager,
+            IEntityType? entityType,
+            IReadOnlyList<IncludeInfo> pendingIncludes)
         {
             _collectionManager = collectionManager;
             _entityType = entityType;
+            _pendingIncludes = pendingIncludes;
         }
 
         /// <summary>
@@ -38,7 +46,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
             if (selector == null)
                 return null;
 
-            var visitor = new ProjectionExtractionVisitor(_collectionManager, _entityType);
+            var visitor = new ProjectionExtractionVisitor(_collectionManager, _entityType, _pendingIncludes);
             return visitor.Extract(selector);
         }
     }

@@ -26,7 +26,7 @@ namespace Firestore.EntityFrameworkCore.Query.Ast
         public static ShapedQueryExpression TranslateSelect(TranslateSelectRequest request)
         {
             var ast = (FirestoreQueryExpression)request.Source.QueryExpression;
-            var translator = new FirestoreProjectionTranslator(request.CollectionManager, ast.EntityType);
+            var translator = new FirestoreProjectionTranslator(request.CollectionManager, ast.EntityType, ast.PendingIncludes);
             var projection = translator.Translate(request.Selector);
 
             if (projection != null)

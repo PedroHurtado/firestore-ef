@@ -25,7 +25,7 @@ namespace Fudie.Firestore.UnitTest.Query.Translators
         }
 
         private static ProjectionExtractionVisitor CreateVisitor()
-            => new ProjectionExtractionVisitor(CreateCollectionManagerMock());
+            => new ProjectionExtractionVisitor(CreateCollectionManagerMock(), null, Array.Empty<IncludeInfo>());
         #region Case 1: Identity projection (e => e)
 
         [Fact]

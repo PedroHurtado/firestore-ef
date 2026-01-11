@@ -289,13 +289,22 @@ public class FirestoreQueryBuilder : IQueryBuilder
         if (includes == null)
             return map;
 
+        // Detectar colecciones con múltiples referencias
+        var collectionCounts = includes
+            .Where(i => i.IsReference)
+            .GroupBy(i => i.CollectionPath)
+            .ToDictionary(g => g.Key, g => g.Count());
+
         foreach (var include in includes)
         {
             if (include.IsReference)
             {
-                map[include.CollectionPath] = include.NavigationName;
+                var hasDuplicates = collectionCounts[include.CollectionPath] > 1;
+                var key = hasDuplicates ? include.NavigationName : include.CollectionPath;
+                map[key] = include.NavigationName;
             }
         }
+
         return map;
     }
 
