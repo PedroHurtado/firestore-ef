@@ -740,8 +740,9 @@ public class SelectReferenceTests
         ejemplar.CodigoBarras.Should().Be("987654321");
         ejemplar.Libro.Should().NotBeNull();
         ejemplar.Libro!.Titulo.Should().Be("Cuentos de la Selva");
-        ejemplar.Libro.Autor.Should().NotBeNull();
-        ejemplar.Libro.Autor!.Nombre.Should().Be("Horacio Quiroga");
+        // Shallow loading: Autor was not projected, so it should be null.
+        // To get Autor, the user must explicitly project it: e.Libro.Autor
+        ejemplar.Libro.Autor.Should().BeNull();
     }
 
     #endregion

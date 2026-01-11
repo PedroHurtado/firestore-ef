@@ -589,8 +589,18 @@ public class ProjectionMaterializer : IProjectionMaterializer
                     continue;
                 }
 
-                var fieldValue = GetNestedValue(data, field.FieldPath);
-                args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
+                // Use ResolveFieldValue to handle FK references (e.g., Libros.Titulo from Libro DocumentReference)
+                var fieldValue = ResolveFieldValue(field.FieldPath, data, snapshot, allSnapshots);
+
+                // Handle full Reference entity projection
+                if (fieldValue is ReferenceSnapshotWrapper wrapper)
+                {
+                    args[i] = MaterializeFullEntity(wrapper.Snapshot, wrapper.Snapshot.ToDictionary(), param.ParameterType);
+                }
+                else
+                {
+                    args[i] = _valueConverter.FromFirestore(fieldValue, param.ParameterType);
+                }
                 continue;
             }
 

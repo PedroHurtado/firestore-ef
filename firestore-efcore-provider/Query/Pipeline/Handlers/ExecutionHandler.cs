@@ -395,6 +395,10 @@ public class ExecutionHandler : IQueryPipelineHandler
                 {
                     if (!doc.Exists) continue;
                     allSnapshots[doc.Reference.Path] = doc;
+
+                    // Load FK references within subcollection (e.g., Ejemplar.Libro)
+                    await LoadIncludesRecursiveAsync(doc, subcollection.Includes, allSnapshots, cancellationToken);
+
                     await LoadSubcollectionProjectionsAsync(doc, subcollection.NestedSubcollections, allSnapshots, aggregations, cancellationToken);
                 }
             }

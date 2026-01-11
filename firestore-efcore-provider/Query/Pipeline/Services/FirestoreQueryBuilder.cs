@@ -77,7 +77,24 @@ public class FirestoreQueryBuilder : IQueryBuilder
             subcollection.FilterResults, subcollection.OrderByClauses, subcollection.Pagination);
 
         if (subcollection.Fields?.Count > 0)
-            query = query.Select(subcollection.Fields.Select(f => f.FieldPath).ToArray());
+        {
+            // Exclude fields that belong to includes (e.g., "Libros.Titulo" when "Libro" is an include)
+            // Use CollectionPath (e.g., "Libros") to match field paths, not NavigationName
+            var includeCollectionPaths = GetAllIncludeCollectionPaths(subcollection.Includes);
+            var fields = subcollection.Fields
+                .Select(f => f.FieldPath)
+                .Where(path => !includeCollectionPaths.Any(cp => path.StartsWith(cp + ".")))
+                .ToList();
+
+            // Add FK navigation fields needed for includes (e.g., "Libro" for Libro.Titulo)
+            foreach (var include in subcollection.Includes)
+            {
+                if (!fields.Contains(include.NavigationName))
+                    fields.Add(include.NavigationName);
+            }
+
+            query = query.Select(fields.ToArray());
+        }
 
         return query;
     }
@@ -348,5 +365,24 @@ public class FirestoreQueryBuilder : IQueryBuilder
         const string marker = "/documents/";
         var index = fullPath.IndexOf(marker, StringComparison.Ordinal);
         return index >= 0 ? fullPath.Substring(index + marker.Length) : fullPath;
+    }
+
+    /// <summary>
+    /// Gets all collection paths from includes recursively (for filtering FK fields from subcollection projections).
+    /// </summary>
+    private static HashSet<string> GetAllIncludeCollectionPaths(IReadOnlyList<ResolvedInclude> includes)
+    {
+        var paths = new HashSet<string>();
+        CollectIncludeCollectionPaths(includes, paths);
+        return paths;
+    }
+
+    private static void CollectIncludeCollectionPaths(IReadOnlyList<ResolvedInclude> includes, HashSet<string> paths)
+    {
+        foreach (var include in includes)
+        {
+            paths.Add(include.CollectionPath);
+            CollectIncludeCollectionPaths(include.NestedIncludes, paths);
+        }
     }
 }
