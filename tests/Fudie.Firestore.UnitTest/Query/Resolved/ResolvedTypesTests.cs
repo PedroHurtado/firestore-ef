@@ -427,7 +427,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 Fields: null,
                 Aggregation: null,
                 AggregationPropertyName: null,
-                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
+                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>(),
+                Includes: Array.Empty<ResolvedInclude>());
 
             Assert.Equal("Orders", subcollection.NavigationName);
             Assert.Equal("orders", subcollection.CollectionPath);
@@ -450,7 +451,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 Fields: null,
                 Aggregation: null,
                 AggregationPropertyName: null,
-                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
+                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>(),
+                Includes: Array.Empty<ResolvedInclude>());
 
             Assert.True(subcollection.IsDocumentQuery);
             Assert.Equal("order-123", subcollection.DocumentId);
@@ -471,7 +473,8 @@ namespace Fudie.Firestore.UnitTest.Query.Resolved
                 Fields: null,
                 Aggregation: FirestoreAggregationType.Count,
                 AggregationPropertyName: null,
-                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>());
+                NestedSubcollections: Array.Empty<ResolvedSubcollectionProjection>(),
+                Includes: Array.Empty<ResolvedInclude>());
 
             Assert.True(subcollection.IsAggregation);
         }

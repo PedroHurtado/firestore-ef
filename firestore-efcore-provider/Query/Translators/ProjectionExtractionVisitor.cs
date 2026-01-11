@@ -1126,7 +1126,7 @@ namespace Firestore.EntityFrameworkCore.Query.Translators
 
             if (includeInfo != null)
             {
-                //subcollection.Includes.Add(includeInfo);
+                subcollection.Includes.Add(includeInfo);
             }
         }
 

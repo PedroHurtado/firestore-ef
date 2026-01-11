@@ -393,6 +393,9 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 .Select(s => ResolveSubcollectionProjection(s, queryContext))
                 .ToList();
 
+            // Resolve includes (FK references within subcollection)
+            var includes = ResolveIncludes(subcollection.Includes, queryContext);
+
             return new ResolvedSubcollectionProjection(
                 NavigationName: subcollection.NavigationName,
                 ResultName: subcollection.ResultName,
@@ -405,7 +408,8 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 Fields: subcollection.Fields,
                 Aggregation: subcollection.Aggregation,
                 AggregationPropertyName: subcollection.AggregationPropertyName,
-                NestedSubcollections: nestedSubcollections);
+                NestedSubcollections: nestedSubcollections,
+                Includes: includes);
         }
 
         #endregion

@@ -201,6 +201,10 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
             {
                 sb.AppendLine($"{prefix}  → GetDocument: {CollectionPath}/{DocumentId}");
             }
+            else if (IsReference)
+            {
+                sb.AppendLine($"{prefix}  → Query: {CollectionPath}");
+            }
             else
             {
                 sb.AppendLine($"{prefix}  → Query: {CollectionPath}");
@@ -292,12 +296,14 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
         IReadOnlyList<FirestoreProjectedField>? Fields,
         FirestoreAggregationType? Aggregation,
         string? AggregationPropertyName,
-        IReadOnlyList<ResolvedSubcollectionProjection> NestedSubcollections)
+        IReadOnlyList<ResolvedSubcollectionProjection> NestedSubcollections,
+        IReadOnlyList<ResolvedInclude> Includes)
     {
         public bool IsDocumentQuery => DocumentId != null;
         public bool IsAggregation => Aggregation.HasValue && Aggregation != FirestoreAggregationType.None;
         public bool HasFields => Fields != null && Fields.Count > 0;
         public bool HasNestedSubcollections => NestedSubcollections.Count > 0;
+        public bool HasIncludes => Includes.Count > 0;
 
         public int TotalFilterCount => FilterResults.Sum(fr =>
             fr.AndClauses.Count +
@@ -344,6 +350,13 @@ namespace Firestore.EntityFrameworkCore.Query.Resolved
                 sb.AppendLine();
                 foreach (var nested in NestedSubcollections)
                     sb.AppendLine(nested.ToString(indent + 1));
+            }
+
+            // Show includes (FK references)
+            foreach (var include in Includes)
+            {
+                sb.AppendLine();
+                sb.Append(include.ToString(indent + 2));
             }
 
             return sb.ToString();

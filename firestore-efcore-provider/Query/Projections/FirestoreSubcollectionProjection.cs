@@ -113,6 +113,12 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
         public List<FirestoreFilterResult> FilterResults { get; }
 
         /// <summary>
+        /// Includes for FK navigations within the subcollection.
+        /// Populated when EF Core generates LeftJoin for FK references in subcollection projections.
+        /// </summary>
+        public List<IncludeInfo> Includes { get; }
+
+        /// <summary>
         /// Creates a new subcollection projection definition.
         /// </summary>
         /// <param name="navigationName">Name of the navigation property in the entity.</param>
@@ -139,6 +145,7 @@ namespace Firestore.EntityFrameworkCore.Query.Projections
             OrderByClauses = new List<FirestoreOrderByClause>();
             NestedSubcollections = new List<FirestoreSubcollectionProjection>();
             FilterResults = new List<FirestoreFilterResult>();
+            Includes = new List<IncludeInfo>();
         }
     }
 }
