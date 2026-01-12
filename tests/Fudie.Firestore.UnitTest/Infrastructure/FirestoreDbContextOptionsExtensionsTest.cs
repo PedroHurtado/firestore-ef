@@ -1,4 +1,5 @@
 using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.UnitTest.Infrastructure;
@@ -161,8 +162,8 @@ public class FirestoreDbContextOptionsExtensionsTest
         {
             builder
                 .UseDatabaseId("my-database")
-                .MaxRetryAttempts(5)
-                .CommandTimeout(30);
+                .QueryLogLevel(QueryLogLevel.Full)
+                .PipelineMaxRetries(5);
         });
 
         // Assert
@@ -170,6 +171,8 @@ public class FirestoreDbContextOptionsExtensionsTest
         Assert.NotNull(extension);
         Assert.Equal("test-project", extension.ProjectId);
         Assert.Equal("my-database", extension.DatabaseId);
+        Assert.Equal(QueryLogLevel.Full, extension.PipelineOptions.QueryLogLevel);
+        Assert.Equal(5, extension.PipelineOptions.MaxRetries);
     }
 
     private class TestDbContext : DbContext

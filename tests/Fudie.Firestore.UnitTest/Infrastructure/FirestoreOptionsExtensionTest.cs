@@ -1,3 +1,5 @@
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+
 namespace Fudie.Firestore.UnitTest.Infrastructure;
 
 public class FirestoreOptionsExtensionTest
@@ -10,8 +12,9 @@ public class FirestoreOptionsExtensionTest
         extension.ProjectId.Should().BeNull();
         extension.CredentialsPath.Should().BeNull();
         extension.DatabaseId.Should().Be("(default)");
-        extension.MaxRetryAttempts.Should().Be(3);
-        extension.CommandTimeout.Should().Be(TimeSpan.FromSeconds(30));
+        extension.PipelineOptions.Should().NotBeNull();
+        extension.PipelineOptions.MaxRetries.Should().Be(3);
+        extension.PipelineOptions.QueryLogLevel.Should().Be(QueryLogLevel.None);
     }
 
     [Fact]
@@ -69,27 +72,64 @@ public class FirestoreOptionsExtensionTest
         modified.DatabaseId.Should().Be("(default)");
     }
 
+    #region Pipeline Options Tests
+
     [Fact]
-    public void WithMaxRetryAttempts_Creates_New_Instance()
+    public void WithQueryLogLevel_Creates_New_Instance()
     {
         var original = new FirestoreOptionsExtension();
 
-        var modified = original.WithMaxRetryAttempts(5);
+        var modified = original.WithQueryLogLevel(QueryLogLevel.Full);
 
-        modified.MaxRetryAttempts.Should().Be(5);
-        original.MaxRetryAttempts.Should().Be(3, "original should be unchanged");
+        modified.PipelineOptions.QueryLogLevel.Should().Be(QueryLogLevel.Full);
+        original.PipelineOptions.QueryLogLevel.Should().Be(QueryLogLevel.None, "original should be unchanged");
     }
 
     [Fact]
-    public void WithCommandTimeout_Creates_New_Instance()
+    public void WithEnableAstLogging_Creates_New_Instance()
     {
         var original = new FirestoreOptionsExtension();
 
-        var modified = original.WithCommandTimeout(TimeSpan.FromMinutes(2));
+        var modified = original.WithEnableAstLogging(true);
 
-        modified.CommandTimeout.Should().Be(TimeSpan.FromMinutes(2));
-        original.CommandTimeout.Should().Be(TimeSpan.FromSeconds(30), "original should be unchanged");
+        modified.PipelineOptions.EnableAstLogging.Should().BeTrue();
+        original.PipelineOptions.EnableAstLogging.Should().BeFalse("original should be unchanged");
     }
+
+    [Fact]
+    public void WithEnableCaching_Creates_New_Instance()
+    {
+        var original = new FirestoreOptionsExtension();
+
+        var modified = original.WithEnableCaching(true);
+
+        modified.PipelineOptions.EnableCaching.Should().BeTrue();
+        original.PipelineOptions.EnableCaching.Should().BeFalse("original should be unchanged");
+    }
+
+    [Fact]
+    public void WithPipelineMaxRetries_Creates_New_Instance()
+    {
+        var original = new FirestoreOptionsExtension();
+
+        var modified = original.WithPipelineMaxRetries(5);
+
+        modified.PipelineOptions.MaxRetries.Should().Be(5);
+        original.PipelineOptions.MaxRetries.Should().Be(3, "original should be unchanged");
+    }
+
+    [Fact]
+    public void WithPipelineRetryInitialDelay_Creates_New_Instance()
+    {
+        var original = new FirestoreOptionsExtension();
+
+        var modified = original.WithPipelineRetryInitialDelay(TimeSpan.FromMilliseconds(500));
+
+        modified.PipelineOptions.RetryInitialDelay.Should().Be(TimeSpan.FromMilliseconds(500));
+        original.PipelineOptions.RetryInitialDelay.Should().Be(TimeSpan.FromMilliseconds(100), "original should be unchanged");
+    }
+
+    #endregion
 
     [Fact]
     public void Chained_Modifications_Work_Correctly()
@@ -98,14 +138,14 @@ public class FirestoreOptionsExtensionTest
             .WithProjectId("my-project")
             .WithCredentialsPath("/path/to/creds.json")
             .WithDatabaseId("my-db")
-            .WithMaxRetryAttempts(5)
-            .WithCommandTimeout(TimeSpan.FromMinutes(1));
+            .WithQueryLogLevel(QueryLogLevel.Ids)
+            .WithPipelineMaxRetries(5);
 
         extension.ProjectId.Should().Be("my-project");
         extension.CredentialsPath.Should().Be("/path/to/creds.json");
         extension.DatabaseId.Should().Be("my-db");
-        extension.MaxRetryAttempts.Should().Be(5);
-        extension.CommandTimeout.Should().Be(TimeSpan.FromMinutes(1));
+        extension.PipelineOptions.QueryLogLevel.Should().Be(QueryLogLevel.Ids);
+        extension.PipelineOptions.MaxRetries.Should().Be(5);
     }
 
     #region Validate Tests
@@ -149,45 +189,17 @@ public class FirestoreOptionsExtensionTest
     }
 
     [Fact]
-    public void Validate_Throws_When_MaxRetryAttempts_Is_Negative()
+    public void Validate_Throws_When_MaxRetries_Is_Negative()
     {
         var extension = new FirestoreOptionsExtension()
             .WithProjectId("valid-project")
-            .WithMaxRetryAttempts(-1);
+            .WithPipelineMaxRetries(-1);
         var options = new Mock<IDbContextOptions>().Object;
 
         var action = () => extension.Validate(options);
 
         action.Should().Throw<InvalidOperationException>()
-            .WithMessage("*MaxRetryAttempts*mayor o igual a 0*");
-    }
-
-    [Fact]
-    public void Validate_Throws_When_CommandTimeout_Is_Zero()
-    {
-        var extension = new FirestoreOptionsExtension()
-            .WithProjectId("valid-project")
-            .WithCommandTimeout(TimeSpan.Zero);
-        var options = new Mock<IDbContextOptions>().Object;
-
-        var action = () => extension.Validate(options);
-
-        action.Should().Throw<InvalidOperationException>()
-            .WithMessage("*CommandTimeout*mayor que cero*");
-    }
-
-    [Fact]
-    public void Validate_Throws_When_CommandTimeout_Is_Negative()
-    {
-        var extension = new FirestoreOptionsExtension()
-            .WithProjectId("valid-project")
-            .WithCommandTimeout(TimeSpan.FromSeconds(-1));
-        var options = new Mock<IDbContextOptions>().Object;
-
-        var action = () => extension.Validate(options);
-
-        action.Should().Throw<InvalidOperationException>()
-            .WithMessage("*CommandTimeout*mayor que cero*");
+            .WithMessage("*MaxRetries*mayor o igual a 0*");
     }
 
     [Fact]
@@ -203,11 +215,11 @@ public class FirestoreOptionsExtensionTest
     }
 
     [Fact]
-    public void Validate_Allows_Zero_MaxRetryAttempts()
+    public void Validate_Allows_Zero_MaxRetries()
     {
         var extension = new FirestoreOptionsExtension()
             .WithProjectId("valid-project")
-            .WithMaxRetryAttempts(0);
+            .WithPipelineMaxRetries(0);
         var options = new Mock<IDbContextOptions>().Object;
 
         var action = () => extension.Validate(options);
@@ -266,15 +278,15 @@ public class FirestoreOptionsExtensionTest
     }
 
     [Fact]
-    public void Info_LogFragment_Contains_MaxRetryAttempts_When_Not_Default()
+    public void Info_LogFragment_Contains_QueryLogLevel_When_Not_None()
     {
         var extension = new FirestoreOptionsExtension()
             .WithProjectId("my-project")
-            .WithMaxRetryAttempts(5);
+            .WithQueryLogLevel(QueryLogLevel.Full);
 
         var logFragment = extension.Info.LogFragment;
 
-        logFragment.Should().Contain("MaxRetryAttempts=5");
+        logFragment.Should().Contain("QueryLogLevel=Full");
     }
 
     [Fact]
@@ -340,16 +352,16 @@ public class FirestoreOptionsExtensionTest
         var extension = new FirestoreOptionsExtension()
             .WithProjectId("my-project")
             .WithDatabaseId("my-db")
-            .WithMaxRetryAttempts(5)
-            .WithCommandTimeout(TimeSpan.FromMinutes(2));
+            .WithQueryLogLevel(QueryLogLevel.Full)
+            .WithPipelineMaxRetries(5);
         var debugInfo = new Dictionary<string, string>();
 
         extension.Info.PopulateDebugInfo(debugInfo);
 
         debugInfo.Should().ContainKey("Firestore:ProjectId");
         debugInfo.Should().ContainKey("Firestore:DatabaseId").WhoseValue.Should().Be("my-db");
-        debugInfo.Should().ContainKey("Firestore:MaxRetryAttempts").WhoseValue.Should().Be("5");
-        debugInfo.Should().ContainKey("Firestore:CommandTimeout");
+        debugInfo.Should().ContainKey("Firestore:QueryLogLevel").WhoseValue.Should().Be("Full");
+        debugInfo.Should().ContainKey("Firestore:MaxRetries").WhoseValue.Should().Be("5");
     }
 
     #endregion

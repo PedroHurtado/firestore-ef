@@ -44,9 +44,9 @@ public class FirestorePipelineOptions
 
     /// <summary>
     /// Level of detail for query logging.
-    /// Default is Count (shows query and document count).
+    /// Default is None (no logging).
     /// </summary>
-    public QueryLogLevel QueryLogLevel { get; set; } = QueryLogLevel.Count;
+    public QueryLogLevel QueryLogLevel { get; set; } = QueryLogLevel.None;
 
     /// <summary>
     /// Enables query result caching.

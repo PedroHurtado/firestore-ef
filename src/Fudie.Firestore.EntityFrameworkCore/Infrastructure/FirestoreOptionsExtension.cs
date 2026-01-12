@@ -1,3 +1,4 @@
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using System;
@@ -12,19 +13,16 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
     /// </summary>
     public class FirestoreOptionsExtension : IDbContextOptionsExtension
     {
-        private DbContextOptionsExtensionInfo? _info;  // Error 1 y 4: Hacer nullable
-        private string? _projectId;  // Error 2: Hacer nullable
-        private string? _credentialsPath;  // Error 3: Hacer nullable
+        private DbContextOptionsExtensionInfo? _info;
+        private string? _projectId;
+        private string? _credentialsPath;
         private string _databaseId;
-        private int _maxRetryAttempts;
-        private TimeSpan _commandTimeout;
+        private FirestorePipelineOptions _pipelineOptions;
 
         public FirestoreOptionsExtension()
         {
-            // Valores por defecto
             _databaseId = "(default)";
-            _maxRetryAttempts = 3;
-            _commandTimeout = TimeSpan.FromSeconds(30);
+            _pipelineOptions = new FirestorePipelineOptions();
         }
 
         /// <summary>
@@ -35,8 +33,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             _projectId = copyFrom._projectId;
             _credentialsPath = copyFrom._credentialsPath;
             _databaseId = copyFrom._databaseId;
-            _maxRetryAttempts = copyFrom._maxRetryAttempts;
-            _commandTimeout = copyFrom._commandTimeout;
+            _pipelineOptions = copyFrom._pipelineOptions;
         }
 
         #region Propiedades Públicas
@@ -57,14 +54,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         public virtual string DatabaseId => _databaseId;
 
         /// <summary>
-        /// Número máximo de reintentos para operaciones fallidas
+        /// Opciones de configuración del pipeline de queries.
         /// </summary>
-        public virtual int MaxRetryAttempts => _maxRetryAttempts;
-
-        /// <summary>
-        /// Timeout para comandos de Firestore
-        /// </summary>
-        public virtual TimeSpan CommandTimeout => _commandTimeout;
+        public virtual FirestorePipelineOptions PipelineOptions => _pipelineOptions;
 
         #endregion
 
@@ -101,22 +93,87 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         }
 
         /// <summary>
-        /// Crea una nueva extensión con el número de reintentos especificado
+        /// Crea una nueva extensión con el nivel de logging de queries especificado
         /// </summary>
-        public virtual FirestoreOptionsExtension WithMaxRetryAttempts(int maxRetryAttempts)
+        public virtual FirestoreOptionsExtension WithQueryLogLevel(QueryLogLevel queryLogLevel)
         {
             var clone = Clone();
-            clone._maxRetryAttempts = maxRetryAttempts;
+            clone._pipelineOptions = new FirestorePipelineOptions
+            {
+                QueryLogLevel = queryLogLevel,
+                EnableAstLogging = _pipelineOptions.EnableAstLogging,
+                EnableCaching = _pipelineOptions.EnableCaching,
+                MaxRetries = _pipelineOptions.MaxRetries,
+                RetryInitialDelay = _pipelineOptions.RetryInitialDelay
+            };
             return clone;
         }
 
         /// <summary>
-        /// Crea una nueva extensión con el timeout especificado
+        /// Crea una nueva extensión con logging de AST habilitado/deshabilitado
         /// </summary>
-        public virtual FirestoreOptionsExtension WithCommandTimeout(TimeSpan commandTimeout)
+        public virtual FirestoreOptionsExtension WithEnableAstLogging(bool enable)
         {
             var clone = Clone();
-            clone._commandTimeout = commandTimeout;
+            clone._pipelineOptions = new FirestorePipelineOptions
+            {
+                QueryLogLevel = _pipelineOptions.QueryLogLevel,
+                EnableAstLogging = enable,
+                EnableCaching = _pipelineOptions.EnableCaching,
+                MaxRetries = _pipelineOptions.MaxRetries,
+                RetryInitialDelay = _pipelineOptions.RetryInitialDelay
+            };
+            return clone;
+        }
+
+        /// <summary>
+        /// Crea una nueva extensión con caching habilitado/deshabilitado
+        /// </summary>
+        public virtual FirestoreOptionsExtension WithEnableCaching(bool enable)
+        {
+            var clone = Clone();
+            clone._pipelineOptions = new FirestorePipelineOptions
+            {
+                QueryLogLevel = _pipelineOptions.QueryLogLevel,
+                EnableAstLogging = _pipelineOptions.EnableAstLogging,
+                EnableCaching = enable,
+                MaxRetries = _pipelineOptions.MaxRetries,
+                RetryInitialDelay = _pipelineOptions.RetryInitialDelay
+            };
+            return clone;
+        }
+
+        /// <summary>
+        /// Crea una nueva extensión con el número de reintentos del pipeline especificado
+        /// </summary>
+        public virtual FirestoreOptionsExtension WithPipelineMaxRetries(int maxRetries)
+        {
+            var clone = Clone();
+            clone._pipelineOptions = new FirestorePipelineOptions
+            {
+                QueryLogLevel = _pipelineOptions.QueryLogLevel,
+                EnableAstLogging = _pipelineOptions.EnableAstLogging,
+                EnableCaching = _pipelineOptions.EnableCaching,
+                MaxRetries = maxRetries,
+                RetryInitialDelay = _pipelineOptions.RetryInitialDelay
+            };
+            return clone;
+        }
+
+        /// <summary>
+        /// Crea una nueva extensión con el delay inicial de reintento del pipeline especificado
+        /// </summary>
+        public virtual FirestoreOptionsExtension WithPipelineRetryInitialDelay(TimeSpan delay)
+        {
+            var clone = Clone();
+            clone._pipelineOptions = new FirestorePipelineOptions
+            {
+                QueryLogLevel = _pipelineOptions.QueryLogLevel,
+                EnableAstLogging = _pipelineOptions.EnableAstLogging,
+                EnableCaching = _pipelineOptions.EnableCaching,
+                MaxRetries = _pipelineOptions.MaxRetries,
+                RetryInitialDelay = delay
+            };
             return clone;
         }
 
@@ -157,16 +214,16 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                     "Configúralo usando optionsBuilder.UseFirestore(projectId: \"tu-proyecto\")");
             }
 
-            if (_maxRetryAttempts < 0)
+            if (_pipelineOptions.MaxRetries < 0)
             {
                 throw new InvalidOperationException(
-                    "MaxRetryAttempts debe ser mayor o igual a 0.");
+                    "MaxRetries debe ser mayor o igual a 0.");
             }
 
-            if (_commandTimeout <= TimeSpan.Zero)
+            if (_pipelineOptions.RetryInitialDelay < TimeSpan.Zero)
             {
                 throw new InvalidOperationException(
-                    "CommandTimeout debe ser mayor que cero.");
+                    "RetryInitialDelay debe ser mayor o igual a cero.");
             }
         }
 
@@ -205,19 +262,19 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                     if (_logFragment == null)
                     {
                         var builder = new System.Text.StringBuilder();
-                        
+
                         builder.Append("ProjectId=").Append(Extension.ProjectId ?? "null");
-                        
-                        if (!string.IsNullOrEmpty(Extension.DatabaseId) && 
+
+                        if (!string.IsNullOrEmpty(Extension.DatabaseId) &&
                             Extension.DatabaseId != "(default)")
                         {
                             builder.Append(" DatabaseId=").Append(Extension.DatabaseId);
                         }
 
-                        if (Extension.MaxRetryAttempts != 3)
+                        if (Extension.PipelineOptions.QueryLogLevel != QueryLogLevel.None)
                         {
-                            builder.Append(" MaxRetryAttempts=")
-                                   .Append(Extension.MaxRetryAttempts);
+                            builder.Append(" QueryLogLevel=")
+                                   .Append(Extension.PipelineOptions.QueryLogLevel);
                         }
 
                         _logFragment = builder.ToString();
@@ -262,17 +319,17 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             /// </summary>
             public override void PopulateDebugInfo(IDictionary<string, string> debugInfo)
             {
-                debugInfo["Firestore:ProjectId"] = 
-                    Extension.ProjectId?.GetHashCode().ToString(CultureInfo.InvariantCulture) 
+                debugInfo["Firestore:ProjectId"] =
+                    Extension.ProjectId?.GetHashCode().ToString(CultureInfo.InvariantCulture)
                     ?? "null";
-                
+
                 debugInfo["Firestore:DatabaseId"] = Extension.DatabaseId;
-                
-                debugInfo["Firestore:MaxRetryAttempts"] = 
-                    Extension.MaxRetryAttempts.ToString(CultureInfo.InvariantCulture);
-                
-                debugInfo["Firestore:CommandTimeout"] = 
-                    Extension.CommandTimeout.ToString();
+
+                debugInfo["Firestore:QueryLogLevel"] =
+                    Extension.PipelineOptions.QueryLogLevel.ToString();
+
+                debugInfo["Firestore:MaxRetries"] =
+                    Extension.PipelineOptions.MaxRetries.ToString(CultureInfo.InvariantCulture);
             }
         }
 

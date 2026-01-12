@@ -66,11 +66,11 @@ public class FirestorePipelineOptionsTests
     }
 
     [Fact]
-    public void FirestorePipelineOptions_QueryLogLevel_Default_Is_Count()
+    public void FirestorePipelineOptions_QueryLogLevel_Default_Is_None()
     {
         var options = new FirestorePipelineOptions();
 
-        options.QueryLogLevel.Should().Be(QueryLogLevel.Count);
+        options.QueryLogLevel.Should().Be(QueryLogLevel.None);
     }
 
     [Fact]

@@ -93,9 +93,16 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
             serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
 
-            // Pipeline Options (TryAdd allows user to register their own before UseFirestore)
+            // Pipeline Options
             serviceCollection.TryAddSingleton<FirestoreErrorHandlingOptions>();
-            serviceCollection.TryAddSingleton<FirestorePipelineOptions>();
+
+            // FirestorePipelineOptions is registered from the extension configuration
+            serviceCollection.AddScoped<FirestorePipelineOptions>(sp =>
+            {
+                var options = sp.GetRequiredService<IDbContextOptions>();
+                var extension = options.FindExtension<FirestoreOptionsExtension>();
+                return extension?.PipelineOptions ?? new FirestorePipelineOptions();
+            });
 
             return serviceCollection;
         }

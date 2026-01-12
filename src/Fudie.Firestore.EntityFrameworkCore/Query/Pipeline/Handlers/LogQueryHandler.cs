@@ -1,4 +1,8 @@
+using Fudie.Firestore.EntityFrameworkCore.Diagnostics;
 using Google.Cloud.Firestore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,18 +19,25 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 /// Should be placed after ResolverHandler and before ExecutionHandler.
 /// </summary>
 /// <remarks>
-/// Configure logging level via FirestorePipelineOptions:
+/// Configure logging level via FirestoreDbContextOptionsBuilder:
 /// <code>
-/// options.QueryLogLevel = QueryLogLevel.Ids; // None, Count, Ids, Full
+/// options.UseFirestore("project-id", firestore =>
+/// {
+///     firestore.QueryLogLevel(QueryLogLevel.Ids); // None, Count, Ids, Full
+/// });
 /// </code>
 /// </remarks>
 public class LogQueryHandler : IQueryPipelineHandler
 {
     private readonly FirestorePipelineOptions _options;
+    private readonly IDiagnosticsLogger<DbLoggerCategory.Query> _logger;
 
-    public LogQueryHandler(FirestorePipelineOptions options)
+    public LogQueryHandler(
+        FirestorePipelineOptions options,
+        IDiagnosticsLogger<DbLoggerCategory.Query> logger)
     {
         _options = options;
+        _logger = logger;
     }
 
     public async Task<PipelineResult> HandleAsync(
@@ -91,7 +102,7 @@ public class LogQueryHandler : IQueryPipelineHandler
         }
 
         sb.AppendLine();
-        Console.WriteLine(sb.ToString());
+        _logger.Logger.LogInformation(FirestoreEventId.QueryExecuted, "{Message}", sb.ToString());
 
         // Full data (if level == Full)
         if (_options.QueryLogLevel == QueryLogLevel.Full && allSnapshots != null)
@@ -103,7 +114,7 @@ public class LogQueryHandler : IQueryPipelineHandler
         }
     }
 
-    private static void LogDocumentData(DocumentSnapshot doc)
+    private void LogDocumentData(DocumentSnapshot doc)
     {
         try
         {
@@ -115,15 +126,17 @@ public class LogQueryHandler : IQueryPipelineHandler
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             });
 
-            Console.WriteLine($"  {doc.Id}:");
+            var sb = new StringBuilder();
+            sb.AppendLine($"  {doc.Id}:");
             foreach (var line in json.Split('\n'))
             {
-                Console.WriteLine($"    {line}");
+                sb.AppendLine($"    {line}");
             }
+            _logger.Logger.LogDebug(FirestoreEventId.DocumentFetched, "{Message}", sb.ToString());
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"  {doc.Id}: [Error: {ex.Message}]");
+            _logger.Logger.LogWarning(FirestoreEventId.DocumentFetched, "  {DocId}: [Error: {ErrorMessage}]", doc.Id, ex.Message);
         }
     }
 

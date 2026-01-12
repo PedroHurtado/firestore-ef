@@ -12,14 +12,15 @@ public class LogQueryHandlerTests
     }
 
     [Fact]
-    public void LogQueryHandler_Constructor_Accepts_FirestorePipelineOptions()
+    public void LogQueryHandler_Constructor_Accepts_FirestorePipelineOptions_And_Logger()
     {
         var constructors = typeof(LogQueryHandler).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(1);
+        parameters.Should().HaveCount(2);
         parameters[0].ParameterType.Should().Be(typeof(FirestorePipelineOptions));
+        parameters[1].ParameterType.Should().Be(typeof(IDiagnosticsLogger<DbLoggerCategory.Query>));
     }
 
     #endregion
@@ -76,7 +77,7 @@ public class LogQueryHandlerTests
     {
         // Arrange
         var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.None };
-        var handler = new LogQueryHandler(options);
+        var handler = CreateHandler(options);
         var context = CreateContext(withResolvedQuery: true);
         var expectedResult = new PipelineResult.Empty(context);
 
@@ -95,7 +96,7 @@ public class LogQueryHandlerTests
     {
         // Arrange
         var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.Count };
-        var handler = new LogQueryHandler(options);
+        var handler = CreateHandler(options);
         var context = CreateContext(withResolvedQuery: true);
         var expectedResult = new PipelineResult.Empty(context);
 
@@ -114,7 +115,7 @@ public class LogQueryHandlerTests
     {
         // Arrange
         var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.Full };
-        var handler = new LogQueryHandler(options);
+        var handler = CreateHandler(options);
         var context = CreateContext(withResolvedQuery: true);
         var expectedResult = new PipelineResult.Empty(context);
 
@@ -130,10 +131,19 @@ public class LogQueryHandlerTests
 
     #endregion
 
-    private static LogQueryHandler CreateHandler()
+    private static LogQueryHandler CreateHandler(FirestorePipelineOptions? options = null)
     {
-        var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.None };
-        return new LogQueryHandler(options);
+        options ??= new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.None };
+        var mockLogger = CreateMockLogger();
+        return new LogQueryHandler(options, mockLogger.Object);
+    }
+
+    private static Mock<IDiagnosticsLogger<DbLoggerCategory.Query>> CreateMockLogger()
+    {
+        var mockLogger = new Mock<IDiagnosticsLogger<DbLoggerCategory.Query>>();
+        var mockInnerLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.Logger).Returns(mockInnerLogger.Object);
+        return mockLogger;
     }
 
     private static PipelineContext CreateContext(bool withResolvedQuery = true)
