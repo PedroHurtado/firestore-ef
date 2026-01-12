@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Moq;

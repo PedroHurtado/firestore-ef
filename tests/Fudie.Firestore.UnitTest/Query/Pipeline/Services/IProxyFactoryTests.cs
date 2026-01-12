@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using System;

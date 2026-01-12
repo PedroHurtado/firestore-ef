@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Query.Projections;
+using Fudie.Firestore.EntityFrameworkCore.Query.Projections;
 
 namespace Fudie.Firestore.UnitTest.Storage;
 

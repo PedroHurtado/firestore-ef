@@ -1,8 +1,8 @@
 using System.Linq.Expressions;
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Projections;
-using Firestore.EntityFrameworkCore.Query.Translators;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Projections;
+using Fudie.Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
 using Moq;
 

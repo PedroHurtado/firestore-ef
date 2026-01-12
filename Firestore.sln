@@ -2,9 +2,9 @@
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "firestore-efcore-provider", "firestore-efcore-provider", "{6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Firestore.EntityFrameworkCore", "firestore-efcore-provider\Firestore.EntityFrameworkCore.csproj", "{156A14F8-4BD1-A161-B91C-10D0E1F23415}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fudie.Firestore.EntityFrameworkCore", "src\Fudie.Firestore.EntityFrameworkCore\Fudie.Firestore.EntityFrameworkCore.csproj", "{156A14F8-4BD1-A161-B91C-10D0E1F23415}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{329D1111-C116-4FF0-83D9-5914D7088FA9}"
 EndProject

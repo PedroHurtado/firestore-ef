@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Translators;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Translators;
 
 namespace Fudie.Firestore.UnitTest.Query;
 

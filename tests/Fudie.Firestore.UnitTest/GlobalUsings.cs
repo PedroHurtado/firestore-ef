@@ -18,13 +18,13 @@ global using Microsoft.EntityFrameworkCore.Diagnostics;
 global using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 // Firestore provider namespaces
-global using Firestore.EntityFrameworkCore.Infrastructure;
-global using Firestore.EntityFrameworkCore.Storage;
-global using Firestore.EntityFrameworkCore.Query;
-global using Firestore.EntityFrameworkCore.Query.Ast;
-global using Firestore.EntityFrameworkCore.Query.Pipeline;
-global using Firestore.EntityFrameworkCore.Query.Resolved;
-global using Firestore.EntityFrameworkCore.Metadata.Conventions;
+global using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+global using Fudie.Firestore.EntityFrameworkCore.Storage;
+global using Fudie.Firestore.EntityFrameworkCore.Query;
+global using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+global using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+global using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
+global using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 // Microsoft Extensions
 global using Microsoft.Extensions.DependencyInjection;

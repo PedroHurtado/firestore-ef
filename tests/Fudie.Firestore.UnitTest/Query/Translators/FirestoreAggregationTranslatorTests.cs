@@ -1,5 +1,5 @@
 using System.Linq.Expressions;
-using Firestore.EntityFrameworkCore.Query.Translators;
+using Fudie.Firestore.EntityFrameworkCore.Query.Translators;
 using FluentAssertions;
 
 namespace Fudie.Firestore.UnitTest.Query.Translators;

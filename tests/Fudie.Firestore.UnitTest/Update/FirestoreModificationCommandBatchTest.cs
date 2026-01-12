@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Update;
+using Fudie.Firestore.EntityFrameworkCore.Update;
 
 namespace Fudie.Firestore.UnitTest.Update;
 
@@ -134,10 +134,10 @@ public class FirestoreModificationCommandBatchTest
     public void Classes_Are_In_Correct_Namespace()
     {
         typeof(FirestoreModificationCommandBatch).Namespace
-            .Should().Be("Firestore.EntityFrameworkCore.Update");
+            .Should().Be("Fudie.Firestore.EntityFrameworkCore.Update");
 
         typeof(FirestoreModificationCommandBatchFactory).Namespace
-            .Should().Be("Firestore.EntityFrameworkCore.Update");
+            .Should().Be("Fudie.Firestore.EntityFrameworkCore.Update");
     }
 
     #endregion

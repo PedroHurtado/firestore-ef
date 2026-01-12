@@ -1,5 +1,5 @@
 using System.Linq.Expressions;
-using Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Query;

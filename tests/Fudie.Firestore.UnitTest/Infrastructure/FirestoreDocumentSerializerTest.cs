@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Infrastructure.Internal;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure.Internal;
 using Microsoft.Extensions.Logging;
 using Moq;
 

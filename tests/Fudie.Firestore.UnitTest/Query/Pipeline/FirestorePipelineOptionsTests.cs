@@ -1,6 +1,6 @@
 using System;
 using FluentAssertions;
-using Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 
 namespace Fudie.Firestore.UnitTest.Query.Pipeline;
 

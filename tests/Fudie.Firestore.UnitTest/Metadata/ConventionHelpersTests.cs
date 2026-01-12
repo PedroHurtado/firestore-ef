@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 namespace Fudie.Firestore.UnitTest.Metadata;
 

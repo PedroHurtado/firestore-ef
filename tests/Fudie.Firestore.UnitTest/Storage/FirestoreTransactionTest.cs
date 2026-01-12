@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Storage;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Fudie.Firestore.UnitTest.Storage;

@@ -1,6 +1,6 @@
-using Firestore.EntityFrameworkCore.Query;
-using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Query;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
 using Moq;
 using System.Linq.Expressions;

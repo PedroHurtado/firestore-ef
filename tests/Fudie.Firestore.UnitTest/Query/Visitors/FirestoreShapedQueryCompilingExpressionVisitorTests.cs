@@ -1,9 +1,9 @@
 using System;
 using System.Linq.Expressions;
 using FluentAssertions;
-using Firestore.EntityFrameworkCore.Query;
-using Firestore.EntityFrameworkCore.Query.Pipeline;
-using Firestore.EntityFrameworkCore.Query.Visitors;
+using Fudie.Firestore.EntityFrameworkCore.Query;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Visitors;
 using Microsoft.EntityFrameworkCore.Query;
 
 namespace Fudie.Firestore.UnitTest.Query.Visitors;

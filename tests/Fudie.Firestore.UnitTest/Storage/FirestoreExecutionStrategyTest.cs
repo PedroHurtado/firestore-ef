@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Storage;
+using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Grpc.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;

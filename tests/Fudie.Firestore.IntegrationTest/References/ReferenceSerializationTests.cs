@@ -1,8 +1,8 @@
 using Google.Api.Gax;
 using Google.Cloud.Firestore;
 using Fudie.Firestore.IntegrationTest.Helpers;
-using Firestore.EntityFrameworkCore.Metadata.Builders;
-using Firestore.EntityFrameworkCore.Extensions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
+using Fudie.Firestore.EntityFrameworkCore.Extensions;
 
 namespace Fudie.Firestore.IntegrationTest.References;
 

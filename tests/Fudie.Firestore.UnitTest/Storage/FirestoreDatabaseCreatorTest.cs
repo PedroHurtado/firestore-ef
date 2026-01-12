@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
 using Google.Cloud.Firestore;
 
 namespace Fudie.Firestore.UnitTest.Storage;

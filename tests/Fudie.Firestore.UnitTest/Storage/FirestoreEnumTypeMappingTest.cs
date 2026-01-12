@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Storage;
+using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Fudie.Firestore.UnitTest.Storage;

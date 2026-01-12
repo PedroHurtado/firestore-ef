@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Metadata;
-using Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 

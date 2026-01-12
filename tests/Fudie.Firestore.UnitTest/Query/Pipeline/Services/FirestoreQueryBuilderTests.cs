@@ -1,7 +1,7 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Pipeline;
-using Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
 using Google.Cloud.Firestore;
 using Moq;

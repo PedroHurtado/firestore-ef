@@ -1,5 +1,5 @@
 using System.Text;
-using Firestore.EntityFrameworkCore.Update;
+using Fudie.Firestore.EntityFrameworkCore.Update;
 
 namespace Fudie.Firestore.UnitTest.Update;
 

@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Extensions;
+using Fudie.Firestore.EntityFrameworkCore.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 

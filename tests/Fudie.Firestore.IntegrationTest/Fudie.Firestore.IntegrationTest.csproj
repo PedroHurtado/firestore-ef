@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\firestore-efcore-provider\Firestore.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\src\Fudie.Firestore.EntityFrameworkCore\Fudie.Firestore.EntityFrameworkCore.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Query.Projections;
+using Fudie.Firestore.EntityFrameworkCore.Query.Projections;
 using Xunit;
 
 namespace Fudie.Firestore.UnitTest.Query.Projections

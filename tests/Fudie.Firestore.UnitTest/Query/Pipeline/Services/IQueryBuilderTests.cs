@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Query.Pipeline;
-using Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
 using Google.Cloud.Firestore;
 using Xunit;

@@ -1,5 +1,5 @@
-using FirestoreEnumConverter = Firestore.EntityFrameworkCore.Storage.EnumToStringConverter<Fudie.Firestore.UnitTest.TypeMapping.EnumToStringConverterTest.TestStatus>;
-using FirestoreFlagsConverter = Firestore.EntityFrameworkCore.Storage.EnumToStringConverter<Fudie.Firestore.UnitTest.TypeMapping.EnumToStringConverterTest.TestFlags>;
+using FirestoreEnumConverter = Fudie.Firestore.EntityFrameworkCore.Storage.EnumToStringConverter<Fudie.Firestore.UnitTest.TypeMapping.EnumToStringConverterTest.TestStatus>;
+using FirestoreFlagsConverter = Fudie.Firestore.EntityFrameworkCore.Storage.EnumToStringConverter<Fudie.Firestore.UnitTest.TypeMapping.EnumToStringConverterTest.TestFlags>;
 
 namespace Fudie.Firestore.UnitTest.TypeMapping;
 

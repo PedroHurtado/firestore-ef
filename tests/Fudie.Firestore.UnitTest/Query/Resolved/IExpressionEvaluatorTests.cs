@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using FluentAssertions;
 
 namespace Fudie.Firestore.UnitTest.Query.Resolved;

@@ -1,7 +1,7 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;

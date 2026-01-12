@@ -1,5 +1,5 @@
-using Firestore.EntityFrameworkCore.Metadata.Conventions;
-using Firestore.EntityFrameworkCore.Metadata.Converters;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Converters;
 
 namespace Fudie.Firestore.UnitTest.Conventions;
 

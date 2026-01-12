@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using FluentAssertions;
-using Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore.Query;
 
 namespace Fudie.Firestore.UnitTest.Query.Pipeline;

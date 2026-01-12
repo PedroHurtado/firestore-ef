@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Diagnostics;
+using Fudie.Firestore.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;

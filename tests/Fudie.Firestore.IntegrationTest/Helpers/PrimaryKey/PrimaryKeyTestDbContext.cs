@@ -1,4 +1,4 @@
-using Firestore.EntityFrameworkCore.Metadata.Builders;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.IntegrationTest.Helpers.PrimaryKey;

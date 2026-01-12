@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
-using Firestore.EntityFrameworkCore.Query.Preprocessing;
-using Firestore.EntityFrameworkCore.Query.Visitors;
+using Fudie.Firestore.EntityFrameworkCore.Query.Preprocessing;
+using Fudie.Firestore.EntityFrameworkCore.Query.Visitors;
 using FluentAssertions;
 
 namespace Fudie.Firestore.UnitTest.Query.Preprocessing;

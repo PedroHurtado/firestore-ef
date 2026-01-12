@@ -1,8 +1,8 @@
-using Firestore.EntityFrameworkCore.Infrastructure;
-using Firestore.EntityFrameworkCore.Metadata.Conventions;
-using Firestore.EntityFrameworkCore.Query.Pipeline;
-using Firestore.EntityFrameworkCore.Query.Resolved;
-using Firestore.EntityFrameworkCore.Storage;
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Query;

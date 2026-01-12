@@ -1,7 +1,7 @@
-using Firestore.EntityFrameworkCore.Query;
-using Firestore.EntityFrameworkCore.Query.Ast;
-using Firestore.EntityFrameworkCore.Query.Resolved;
-using Firestore.EntityFrameworkCore.Storage;
+using Fudie.Firestore.EntityFrameworkCore.Query;
+using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using System;

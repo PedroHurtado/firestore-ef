@@ -8,13 +8,13 @@ public class FirestoreDatabaseProviderTest
         var dependencies = CreateDependencies();
         var provider = new FirestoreDatabaseProvider(dependencies);
 
-        provider.Name.Should().Be("Firestore.EntityFrameworkCore");
+        provider.Name.Should().Be("Fudie.Firestore.EntityFrameworkCore");
     }
 
     [Fact]
     public void ProviderName_Constant_Has_Correct_Value()
     {
-        FirestoreDatabaseProvider.ProviderName.Should().Be("Firestore.EntityFrameworkCore");
+        FirestoreDatabaseProvider.ProviderName.Should().Be("Fudie.Firestore.EntityFrameworkCore");
     }
 
     [Fact]
