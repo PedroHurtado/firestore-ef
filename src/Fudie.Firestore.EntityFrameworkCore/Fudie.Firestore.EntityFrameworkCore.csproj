@@ -24,6 +24,8 @@
     <!-- Entity Framework Core -->
     <PackageReference Include="Humanizer.Core" Version="2.14.1"/>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
     <!-- Google Cloud Firestore -->
     <PackageReference Include="Google.Cloud.Firestore" Version="3.7.0" />

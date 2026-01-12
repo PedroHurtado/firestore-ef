@@ -23,20 +23,13 @@ public class ExampleDbContext(DbContextOptions<ExampleDbContext> options) : DbCo
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // =============================================================================
-        // CATEGORY - Root Collection (target for References)
-        // =============================================================================
-        modelBuilder.Entity<Category>(entity =>
-        {
-            entity.HasKey(c => c.Id);
-        });
+        
 
         // =============================================================================
         // STORE - Root Collection with ComplexType, ArrayOf and SubCollection
         // =============================================================================
         modelBuilder.Entity<Store>(entity =>
-        {
-            entity.HasKey(s => s.Id);
+        {           
 
             // ComplexType: Address - embedded object (auto-detected, but explicit for clarity)
             entity.ComplexProperty(s => s.Address);

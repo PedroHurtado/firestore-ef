@@ -16,6 +16,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         private DbContextOptionsExtensionInfo? _info;
         private string? _projectId;
         private string? _credentialsPath;
+        private string? _emulatorHost;
         private string _databaseId;
         private FirestorePipelineOptions _pipelineOptions;
 
@@ -32,6 +33,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         {
             _projectId = copyFrom._projectId;
             _credentialsPath = copyFrom._credentialsPath;
+            _emulatorHost = copyFrom._emulatorHost;
             _databaseId = copyFrom._databaseId;
             _pipelineOptions = copyFrom._pipelineOptions;
         }
@@ -52,6 +54,12 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         /// ID de la base de datos de Firestore (por defecto es "(default)")
         /// </summary>
         public virtual string DatabaseId => _databaseId;
+
+        /// <summary>
+        /// Host del emulador de Firestore (ej: "127.0.0.1:8080").
+        /// Si está configurado, se establece FIRESTORE_EMULATOR_HOST automáticamente.
+        /// </summary>
+        public virtual string? EmulatorHost => _emulatorHost;
 
         /// <summary>
         /// Opciones de configuración del pipeline de queries.
@@ -89,6 +97,24 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
         {
             var clone = Clone();
             clone._databaseId = databaseId ?? "(default)";
+            return clone;
+        }
+
+        /// <summary>
+        /// Crea una nueva extensión con el host del emulador especificado.
+        /// Configura automáticamente la variable de entorno FIRESTORE_EMULATOR_HOST.
+        /// </summary>
+        public virtual FirestoreOptionsExtension WithEmulatorHost(string? emulatorHost)
+        {
+            var clone = Clone();
+            clone._emulatorHost = emulatorHost;
+
+            // Configurar la variable de entorno automáticamente
+            if (!string.IsNullOrEmpty(emulatorHost))
+            {
+                Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", emulatorHost);
+            }
+
             return clone;
         }
 

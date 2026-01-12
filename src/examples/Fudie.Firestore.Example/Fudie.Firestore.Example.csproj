@@ -18,4 +18,10 @@
     <ProjectReference Include="..\..\Fudie.Firestore.EntityFrameworkCore\Fudie.Firestore.EntityFrameworkCore.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

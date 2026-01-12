@@ -1,5 +1,4 @@
 using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
-using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Fudie.Firestore.Example;
 using Fudie.Firestore.Example.Models;
 using Microsoft.EntityFrameworkCore;
@@ -12,27 +11,14 @@ using Microsoft.Extensions.Logging;
 // HOST CONFIGURATION WITH DEPENDENCY INJECTION
 // =============================================================================
 
-// Configure Firestore Emulator (start with: firebase emulators:start)
-Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
-
 var builder = Host.CreateApplicationBuilder(args);
 
-// Register DbContext with Scoped lifetime (recommended for EF Core)
-// All Firestore options are configured through UseFirestore
-builder.Services.AddDbContext<ExampleDbContext>(options =>
+// Register DbContext - same pattern as UseSqlServer, UseNpgsql, etc.
+// All configuration is read from appsettings.json "Firestore" section
+builder.Services.AddDbContext<ExampleDbContext>((sp, options) =>
 {
-    options.UseFirestore("demo-project", firestore =>
-    {
-        // Query logging: None (default), Count, Ids, Full
-        firestore.QueryLogLevel(QueryLogLevel.Count);
-    });
-
-    // Enable EF Core logging to console (required to see query logs)
-    options.LogTo(
-        Console.WriteLine, 
-        LogLevel.Information,
-        DbContextLoggerOptions.None
-    );
+    options.UseFirestore(sp);
+    options.LogTo(Console.WriteLine, LogLevel.Information, DbContextLoggerOptions.None);
 });
 
 // Register the demo service
