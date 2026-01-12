@@ -85,4 +85,28 @@ public static class FirestoreLoggerExtensions
             diagnostics.DispatchEventData(definition, eventData, diagnosticSourceEnabled, simpleLogEnabled);
         }
     }
+
+    /// <summary>
+    /// Logs a formatted Firestore command message (Insert, Update, Delete).
+    /// </summary>
+    public static void FirestoreCommand(
+        this IDiagnosticsLogger<DbLoggerCategory.Database.Command> diagnostics,
+        string message)
+    {
+        var definition = FirestoreResources.LogFirestoreCommand(diagnostics);
+
+        if (diagnostics.ShouldLog(definition))
+        {
+            definition.Log(diagnostics, message);
+        }
+
+        if (diagnostics.NeedsEventData(definition, out var diagnosticSourceEnabled, out var simpleLogEnabled))
+        {
+            var eventData = new EventData(
+                definition,
+                (d, _) => message);
+
+            diagnostics.DispatchEventData(definition, eventData, diagnosticSourceEnabled, simpleLogEnabled);
+        }
+    }
 }

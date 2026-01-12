@@ -51,4 +51,9 @@ public class FirestoreLoggingDefinitions : LoggingDefinitions
     /// Cache for formatted query message event.
     /// </summary>
     public EventDefinitionBase? LogQueryMessage;
+
+    /// <summary>
+    /// Cache for command executed event (Insert, Update, Delete).
+    /// </summary>
+    public EventDefinitionBase? LogCommandExecuted;
 }

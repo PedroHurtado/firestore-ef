@@ -83,4 +83,29 @@ public static class FirestoreResources
 
         return (EventDefinition<string>)definition;
     }
+
+    /// <summary>
+    /// Logs a Firestore command execution (Insert, Update, Delete).
+    /// </summary>
+    public static EventDefinition<string> LogFirestoreCommand(IDiagnosticsLogger logger)
+    {
+        var definition = ((FirestoreLoggingDefinitions)logger.Definitions).LogCommandExecuted;
+
+        if (definition == null)
+        {
+            definition = new EventDefinition<string>(
+                logger.Options,
+                FirestoreEventId.CommandExecuted,
+                LogLevel.Information,
+                "FirestoreEventId.CommandExecuted",
+                level => LoggerMessage.Define<string>(
+                    level,
+                    FirestoreEventId.CommandExecuted,
+                    "{Message}"));
+
+            ((FirestoreLoggingDefinitions)logger.Definitions).LogCommandExecuted = definition;
+        }
+
+        return (EventDefinition<string>)definition;
+    }
 }

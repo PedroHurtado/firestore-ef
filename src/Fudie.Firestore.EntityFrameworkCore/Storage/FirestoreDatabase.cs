@@ -28,7 +28,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         IDiagnosticsLogger<Microsoft.EntityFrameworkCore.DbLoggerCategory.Database.Command> commandLogger,
         ITypeMappingSource typeMappingSource,
         IModel model,
-        IFirestoreValueConverter valueConverter
+        IFirestoreValueConverter valueConverter,
+        IFirestoreCommandLogger firestoreCommandLogger
         ) : Database(dependencies)
 
     {
@@ -40,6 +41,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         private readonly ITypeMappingSource _typeMappingSource = typeMappingSource;
         private readonly IModel _model = model;
         private readonly IFirestoreValueConverter _valueConverter = valueConverter;
+        private readonly IFirestoreCommandLogger _firestoreCommandLogger = firestoreCommandLogger;
 
         public override int SaveChanges(IList<IUpdateEntry> entries)
         {
@@ -262,11 +264,22 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             var document = SerializeEntityFromEntry(entry);
             document["_createdAt"] = DateTime.UtcNow;
             document["_updatedAt"] = DateTime.UtcNow;
 
             await documentRef.SetAsync(document, cancellationToken: cancellationToken);
+
+            stopwatch.Stop();
+
+            // Log the insert operation
+            _firestoreCommandLogger.LogInsert(
+                documentRef.Parent.Path,
+                documentRef.Id,
+                entry.EntityType.ClrType,
+                stopwatch.Elapsed);
 
             // Actualizar el ID si fue generado
             var documentId = documentRef.Id;
@@ -278,10 +291,21 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             var document = SerializeEntityFromEntry(entry);
             document["_updatedAt"] = DateTime.UtcNow;
 
             await documentRef.SetAsync(document, SetOptions.MergeAll, cancellationToken);
+
+            stopwatch.Stop();
+
+            // Log the update operation
+            _firestoreCommandLogger.LogUpdate(
+                documentRef.Parent.Path,
+                documentRef.Id,
+                entry.EntityType.ClrType,
+                stopwatch.Elapsed);
         }
 
         private async Task DeleteDocumentAsync(
@@ -289,7 +313,18 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             IUpdateEntry entry,
             CancellationToken cancellationToken)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             await documentRef.DeleteAsync(cancellationToken: cancellationToken);
+
+            stopwatch.Stop();
+
+            // Log the delete operation
+            _firestoreCommandLogger.LogDelete(
+                documentRef.Parent.Path,
+                documentRef.Id,
+                entry.EntityType.ClrType,
+                stopwatch.Elapsed);
         }
 
         // ========================================================================

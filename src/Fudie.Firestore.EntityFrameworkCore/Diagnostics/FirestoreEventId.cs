@@ -33,12 +33,19 @@ public static class FirestoreEventId
         // Collection events (100100-100199)
         CollectionQuerying = FirestoreBaseId + 100,
         CollectionQueried,
+
+        // Command events (100200-100299)
+        CommandExecuted = FirestoreBaseId + 200,
     }
 
     private static readonly string _queryPrefix = DbLoggerCategory.Query.Name + ".";
+    private static readonly string _databasePrefix = DbLoggerCategory.Database.Command.Name + ".";
 
     private static EventId MakeQueryId(Id id)
         => new((int)id, _queryPrefix + id);
+
+    private static EventId MakeDatabaseId(Id id)
+        => new((int)id, _databasePrefix + id);
 
     /// <summary>
     /// A Firestore query is about to be executed.
@@ -79,4 +86,9 @@ public static class FirestoreEventId
     /// A collection query has been executed.
     /// </summary>
     public static readonly EventId CollectionQueried = MakeQueryId(Id.CollectionQueried);
+
+    /// <summary>
+    /// A Firestore command (Insert, Update, Delete) has been executed.
+    /// </summary>
+    public static readonly EventId CommandExecuted = MakeDatabaseId(Id.CommandExecuted);
 }

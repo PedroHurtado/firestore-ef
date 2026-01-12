@@ -104,6 +104,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                 return extension?.PipelineOptions ?? new FirestorePipelineOptions();
             });
 
+            // Command Logger for Insert, Update, Delete operations
+            serviceCollection.AddScoped<IFirestoreCommandLogger, FirestoreCommandLogger>();
+
             return serviceCollection;
         }
     }
