@@ -62,12 +62,25 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 return FirestoreFilterResult.FromClause(clause);
             }
 
-            // Handle NOT (!expression) - typically !list.Contains(field) → NotIn
+            // Handle NOT (!expression) - !list.Contains(field) → NotIn, !e.BoolField → field == false
             if (expression is UnaryExpression unaryExpression &&
                 unaryExpression.NodeType == ExpressionType.Not)
             {
                 var clause = TranslateNotExpression(unaryExpression);
                 return clause != null ? FirestoreFilterResult.FromClause(clause) : null;
+            }
+
+            // Handle simple boolean property access: e.IsActive → field == true
+            if (expression is MemberExpression memberExpr &&
+                memberExpr.Member is PropertyInfo propInfo &&
+                propInfo.PropertyType == typeof(bool))
+            {
+                var propertyPath = BuildPropertyPath(memberExpr);
+                var clause = new FirestoreWhereClause(
+                    propertyPath,
+                    FirestoreOperator.EqualTo,
+                    Expression.Constant(true));
+                return FirestoreFilterResult.FromClause(clause);
             }
 
             return null;
@@ -164,6 +177,20 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     FirestoreOperator.ArrayContainsAny,
                     arrayContainsAnyExpr.ValuesExpression);
                 clauses.Add(clause);
+                return;
+            }
+
+            // Handle simple boolean property access within AND: e.IsActive → field == true
+            if (expression is MemberExpression memberExpr &&
+                memberExpr.Member is PropertyInfo propInfo &&
+                propInfo.PropertyType == typeof(bool))
+            {
+                var propertyPath = BuildPropertyPath(memberExpr);
+                var clause = new FirestoreWhereClause(
+                    propertyPath,
+                    FirestoreOperator.EqualTo,
+                    Expression.Constant(true));
+                clauses.Add(clause);
             }
         }
 
@@ -230,6 +257,20 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     arrayContainsAnyExpr.PropertyName,
                     FirestoreOperator.ArrayContainsAny,
                     arrayContainsAnyExpr.ValuesExpression);
+                clauses.Add(clause);
+                return;
+            }
+
+            // Handle simple boolean property access within OR: e.IsActive → field == true
+            if (expression is MemberExpression memberExpr &&
+                memberExpr.Member is PropertyInfo propInfo &&
+                propInfo.PropertyType == typeof(bool))
+            {
+                var propertyPath = BuildPropertyPath(memberExpr);
+                var clause = new FirestoreWhereClause(
+                    propertyPath,
+                    FirestoreOperator.EqualTo,
+                    Expression.Constant(true));
                 clauses.Add(clause);
             }
         }
@@ -366,6 +407,18 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
 
         private FirestoreWhereClause? TranslateNotExpression(UnaryExpression notExpression)
         {
+            // Handle !e.BoolField → field == false
+            if (notExpression.Operand is MemberExpression memberExpr &&
+                memberExpr.Member is PropertyInfo propInfo &&
+                propInfo.PropertyType == typeof(bool))
+            {
+                var propertyPath = BuildPropertyPath(memberExpr);
+                return new FirestoreWhereClause(
+                    propertyPath,
+                    FirestoreOperator.EqualTo,
+                    Expression.Constant(false));
+            }
+
             // Handle !list.Contains(field) → NotIn
             if (notExpression.Operand is MethodCallExpression methodCall &&
                 methodCall.Method.Name == "Contains")
