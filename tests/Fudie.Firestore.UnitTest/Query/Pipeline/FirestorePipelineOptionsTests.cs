@@ -18,12 +18,12 @@ public class FirestorePipelineOptionsTests
     }
 
     [Fact]
-    public void FirestorePipelineOptions_Has_EnableQueryLogging_Property()
+    public void FirestorePipelineOptions_Has_QueryLogLevel_Property()
     {
-        var property = typeof(FirestorePipelineOptions).GetProperty("EnableQueryLogging");
+        var property = typeof(FirestorePipelineOptions).GetProperty("QueryLogLevel");
 
         property.Should().NotBeNull();
-        property!.PropertyType.Should().Be(typeof(bool));
+        property!.PropertyType.Should().Be(typeof(QueryLogLevel));
     }
 
     [Fact]
@@ -66,11 +66,11 @@ public class FirestorePipelineOptionsTests
     }
 
     [Fact]
-    public void FirestorePipelineOptions_EnableQueryLogging_Default_Is_True()
+    public void FirestorePipelineOptions_QueryLogLevel_Default_Is_Count()
     {
         var options = new FirestorePipelineOptions();
 
-        options.EnableQueryLogging.Should().BeTrue();
+        options.QueryLogLevel.Should().Be(QueryLogLevel.Count);
     }
 
     [Fact]
@@ -112,13 +112,13 @@ public class FirestorePipelineOptionsTests
     }
 
     [Fact]
-    public void FirestorePipelineOptions_EnableQueryLogging_Can_Be_Set()
+    public void FirestorePipelineOptions_QueryLogLevel_Can_Be_Set()
     {
         var options = new FirestorePipelineOptions();
 
-        options.EnableQueryLogging = false;
+        options.QueryLogLevel = QueryLogLevel.Full;
 
-        options.EnableQueryLogging.Should().BeFalse();
+        options.QueryLogLevel.Should().Be(QueryLogLevel.Full);
     }
 
     [Fact]

@@ -1,8 +1,3 @@
-using Fudie.Firestore.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Logging;
-
 namespace Fudie.Firestore.UnitTest.Query.Pipeline.Handlers;
 
 public class LogQueryHandlerTests
@@ -17,14 +12,14 @@ public class LogQueryHandlerTests
     }
 
     [Fact]
-    public void LogQueryHandler_Constructor_Accepts_DiagnosticsLogger()
+    public void LogQueryHandler_Constructor_Accepts_FirestorePipelineOptions()
     {
         var constructors = typeof(LogQueryHandler).GetConstructors();
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
         parameters.Should().HaveCount(1);
-        parameters[0].ParameterType.Should().Be(typeof(IDiagnosticsLogger<DbLoggerCategory.Query>));
+        parameters[0].ParameterType.Should().Be(typeof(FirestorePipelineOptions));
     }
 
     #endregion
@@ -74,80 +69,71 @@ public class LogQueryHandlerTests
 
     #endregion
 
-    #region Logging Tests
+    #region QueryLogLevel Tests
 
     [Fact]
-    public async Task HandleAsync_Logs_When_Query_Present()
+    public async Task HandleAsync_Skips_Logging_When_QueryLogLevel_Is_None()
     {
         // Arrange
-        var mockLogger = CreateMockDiagnosticsLogger(shouldLog: true);
-        var handler = new LogQueryHandler(mockLogger.Object);
+        var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.None };
+        var handler = new LogQueryHandler(options);
         var context = CreateContext(withResolvedQuery: true);
+        var expectedResult = new PipelineResult.Empty(context);
 
         PipelineDelegate next = (ctx, ct) =>
-            Task.FromResult<PipelineResult>(new PipelineResult.Empty(ctx));
+            Task.FromResult<PipelineResult>(expectedResult);
 
         // Act
-        await handler.HandleAsync(context, next, CancellationToken.None);
+        var result = await handler.HandleAsync(context, next, CancellationToken.None);
 
-        // Assert - verify ShouldLog was called (logging was attempted)
-        mockLogger.Verify(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()), Times.AtLeastOnce);
+        // Assert
+        result.Should().BeSameAs(expectedResult);
     }
 
     [Fact]
-    public async Task HandleAsync_Does_Not_Log_When_Query_Absent()
+    public async Task HandleAsync_Logs_When_QueryLogLevel_Is_Count()
     {
         // Arrange
-        var mockLogger = CreateMockDiagnosticsLogger(shouldLog: true);
-        var handler = new LogQueryHandler(mockLogger.Object);
-        var context = CreateContext(withResolvedQuery: false);
+        var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.Count };
+        var handler = new LogQueryHandler(options);
+        var context = CreateContext(withResolvedQuery: true);
+        var expectedResult = new PipelineResult.Empty(context);
 
         PipelineDelegate next = (ctx, ct) =>
-            Task.FromResult<PipelineResult>(new PipelineResult.Empty(ctx));
+            Task.FromResult<PipelineResult>(expectedResult);
 
         // Act
-        await handler.HandleAsync(context, next, CancellationToken.None);
+        var result = await handler.HandleAsync(context, next, CancellationToken.None);
 
-        // Assert - logging should not be attempted when no query
-        mockLogger.Verify(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()), Times.Never);
+        // Assert - handler should call next and return result
+        result.Should().BeSameAs(expectedResult);
+    }
+
+    [Fact]
+    public async Task HandleAsync_Logs_When_QueryLogLevel_Is_Full()
+    {
+        // Arrange
+        var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.Full };
+        var handler = new LogQueryHandler(options);
+        var context = CreateContext(withResolvedQuery: true);
+        var expectedResult = new PipelineResult.Empty(context);
+
+        PipelineDelegate next = (ctx, ct) =>
+            Task.FromResult<PipelineResult>(expectedResult);
+
+        // Act
+        var result = await handler.HandleAsync(context, next, CancellationToken.None);
+
+        // Assert - handler should call next and return result
+        result.Should().BeSameAs(expectedResult);
     }
 
     #endregion
 
     private static LogQueryHandler CreateHandler()
     {
-        var logger = CreateMockDiagnosticsLogger(shouldLog: false).Object;
-        return new LogQueryHandler(logger);
-    }
-
-    private static Mock<IDiagnosticsLogger<DbLoggerCategory.Query>> CreateMockDiagnosticsLogger(bool shouldLog)
-    {
-        var mockLogger = new Mock<IDiagnosticsLogger<DbLoggerCategory.Query>>();
-        var mockLoggingOptions = new Mock<ILoggingOptions>();
-        var mockLoggerFactory = new Mock<ILoggerFactory>();
-        var mockInnerLogger = new Mock<ILogger>();
-
-        mockLoggerFactory
-            .Setup(f => f.CreateLogger(It.IsAny<string>()))
-            .Returns(mockInnerLogger.Object);
-
-        mockLogger
-            .Setup(l => l.Definitions)
-            .Returns(new FirestoreLoggingDefinitions());
-
-        mockLogger
-            .Setup(l => l.Options)
-            .Returns(mockLoggingOptions.Object);
-
-        mockLogger
-            .Setup(l => l.Logger)
-            .Returns(mockInnerLogger.Object);
-
-        mockLogger
-            .Setup(l => l.ShouldLog(It.IsAny<EventDefinitionBase>()))
-            .Returns(shouldLog);
-
-        return mockLogger;
+        var options = new FirestorePipelineOptions { QueryLogLevel = QueryLogLevel.None };
+        return new LogQueryHandler(options);
     }
 
     private static PipelineContext CreateContext(bool withResolvedQuery = true)

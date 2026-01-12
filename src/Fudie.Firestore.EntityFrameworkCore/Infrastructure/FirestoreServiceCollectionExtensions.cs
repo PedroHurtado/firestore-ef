@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Update;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System;
 using Fudie.Firestore.EntityFrameworkCore.Storage;
 using Fudie.Firestore.EntityFrameworkCore.Update;
@@ -92,9 +93,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddScoped<ITypeConverter, FirestoreTypeConverter>();
             serviceCollection.AddTransient<ILazyLoader, FirestoreLazyLoader>();
 
-            // Pipeline Options
-            serviceCollection.AddSingleton<FirestoreErrorHandlingOptions>();
-            serviceCollection.AddSingleton<FirestorePipelineOptions>();
+            // Pipeline Options (TryAdd allows user to register their own before UseFirestore)
+            serviceCollection.TryAddSingleton<FirestoreErrorHandlingOptions>();
+            serviceCollection.TryAddSingleton<FirestorePipelineOptions>();
 
             return serviceCollection;
         }
