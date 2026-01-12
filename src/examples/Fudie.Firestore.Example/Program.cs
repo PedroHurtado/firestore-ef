@@ -166,10 +166,15 @@ public class StoreService(ExampleDbContext context)
         var store = await context.Stores.FirstOrDefaultAsync();
         if (store != null)
         {
+            var originalStreet = store.Address.Street;
             store.Address.Street = "456 Broadway";
             store.Phone = "+1-555-9999";
             await context.SaveChangesAsync();
-            Console.WriteLine($"Updated Store address to: {store.Address.Street}");
+            Console.WriteLine($"Updated Store address: {originalStreet} -> {store.Address.Street}");
+
+            // Verify update by reading again
+            var updatedStore = await context.Stores.FirstOrDefaultAsync(s => s.Id == store.Id);
+            Console.WriteLine($"Verified from DB: {updatedStore?.Address.Street}");
         }
     }
 
@@ -177,16 +182,18 @@ public class StoreService(ExampleDbContext context)
     {
         Console.WriteLine("\n=== DELETE ===\n");
 
-        // Delete all stores (cascade deletes products in SubCollection)
-        var stores = await context.Stores.ToListAsync();
-        context.Stores.RemoveRange(stores);
-        await context.SaveChangesAsync();
-        Console.WriteLine($"Deleted {stores.Count} store(s)");
-
-        // Delete all categories
+        // Delete categories first (no dependencies)
         var categories = await context.Categories.ToListAsync();
         context.Categories.RemoveRange(categories);
         await context.SaveChangesAsync();
         Console.WriteLine($"Deleted {categories.Count} category(ies)");
+
+        // Delete stores (cascade deletes products in SubCollection)
+        var stores = await context.Stores
+            .Include(s => s.Products)
+            .ToListAsync();
+        context.Stores.RemoveRange(stores);
+        await context.SaveChangesAsync();
+        Console.WriteLine($"Deleted {stores.Count} store(s)");
     }
 }
