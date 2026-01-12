@@ -1,4 +1,4 @@
-﻿Microsoft Visual Studio Solution File, Format Version 12.00
+Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -11,6 +11,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fudie.Firestore.UnitTest", "tests\Fudie.Firestore.UnitTest\Fudie.Firestore.UnitTest.csproj", "{07855DD7-3B9B-4CD0-ACA6-98B22F239D68}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fudie.Firestore.IntegrationTest", "tests\Fudie.Firestore.IntegrationTest\Fudie.Firestore.IntegrationTest.csproj", "{D909B2E5-0A2F-4CA9-8E25-CD3934FCDF22}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fudie.Firestore.Example", "src\examples\Fudie.Firestore.Example\Fudie.Firestore.Example.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -34,6 +38,10 @@ Global
 		{D909B2E5-0A2F-4CA9-8E25-CD3934FCDF22}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D909B2E5-0A2F-4CA9-8E25-CD3934FCDF22}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D909B2E5-0A2F-4CA9-8E25-CD3934FCDF22}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -42,6 +50,7 @@ Global
 		{156A14F8-4BD1-A161-B91C-10D0E1F23415} = {6DA9CF76-314A-617B-7FE8-7A22AB9B8CEB}
 		{07855DD7-3B9B-4CD0-ACA6-98B22F239D68} = {329D1111-C116-4FF0-83D9-5914D7088FA9}
 		{D909B2E5-0A2F-4CA9-8E25-CD3934FCDF22} = {329D1111-C116-4FF0-83D9-5914D7088FA9}
+		{B2C3D4E5-F6A7-8901-BCDE-F12345678901} = {A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {19F8FB2C-EFA1-42F6-B1BA-330749DE2C49}
