@@ -58,4 +58,29 @@ public static class FirestoreResources
 
         return (EventDefinition<string, double, int>)definition;
     }
+
+    /// <summary>
+    /// Logs a formatted Firestore query message.
+    /// </summary>
+    public static EventDefinition<string> LogFirestoreQuery(IDiagnosticsLogger logger)
+    {
+        var definition = ((FirestoreLoggingDefinitions)logger.Definitions).LogQueryMessage;
+
+        if (definition == null)
+        {
+            definition = new EventDefinition<string>(
+                logger.Options,
+                FirestoreEventId.QueryExecuted,
+                LogLevel.Information,
+                "FirestoreEventId.QueryExecuted",
+                level => LoggerMessage.Define<string>(
+                    level,
+                    FirestoreEventId.QueryExecuted,
+                    "{Message}"));
+
+            ((FirestoreLoggingDefinitions)logger.Definitions).LogQueryMessage = definition;
+        }
+
+        return (EventDefinition<string>)definition;
+    }
 }

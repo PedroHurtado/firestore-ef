@@ -2,7 +2,6 @@ using Fudie.Firestore.EntityFrameworkCore.Diagnostics;
 using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -101,8 +100,7 @@ public class LogQueryHandler : IQueryPipelineHandler
             }
         }
 
-        sb.AppendLine();
-        _logger.Logger.LogInformation(FirestoreEventId.QueryExecuted, "{Message}", sb.ToString());
+        _logger.FirestoreQuery(sb.ToString());
 
         // Full data (if level == Full)
         if (_options.QueryLogLevel == QueryLogLevel.Full && allSnapshots != null)
@@ -132,11 +130,11 @@ public class LogQueryHandler : IQueryPipelineHandler
             {
                 sb.AppendLine($"    {line}");
             }
-            _logger.Logger.LogDebug(FirestoreEventId.DocumentFetched, "{Message}", sb.ToString());
+            _logger.FirestoreQuery(sb.ToString());
         }
         catch (Exception ex)
         {
-            _logger.Logger.LogWarning(FirestoreEventId.DocumentFetched, "  {DocId}: [Error: {ErrorMessage}]", doc.Id, ex.Message);
+            _logger.FirestoreQuery($"  {doc.Id}: [Error: {ex.Message}]");
         }
     }
 

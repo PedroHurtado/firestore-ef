@@ -18,6 +18,7 @@ global using Microsoft.EntityFrameworkCore.Diagnostics;
 global using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 // Firestore provider namespaces
+global using Fudie.Firestore.EntityFrameworkCore.Diagnostics;
 global using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
 global using Fudie.Firestore.EntityFrameworkCore.Storage;
 global using Fudie.Firestore.EntityFrameworkCore.Query;

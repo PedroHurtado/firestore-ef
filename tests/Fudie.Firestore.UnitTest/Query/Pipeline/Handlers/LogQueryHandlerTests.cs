@@ -142,7 +142,13 @@ public class LogQueryHandlerTests
     {
         var mockLogger = new Mock<IDiagnosticsLogger<DbLoggerCategory.Query>>();
         var mockInnerLogger = new Mock<ILogger>();
+        var loggingDefinitions = new FirestoreLoggingDefinitions();
+        var mockOptions = new Mock<ILoggingOptions>();
+
         mockLogger.Setup(l => l.Logger).Returns(mockInnerLogger.Object);
+        mockLogger.Setup(l => l.Definitions).Returns(loggingDefinitions);
+        mockLogger.Setup(l => l.Options).Returns(mockOptions.Object);
+
         return mockLogger;
     }
 

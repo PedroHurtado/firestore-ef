@@ -3,6 +3,7 @@ using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Fudie.Firestore.Example;
 using Fudie.Firestore.Example.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -16,9 +17,6 @@ Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
 
 var builder = Host.CreateApplicationBuilder(args);
 
-
-builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Query", LogLevel.Information);
-
 // Register DbContext with Scoped lifetime (recommended for EF Core)
 // All Firestore options are configured through UseFirestore
 builder.Services.AddDbContext<ExampleDbContext>(options =>
@@ -26,11 +24,15 @@ builder.Services.AddDbContext<ExampleDbContext>(options =>
     options.UseFirestore("demo-project", firestore =>
     {
         // Query logging: None (default), Count, Ids, Full
-        firestore.QueryLogLevel(QueryLogLevel.Full);
+        firestore.QueryLogLevel(QueryLogLevel.Count);
     });
 
     // Enable EF Core logging to console (required to see query logs)
-    options.LogTo(Console.WriteLine, LogLevel.Information);
+    options.LogTo(
+        Console.WriteLine, 
+        LogLevel.Information,
+        DbContextLoggerOptions.None
+    );
 });
 
 // Register the demo service
