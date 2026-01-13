@@ -141,30 +141,7 @@ public class StoreService(ExampleDbContext context)
 
             store.Phone = "+1-555-9999";
             store.Address.Street = "456 Broadway";
-
-            store.OpeningHours[0].OpenTime = "10:00";
-
-
-            /*var state = context.Entry(store).State;
-
-            var entry = context.Entry(store);
-
-            var changes = entry.Properties
-                .Where(p => p.IsModified)
-                .Select(p => new { p.Metadata.Name, p.OriginalValue, p.CurrentValue })
-                .ToList();
-
-            var complexChanges = entry.ComplexProperties
-            .SelectMany(cp => cp.Properties
-                .Where(p => p.IsModified)
-                .Select(p => new
-                {
-                    Path = $"{cp.Metadata.Name}.{p.Metadata.Name}",
-                    p.OriginalValue,
-                    p.CurrentValue
-                }))
-            .ToList();*/
-
+            store.OpeningHours[0].OpenTime = "10:00";            
 
             
             await context.SaveChangesAsync();
