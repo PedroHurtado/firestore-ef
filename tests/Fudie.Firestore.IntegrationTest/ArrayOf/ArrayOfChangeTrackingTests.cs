@@ -55,11 +55,14 @@ public class ArrayOfChangeTrackingTests
         await context2.SaveChangesAsync();
 
         // Assert - Verify change was persisted
+        // Note: ArrayUnion moves modified elements to the end, so we search by "Dia" instead of index
         var rawData = await GetDocumentRawData<TiendaConHorarios>(tiendaId);
-        var horarios = ((IEnumerable<object>)rawData["Horarios"]).ToList();
-        var primerHorario = horarios[0] as Dictionary<string, object>;
+        var horarios = ((IEnumerable<object>)rawData["Horarios"])
+            .Cast<Dictionary<string, object>>()
+            .ToList();
 
-        primerHorario!["Apertura"].Should().Be("10:00");
+        var horarioLunes = horarios.First(h => (string)h["Dia"] == "Lunes");
+        horarioLunes["Apertura"].Should().Be("10:00");
     }
 
     [Fact]
@@ -196,11 +199,15 @@ public class ArrayOfChangeTrackingTests
         await context2.SaveChangesAsync();
 
         // Assert
+        // Note: ArrayUnion moves modified elements to the end, so we search by approximate Longitude
+        // (the original Madrid location had Longitude = -3.7038)
         var rawData = await GetDocumentRawData<TiendaConUbicaciones>(tiendaId);
-        var ubicaciones = ((IEnumerable<object>)rawData["Ubicaciones"]).ToList();
-        var primeraUbicacion = (GeoPoint)ubicaciones[0];
+        var ubicaciones = ((IEnumerable<object>)rawData["Ubicaciones"])
+            .Cast<GeoPoint>()
+            .ToList();
 
-        primeraUbicacion.Latitude.Should().BeApproximately(40.5000, 0.0001);
+        var ubicacionMadrid = ubicaciones.First(u => Math.Abs(u.Longitude - (-3.7038)) < 0.001);
+        ubicacionMadrid.Latitude.Should().BeApproximately(40.5000, 0.0001);
     }
 
     #region Helpers

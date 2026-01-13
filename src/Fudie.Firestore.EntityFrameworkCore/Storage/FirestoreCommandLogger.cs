@@ -125,6 +125,15 @@ public class FirestoreCommandLogger : IFirestoreCommandLogger
         if (value == null)
             return null;
 
+        // Handle FieldValue sentinels (ServerTimestamp, Delete, ArrayUnion, ArrayRemove)
+        // FieldValue is a static class, so we detect its instances by type name
+        var valueType = value.GetType();
+        if (valueType.FullName?.StartsWith("Google.Cloud.Firestore.FieldValue") == true ||
+            valueType.Name.Contains("SentinelValue"))
+        {
+            return ConvertFieldValueForSerialization(value);
+        }
+
         // Handle DocumentReference
         if (value is DocumentReference docRef)
         {
@@ -176,6 +185,72 @@ public class FirestoreCommandLogger : IFirestoreCommandLogger
     }
 
     /// <summary>
+    /// Converts FieldValue sentinels to readable string representations.
+    /// Uses reflection since FieldValue internals are not public.
+    /// </summary>
+    private static object ConvertFieldValueForSerialization(object fieldValueObj)
+    {
+        var type = fieldValueObj.GetType();
+        var typeName = type.Name;
+
+        // Try to get the Kind property first (available on internal types)
+        var kindProperty = type.GetProperty("Kind", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        var kindValue = kindProperty?.GetValue(fieldValueObj)?.ToString() ?? "";
+
+        // Check by Kind enum value or type name
+        if (kindValue.Contains("ServerTimestamp") || typeName.Contains("ServerTimestamp"))
+        {
+            return "FieldValue.ServerTimestamp()";
+        }
+
+        if (kindValue.Contains("Delete") || typeName.Contains("Delete"))
+        {
+            return "FieldValue.Delete()";
+        }
+
+        // For ArrayUnion and ArrayRemove, try to extract the values
+        var valuesProperty = type.GetProperty("Values", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        var values = valuesProperty?.GetValue(fieldValueObj) as IEnumerable;
+
+        if (kindValue.Contains("ArrayUnion") || typeName.Contains("ArrayUnion"))
+        {
+            if (values != null)
+            {
+                var convertedValues = new List<object?>();
+                foreach (var item in values)
+                {
+                    convertedValues.Add(ConvertForSerialization(item));
+                }
+                return new Dictionary<string, object?>
+                {
+                    ["FieldValue.ArrayUnion"] = convertedValues
+                };
+            }
+            return "FieldValue.ArrayUnion([...])";
+        }
+
+        if (kindValue.Contains("ArrayRemove") || typeName.Contains("ArrayRemove"))
+        {
+            if (values != null)
+            {
+                var convertedValues = new List<object?>();
+                foreach (var item in values)
+                {
+                    convertedValues.Add(ConvertForSerialization(item));
+                }
+                return new Dictionary<string, object?>
+                {
+                    ["FieldValue.ArrayRemove"] = convertedValues
+                };
+            }
+            return "FieldValue.ArrayRemove([...])";
+        }
+
+        // Fallback: return type name for debugging
+        return $"FieldValue.{typeName}()";
+    }
+
+    /// <summary>
     /// Extracts relative path from full Firestore document path.
     /// </summary>
     private static string GetRelativeDocumentPath(string fullPath)
@@ -213,6 +288,15 @@ public class FirestoreCommandLogger : IFirestoreCommandLogger
         if (value == null) return "null";
         if (value is string s) return $"\"{s}\"";
         if (value is bool b) return b ? "true" : "false";
+
+        // Handle FieldValue sentinels
+        var valueType = value.GetType();
+        if (valueType.FullName?.StartsWith("Google.Cloud.Firestore.FieldValue") == true ||
+            valueType.Name.Contains("SentinelValue"))
+        {
+            return $"\"{ConvertFieldValueForSerialization(value)}\"";
+        }
+
         if (value is DocumentReference docRef) return $"\"ref:{GetRelativeDocumentPath(docRef.Path)}\"";
         if (value is GeoPoint geoPoint) return $"{{\"lat\":{geoPoint.Latitude},\"lng\":{geoPoint.Longitude}}}";
         if (value is DateTime dt) return $"\"{dt:O}\"";

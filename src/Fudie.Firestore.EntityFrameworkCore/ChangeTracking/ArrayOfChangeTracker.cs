@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -15,10 +16,16 @@ namespace Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
 /// </summary>
 public static class ArrayOfChangeTracker
 {
+    /// <summary>
+    /// JSON serialization options that match the Firestore provider's serialization conventions.
+    /// Uses JsonStringEnumConverter to serialize enums as strings (e.g., "Monday" instead of 1),
+    /// consistent with IFirestoreValueConverter.ToFirestore() behavior.
+    /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = false,
-        PropertyNamingPolicy = null
+        PropertyNamingPolicy = null,
+        Converters = { new JsonStringEnumConverter() }
     };
 
     /// <summary>

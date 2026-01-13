@@ -16,6 +16,7 @@ using System.Reflection;
 using System.ComponentModel.DataAnnotations.Schema;
 using Google.Cloud.Firestore;
 using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.EntityFrameworkCore.Update;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Storage
 {
@@ -42,6 +43,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         private readonly IModel _model = model;
         private readonly IFirestoreValueConverter _valueConverter = valueConverter;
         private readonly IFirestoreCommandLogger _firestoreCommandLogger = firestoreCommandLogger;
+        private readonly PartialUpdateBuilder _partialUpdateBuilder = new(model, firestoreClient, collectionManager, valueConverter);
 
         public override int SaveChanges(IList<IUpdateEntry> entries)
         {
@@ -343,20 +345,89 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            var document = SerializeEntityFromEntry(entry);
-            document["_updatedAt"] = DateTime.UtcNow;
+            // Build partial update with only modified fields
+            var result = _partialUpdateBuilder.Build(entry);
 
-            await documentRef.SetAsync(document, SetOptions.MergeAll, cancellationToken);
+            // If no actual data changes, skip the update
+            if (!result.HasChanges)
+            {
+                return;
+            }
 
-            stopwatch.Stop();
+            // Strategy:
+            // - Operation 1: Main updates (fields + ComplexTypes) + ArrayRemove
+            // - Operation 2: ArrayUnion only (if there are elements to add)
 
-            // Log the update operation
-            _firestoreCommandLogger.LogUpdate(
-                GetRelativeCollectionPath(documentRef.Parent.Path),
-                documentRef.Id,
-                entry.EntityType.ClrType,
-                stopwatch.Elapsed,
-                document);
+            var hasArrayUnion = result.ArrayUnionOperations.Count > 0;
+            var hasArrayRemove = result.ArrayRemoveOperations.Count > 0;
+            var hasFieldUpdates = result.Updates.Count > 1; // More than just _updatedAt
+
+            // Operation 1: Fields + ArrayRemove (always executed if there are changes)
+            if (hasFieldUpdates || hasArrayRemove)
+            {
+                var mainUpdates = new Dictionary<string, object>(result.Updates);
+
+                // Add ArrayRemove operations to main update
+                foreach (var arrayRemove in result.ArrayRemoveOperations)
+                {
+                    mainUpdates[arrayRemove.Key] = arrayRemove.Value;
+                }
+
+                await documentRef.UpdateAsync(mainUpdates, cancellationToken: cancellationToken);
+
+                // Build log data with raw array values instead of FieldValue objects
+                var logData = new Dictionary<string, object>(result.Updates);
+                foreach (var kvp in result.ArrayRemoveData)
+                {
+                    logData[$"{kvp.Key}:ArrayRemove"] = kvp.Value;
+                }
+
+                _firestoreCommandLogger.LogUpdate(
+                    GetRelativeCollectionPath(documentRef.Parent.Path),
+                    documentRef.Id,
+                    entry.EntityType.ClrType,
+                    hasArrayUnion ? TimeSpan.Zero : stopwatch.Elapsed,
+                    logData);
+            }
+
+            // Operation 2: ArrayUnion only (if there are elements to add)
+            if (hasArrayUnion)
+            {
+                var unionUpdates = new Dictionary<string, object>(result.ArrayUnionOperations)
+                {
+                    ["_updatedAt"] = result.Updates["_updatedAt"]
+                };
+
+                await documentRef.UpdateAsync(unionUpdates, cancellationToken: cancellationToken);
+
+                stopwatch.Stop();
+
+                // Build log data with raw array values
+                var logData = new Dictionary<string, object>
+                {
+                    ["_updatedAt"] = result.Updates["_updatedAt"]
+                };
+                foreach (var kvp in result.ArrayUnionData)
+                {
+                    logData[$"{kvp.Key}:ArrayUnion"] = kvp.Value;
+                }
+
+                _firestoreCommandLogger.LogUpdate(
+                    GetRelativeCollectionPath(documentRef.Parent.Path),
+                    documentRef.Id,
+                    entry.EntityType.ClrType,
+                    stopwatch.Elapsed,
+                    logData);
+            }
+            else if (!hasFieldUpdates && !hasArrayRemove)
+            {
+                // Edge case: only _updatedAt changed (shouldn't happen due to HasChanges check)
+                stopwatch.Stop();
+            }
+            else
+            {
+                stopwatch.Stop();
+            }
         }
 
         private async Task DeleteDocumentAsync(
