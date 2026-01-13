@@ -325,7 +325,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             // Log the insert operation
             _firestoreCommandLogger.LogInsert(
-                documentRef.Parent.Path,
+                GetRelativeCollectionPath(documentRef.Parent.Path),
                 documentRef.Id,
                 entry.EntityType.ClrType,
                 stopwatch.Elapsed);
@@ -351,7 +351,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             // Log the update operation
             _firestoreCommandLogger.LogUpdate(
-                documentRef.Parent.Path,
+                GetRelativeCollectionPath(documentRef.Parent.Path),
                 documentRef.Id,
                 entry.EntityType.ClrType,
                 stopwatch.Elapsed);
@@ -370,7 +370,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             // Log the delete operation
             _firestoreCommandLogger.LogDelete(
-                documentRef.Parent.Path,
+                GetRelativeCollectionPath(documentRef.Parent.Path),
                 documentRef.Id,
                 entry.EntityType.ClrType,
                 stopwatch.Elapsed);
@@ -1179,6 +1179,21 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 return value.Equals(defaultValue);
             }
             return false;
+        }
+
+        /// <summary>
+        /// Extrae la ruta relativa del documento desde el path completo de Firestore.
+        /// Convierte "projects/{project}/databases/(default)/documents/Categories" en "Categories".
+        /// </summary>
+        private static string GetRelativeCollectionPath(string fullPath)
+        {
+            const string documentsMarker = "/documents/";
+            var index = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
+            if (index >= 0)
+            {
+                return fullPath.Substring(index + documentsMarker.Length);
+            }
+            return fullPath;
         }
 
         // ========================================================================
