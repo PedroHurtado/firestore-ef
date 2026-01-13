@@ -116,7 +116,8 @@ public class StoreService(ExampleDbContext context)
         };
 
         store.Products.Add(product);
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync();       
+
     }
 
     private async Task ReadEntitiesAsync()
@@ -129,7 +130,7 @@ public class StoreService(ExampleDbContext context)
         // Query with Where (boolean filter)
         var activeStores = await context.Stores
             .Where(s => s.IsActive)
-            .ToListAsync();
+            .ToListAsync();        
     }
 
     private async Task UpdateEntitiesAsync()
@@ -143,21 +144,23 @@ public class StoreService(ExampleDbContext context)
 
             // Verify update by reading again
             var updatedStore = await context.Stores.FirstOrDefaultAsync(s => s.Id == store.Id);
-        }
+        }        
     }
 
     private async Task DeleteEntitiesAsync()
-    {
-        // Delete categories first (no dependencies)
-        var categories = await context.Categories.ToListAsync();
-        context.Categories.RemoveRange(categories);
-        await context.SaveChangesAsync();
-
-        // Delete stores (cascade deletes products in SubCollection)
-        var stores = await context.Stores
+    {     
+       // Delete stores (cascade deletes products in SubCollection)
+       var stores = await context.Stores
             .Include(s => s.Products)
             .ToListAsync();
-        context.Stores.RemoveRange(stores);
+
+        context.Stores.RemoveRange(stores);       
+        await context.SaveChangesAsync();         
+
+
+        // Delete categories 
+        var categories = await context.Categories.ToListAsync();
+        context.Categories.RemoveRange(categories);        
         await context.SaveChangesAsync();
     }
 }

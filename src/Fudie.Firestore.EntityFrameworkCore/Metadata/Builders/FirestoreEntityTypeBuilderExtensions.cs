@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -41,7 +42,8 @@ public static class FirestoreEntityTypeBuilderExtensions
         // Configurar la relación HasMany para crear la navegación
         builder.HasMany(navigationExpression)
             .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id");
+            .HasForeignKey($"{typeof(TEntity).Name}Id")
+            .OnDelete(DeleteBehavior.Cascade); 
 
         // Buscar la navegación recién creada
         var navigation = entityType.FindNavigation(propertyName)
@@ -96,7 +98,8 @@ public static class FirestoreEntityTypeBuilderExtensions
         // Configurar la relación HasMany para crear la navegación
         builder.HasMany(navigationExpression)
             .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id");
+            .HasForeignKey($"{typeof(TEntity).Name}Id")
+            .OnDelete(DeleteBehavior.Cascade); 
 
         // Buscar la navegación recién creada
         var navigation = entityType.FindNavigation(propertyName)
