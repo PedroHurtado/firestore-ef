@@ -632,5 +632,118 @@ public class SubCollectionTests
         clienteLeido.Pedidos.Should().NotContain(p => p.Id == pedidoAEliminarId);
     }
 
+    [Fact]
+    public async Task Delete_ClienteConPedidos_CascadeDelete_ShouldDeleteInCorrectOrder()
+    {
+        // Arrange - Crear cliente con pedidos (subcollection de 1 nivel)
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var clienteId = FirestoreTestFixture.GenerateId("cli");
+        var pedido1Id = FirestoreTestFixture.GenerateId("ped");
+        var pedido2Id = FirestoreTestFixture.GenerateId("ped");
+
+        var cliente = new Cliente
+        {
+            Id = clienteId,
+            Nombre = "Cliente Cascade Delete Test",
+            Email = "cascade-delete@test.com",
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = pedido1Id,
+                    NumeroOrden = "ORD-CASC-001",
+                    Total = 100.00m,
+                    Estado = EstadoPedido.Pendiente
+                },
+                new Pedido
+                {
+                    Id = pedido2Id,
+                    NumeroOrden = "ORD-CASC-002",
+                    Total = 200.00m,
+                    Estado = EstadoPedido.Confirmado
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act - Eliminar el cliente (debe eliminar pedidos primero por cascade)
+        using var deleteContext = _fixture.CreateContext<TestDbContext>();
+        var clienteParaEliminar = await deleteContext.Clientes
+            .Include(c => c.Pedidos)
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        deleteContext.Clientes.Remove(clienteParaEliminar!);
+        await deleteContext.SaveChangesAsync();
+
+        // Assert - Verificar que tanto cliente como pedidos fueron eliminados
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var clienteEliminado = await readContext.Clientes
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        clienteEliminado.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Delete_ClienteConPedidosYLineas_CascadeDelete_ShouldDeleteNestedInCorrectOrder()
+    {
+        // Arrange - Crear cliente con pedidos y líneas (subcollection de 2 niveles)
+        using var context = _fixture.CreateContext<TestDbContext>();
+        var clienteId = FirestoreTestFixture.GenerateId("cli");
+
+        var cliente = new Cliente
+        {
+            Id = clienteId,
+            Nombre = "Cliente Nested Cascade Delete Test",
+            Email = "nested-cascade@test.com",
+            Pedidos =
+            [
+                new Pedido
+                {
+                    Id = FirestoreTestFixture.GenerateId("ped"),
+                    NumeroOrden = "ORD-NCASC-001",
+                    Total = 300.00m,
+                    Estado = EstadoPedido.Pendiente,
+                    Lineas =
+                    [
+                        new LineaPedido
+                        {
+                            Id = FirestoreTestFixture.GenerateId("lin"),
+                            Cantidad = 2,
+                            PrecioUnitario = 100.00m
+                        },
+                        new LineaPedido
+                        {
+                            Id = FirestoreTestFixture.GenerateId("lin"),
+                            Cantidad = 1,
+                            PrecioUnitario = 100.00m
+                        }
+                    ]
+                }
+            ]
+        };
+
+        context.Clientes.Add(cliente);
+        await context.SaveChangesAsync();
+
+        // Act - Eliminar el cliente (debe eliminar líneas, luego pedidos, luego cliente)
+        using var deleteContext = _fixture.CreateContext<TestDbContext>();
+        var clienteParaEliminar = await deleteContext.Clientes
+            .Include(c => c.Pedidos)
+                .ThenInclude(p => p.Lineas)
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        deleteContext.Clientes.Remove(clienteParaEliminar!);
+        await deleteContext.SaveChangesAsync();
+
+        // Assert - Verificar que todo fue eliminado
+        using var readContext = _fixture.CreateContext<TestDbContext>();
+        var clienteEliminado = await readContext.Clientes
+            .FirstOrDefaultAsync(c => c.Id == clienteId);
+
+        clienteEliminado.Should().BeNull();
+    }
+
     #endregion
 }

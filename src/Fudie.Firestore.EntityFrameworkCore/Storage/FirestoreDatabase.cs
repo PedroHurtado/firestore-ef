@@ -57,8 +57,13 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             var processedCount = 0;
 
-            // 1. Procesar entidades normales (CRUD)
-            foreach (var entry in entries)
+            // 1. Ordenar entradas para Firestore:
+            //    - INSERTs: padres primero (para que existan antes de crear subcollections)
+            //    - DELETEs: hijos primero (para evitar documentos huérfanos)
+            var orderedEntries = OrderEntriesForFirestore(entries);
+
+            // 2. Procesar entidades normales (CRUD)
+            foreach (var entry in orderedEntries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -90,7 +95,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 }
             }
 
-            // 2. Gestionar tablas intermedias para skip navigations (N:M)
+            // 3. Gestionar tablas intermedias para skip navigations (N:M)
             await ProcessSkipNavigationChanges(entries, cancellationToken);
 
             return processedCount;
@@ -143,6 +148,50 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Calcula la profundidad de una entidad en el árbol de documentos.
+        /// Root collections tienen profundidad 0, subcollections tienen profundidad 1+.
+        /// </summary>
+        private int GetEntityDepth(IEntityType entityType)
+        {
+            var parentNavigation = FindParentNavigationForSubCollection(entityType);
+
+            if (parentNavigation == null)
+            {
+                // Es una entidad raíz
+                return 0;
+            }
+
+            // Es una subcollection - profundidad = 1 + profundidad del padre
+            return 1 + GetEntityDepth(parentNavigation.DeclaringEntityType);
+        }
+
+        /// <summary>
+        /// Ordena las entradas según el tipo de operación y profundidad en el árbol de documentos.
+        /// - INSERTs: padres primero (menor profundidad)
+        /// - DELETEs: hijos primero (mayor profundidad)
+        /// - UPDATEs: sin orden específico
+        /// </summary>
+        private IEnumerable<IUpdateEntry> OrderEntriesForFirestore(IList<IUpdateEntry> entries)
+        {
+            var inserts = entries
+                .Where(e => e.EntityState == EntityState.Added)
+                .OrderBy(e => GetEntityDepth(e.EntityType))
+                .ToList();
+
+            var updates = entries
+                .Where(e => e.EntityState == EntityState.Modified)
+                .ToList();
+
+            var deletes = entries
+                .Where(e => e.EntityState == EntityState.Deleted)
+                .OrderByDescending(e => GetEntityDepth(e.EntityType))
+                .ToList();
+
+            // Orden: INSERTs, UPDATEs, DELETEs
+            return inserts.Concat(updates).Concat(deletes);
         }
 
         /// <summary>
