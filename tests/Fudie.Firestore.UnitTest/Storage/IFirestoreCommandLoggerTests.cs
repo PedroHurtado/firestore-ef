@@ -14,23 +14,23 @@ public class IFirestoreCommandLoggerTests
     [Fact]
     public void IFirestoreCommandLogger_Should_Have_LogInsert_Method()
     {
-        // Documents that LogInsert logs document insert operations
+        // Documents that LogInsert logs document insert operations with optional data
         var method = typeof(IFirestoreCommandLogger).GetMethod("LogInsert");
 
         method.Should().NotBeNull("IFirestoreCommandLogger must have LogInsert method");
         method!.ReturnType.Should().Be(typeof(void), "LogInsert returns void");
-        method.GetParameters().Should().HaveCount(4, "LogInsert takes collectionPath, documentId, entityType, and elapsed parameters");
+        method.GetParameters().Should().HaveCount(5, "LogInsert takes collectionPath, documentId, entityType, elapsed, and optional data parameters");
     }
 
     [Fact]
     public void IFirestoreCommandLogger_Should_Have_LogUpdate_Method()
     {
-        // Documents that LogUpdate logs document update operations
+        // Documents that LogUpdate logs document update operations with optional data
         var method = typeof(IFirestoreCommandLogger).GetMethod("LogUpdate");
 
         method.Should().NotBeNull("IFirestoreCommandLogger must have LogUpdate method");
         method!.ReturnType.Should().Be(typeof(void), "LogUpdate returns void");
-        method.GetParameters().Should().HaveCount(4, "LogUpdate takes collectionPath, documentId, entityType, and elapsed parameters");
+        method.GetParameters().Should().HaveCount(5, "LogUpdate takes collectionPath, documentId, entityType, elapsed, and optional data parameters");
     }
 
     [Fact]
@@ -62,6 +62,8 @@ public class IFirestoreCommandLoggerTests
         parameters[1].ParameterType.Should().Be(typeof(string), "documentId is string");
         parameters[2].ParameterType.Should().Be(typeof(Type), "entityType is Type");
         parameters[3].ParameterType.Should().Be(typeof(TimeSpan), "elapsed is TimeSpan");
+        parameters[4].ParameterType.Should().Be(typeof(Dictionary<string, object>), "data is Dictionary<string, object>");
+        parameters[4].HasDefaultValue.Should().BeTrue("data parameter has default value (optional)");
     }
 
     [Fact]
@@ -74,6 +76,8 @@ public class IFirestoreCommandLoggerTests
         parameters[1].ParameterType.Should().Be(typeof(string), "documentId is string");
         parameters[2].ParameterType.Should().Be(typeof(Type), "entityType is Type");
         parameters[3].ParameterType.Should().Be(typeof(TimeSpan), "elapsed is TimeSpan");
+        parameters[4].ParameterType.Should().Be(typeof(Dictionary<string, object>), "data is Dictionary<string, object>");
+        parameters[4].HasDefaultValue.Should().BeTrue("data parameter has default value (optional)");
     }
 
     [Fact]

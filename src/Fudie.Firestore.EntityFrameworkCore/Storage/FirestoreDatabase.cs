@@ -328,7 +328,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 GetRelativeCollectionPath(documentRef.Parent.Path),
                 documentRef.Id,
                 entry.EntityType.ClrType,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                document);
 
             // Actualizar el ID si fue generado
             var documentId = documentRef.Id;
@@ -354,7 +355,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 GetRelativeCollectionPath(documentRef.Parent.Path),
                 documentRef.Id,
                 entry.EntityType.ClrType,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                document);
         }
 
         private async Task DeleteDocumentAsync(
