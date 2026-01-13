@@ -116,7 +116,7 @@ public class StoreService(ExampleDbContext context)
         };
 
         store.Products.Add(product);
-        await context.SaveChangesAsync();       
+        await context.SaveChangesAsync();
 
     }
 
@@ -130,7 +130,7 @@ public class StoreService(ExampleDbContext context)
         // Query with Where (boolean filter)
         var activeStores = await context.Stores
             .Where(s => s.IsActive)
-            .ToListAsync();        
+            .ToListAsync();
     }
 
     private async Task UpdateEntitiesAsync()
@@ -138,29 +138,56 @@ public class StoreService(ExampleDbContext context)
         var store = await context.Stores.FirstOrDefaultAsync();
         if (store != null)
         {
-            store.Address.Street = "456 Broadway";
+
             store.Phone = "+1-555-9999";
+            store.Address.Street = "456 Broadway";
+
+            store.OpeningHours[0].OpenTime = "10:00";
+
+
+            /*var state = context.Entry(store).State;
+
+            var entry = context.Entry(store);
+
+            var changes = entry.Properties
+                .Where(p => p.IsModified)
+                .Select(p => new { p.Metadata.Name, p.OriginalValue, p.CurrentValue })
+                .ToList();
+
+            var complexChanges = entry.ComplexProperties
+            .SelectMany(cp => cp.Properties
+                .Where(p => p.IsModified)
+                .Select(p => new
+                {
+                    Path = $"{cp.Metadata.Name}.{p.Metadata.Name}",
+                    p.OriginalValue,
+                    p.CurrentValue
+                }))
+            .ToList();*/
+
+
+            
             await context.SaveChangesAsync();
 
             // Verify update by reading again
             var updatedStore = await context.Stores.FirstOrDefaultAsync(s => s.Id == store.Id);
-        }        
+        }
     }
 
     private async Task DeleteEntitiesAsync()
-    {     
-       // Delete stores (cascade deletes products in SubCollection)
-       var stores = await context.Stores
-            .Include(s => s.Products)
-            .ToListAsync();
+    {
+        // Delete stores (cascade deletes products in SubCollection)
+        var stores = await context.Stores
+             .Include(s => s.Products)
+             .ToListAsync();
 
-        context.Stores.RemoveRange(stores);       
-        await context.SaveChangesAsync();         
+        context.Stores.RemoveRange(stores);
+        await context.SaveChangesAsync();
 
 
         // Delete categories 
         var categories = await context.Categories.ToListAsync();
-        context.Categories.RemoveRange(categories);        
+        context.Categories.RemoveRange(categories);
         await context.SaveChangesAsync();
     }
 }

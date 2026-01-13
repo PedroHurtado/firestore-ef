@@ -1,3 +1,4 @@
+using Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
 using Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -159,6 +160,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             ConfigureWarnings(optionsBuilder);
 
+            // Add ArrayOf change tracking interceptor
+            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
+
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 
             return optionsBuilder;
@@ -198,6 +202,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             ConfigureWarnings(optionsBuilder);
 
+            // Add ArrayOf change tracking interceptor
+            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
+
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 
             return optionsBuilder;
@@ -223,6 +230,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                 .AddOrUpdateExtension(extension);
 
             ConfigureWarnings(optionsBuilder);
+
+            // Add ArrayOf change tracking interceptor
+            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
 
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 

@@ -490,6 +490,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 // ✅ Omitir TODAS las FKs (las convertiremos en referencias)
                 if (property.IsForeignKey()) continue;
 
+                // ✅ Omitir shadow properties de ArrayOf change tracking (no se persisten en Firestore)
+                if (property.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor) != null) continue;
+
                 var value = valueGetter(property);
 
                 // Solo persistir null si está explícitamente configurado con PersistNullValues()

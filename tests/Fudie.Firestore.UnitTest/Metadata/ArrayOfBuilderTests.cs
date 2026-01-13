@@ -232,4 +232,77 @@ public class ArrayOfBuilderTests
     }
 
     #endregion
+
+    #region Shadow Property Tests - Change Tracking
+
+    [Fact]
+    public void ArrayOf_ShouldCreateShadowPropertyForChangeTracking()
+    {
+        // Arrange & Act
+        var tiendaType = ConfigureArrayOfEmbedded();
+
+        // Assert
+        var shadowPropertyName = ArrayOfBuilder<Tienda, HorarioAtencion>.GetShadowPropertyName("Horarios");
+        var shadowProperty = tiendaType.FindProperty(shadowPropertyName);
+
+        shadowProperty.Should().NotBeNull();
+        shadowProperty!.ClrType.Should().Be(typeof(string));
+        shadowProperty.IsShadowProperty().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ArrayOf_ShadowProperty_ShouldHaveTrackerAnnotation()
+    {
+        // Arrange & Act
+        var tiendaType = ConfigureArrayOfEmbedded();
+
+        // Assert
+        var shadowPropertyName = ArrayOfBuilder<Tienda, HorarioAtencion>.GetShadowPropertyName("Horarios");
+        var shadowProperty = tiendaType.FindProperty(shadowPropertyName);
+
+        var trackerFor = shadowProperty?.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor)?.Value as string;
+        trackerFor.Should().Be("Horarios");
+    }
+
+    [Fact]
+    public void ArrayOf_GetShadowPropertyName_ShouldReturnCorrectFormat()
+    {
+        // Act
+        var result = ArrayOfBuilder<Tienda, HorarioAtencion>.GetShadowPropertyName("Horarios");
+
+        // Assert
+        result.Should().Be("__Horarios_Json");
+    }
+
+    [Fact]
+    public void ArrayOf_AsGeoPoints_ShouldAlsoCreateShadowProperty()
+    {
+        // Arrange & Act
+        var tiendaType = ConfigureArrayOfGeoPoints();
+
+        // Assert
+        var shadowPropertyName = ArrayOfBuilder<Tienda, Ubicacion>.GetShadowPropertyName("Ubicaciones");
+        var shadowProperty = tiendaType.FindProperty(shadowPropertyName);
+
+        shadowProperty.Should().NotBeNull();
+        var trackerFor = shadowProperty?.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor)?.Value as string;
+        trackerFor.Should().Be("Ubicaciones");
+    }
+
+    [Fact]
+    public void ArrayOf_AsReferences_ShouldAlsoCreateShadowProperty()
+    {
+        // Arrange & Act
+        var tiendaType = ConfigureArrayOfReferences();
+
+        // Assert
+        var shadowPropertyName = ArrayOfBuilder<Tienda, Etiqueta>.GetShadowPropertyName("Etiquetas");
+        var shadowProperty = tiendaType.FindProperty(shadowPropertyName);
+
+        shadowProperty.Should().NotBeNull();
+        var trackerFor = shadowProperty?.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor)?.Value as string;
+        trackerFor.Should().Be("Etiquetas");
+    }
+
+    #endregion
 }

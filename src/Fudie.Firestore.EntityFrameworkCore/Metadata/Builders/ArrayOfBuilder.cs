@@ -39,10 +39,24 @@ public class ArrayOfBuilder<TEntity, TElement>
         // ArrayOf se maneja directamente por el serializador de Firestore
         _entityTypeBuilder.Ignore(_propertyName);
 
+        // Crear shadow property para change tracking
+        // Esta propiedad almacena el JSON serializado del array para detectar cambios
+        var shadowPropertyName = GetShadowPropertyName(_propertyName);
+        _entityTypeBuilder.Property<string?>(shadowPropertyName);
+
+        // Marcar la shadow property como ArrayOf tracker
+        var shadowProperty = _entityType.FindProperty(shadowPropertyName);
+        shadowProperty?.SetAnnotation(ArrayOfAnnotations.JsonTrackerFor, _propertyName);
+
         // Registrar anotación base como Embedded por defecto
         _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Embedded);
         _entityType.SetArrayOfElementClrType(_propertyName, _elementType);
     }
+
+    /// <summary>
+    /// Genera el nombre de la shadow property para tracking de cambios.
+    /// </summary>
+    internal static string GetShadowPropertyName(string propertyName) => $"__{propertyName}_Json";
 
     /// <summary>
     /// Configura el array como una colección de GeoPoints nativos de Firestore.

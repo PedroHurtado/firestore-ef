@@ -31,6 +31,12 @@ public static class ArrayOfAnnotations
     public const string NestedConfig = Prefix + "NestedConfig";
 
     /// <summary>
+    /// Indica que una shadow property es un tracker JSON para una propiedad ArrayOf.
+    /// El valor es el nombre de la propiedad ArrayOf original.
+    /// </summary>
+    public const string JsonTrackerFor = "Firestore:ArrayOfTrackerFor";
+
+    /// <summary>
     /// Valores posibles para el tipo de array
     /// </summary>
     public static class ArrayType

@@ -1,3 +1,4 @@
+using Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
 using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -69,7 +70,13 @@ public class TrackingHandler : QueryPipelineHandlerBase
             else
             {
                 var entry = stateManager.GetOrCreateEntry(entity, entityType);
+
+                // Initialize ArrayOf shadow properties BEFORE setting state to Unchanged
+                // This ensures the original values are set correctly
+                ArrayOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
+
                 entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
+
                 result.Add(entity);
             }
 
@@ -177,6 +184,10 @@ public class TrackingHandler : QueryPipelineHandlerBase
             return;
 
         var entry = stateManager.GetOrCreateEntry(entity, entityType);
+
+        // Initialize ArrayOf shadow properties BEFORE setting state to Unchanged
+        ArrayOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
+
         entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
     }
 
