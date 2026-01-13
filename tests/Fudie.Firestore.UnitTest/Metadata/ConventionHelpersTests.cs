@@ -135,6 +135,57 @@ public class ConventionHelpersTests
 
     #endregion
 
+    #region GetPrimaryKeyPropertyName Tests
+
+    [Fact]
+    public void GetPrimaryKeyPropertyName_WithId_ReturnsId()
+    {
+        ConventionHelpers.GetPrimaryKeyPropertyName(typeof(EntityWithId))
+            .Should().Be("Id");
+    }
+
+    [Fact]
+    public void GetPrimaryKeyPropertyName_WithTypeNameId_ReturnsTypeNameId()
+    {
+        ConventionHelpers.GetPrimaryKeyPropertyName(typeof(Product))
+            .Should().Be("ProductId");
+    }
+
+    [Fact]
+    public void GetPrimaryKeyPropertyName_WithoutId_ReturnsNull()
+    {
+        ConventionHelpers.GetPrimaryKeyPropertyName(typeof(ValueObject))
+            .Should().BeNull();
+    }
+
+    #endregion
+
+    #region GetForeignKeyPropertyName Tests
+
+    [Fact]
+    public void GetForeignKeyPropertyName_ReturnsTypeNamePlusId()
+    {
+        ConventionHelpers.GetForeignKeyPropertyName(typeof(Product))
+            .Should().Be("ProductId");
+    }
+
+    [Fact]
+    public void GetForeignKeyPropertyName_Generic_ReturnsTypeNamePlusId()
+    {
+        ConventionHelpers.GetForeignKeyPropertyName<EntityWithId>()
+            .Should().Be("EntityWithIdId");
+    }
+
+    [Fact]
+    public void GetForeignKeyPropertyName_ForValueObject_ReturnsTypeNamePlusId()
+    {
+        // Incluso tipos sin PK tienen nombre de FK por convención
+        ConventionHelpers.GetForeignKeyPropertyName(typeof(ValueObject))
+            .Should().Be("ValueObjectId");
+    }
+
+    #endregion
+
     #region HasGeoPointStructure Tests
 
     [Fact]

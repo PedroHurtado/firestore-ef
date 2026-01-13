@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -29,28 +30,7 @@ public static class FirestoreEntityTypeBuilderExtensions
         where TEntity : class
         where TRelatedEntity : class
     {
-        var memberInfo = navigationExpression.GetMemberAccess();
-        var propertyName = memberInfo.Name;
-
-        var entityType = builder.Metadata;
-        var mutableModel = (IMutableModel)entityType.Model;
-
-        // Auto-registrar el entity type si no existe (SubCollections no necesitan DbSet)
-        var targetEntityType = mutableModel.FindEntityType(typeof(TRelatedEntity))
-            ?? mutableModel.AddEntityType(typeof(TRelatedEntity));
-
-        // Configurar la relación HasMany para crear la navegación
-        builder.HasMany(navigationExpression)
-            .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id")
-            .OnDelete(DeleteBehavior.Cascade); 
-
-        // Buscar la navegación recién creada
-        var navigation = entityType.FindNavigation(propertyName)
-            ?? throw new InvalidOperationException(
-                $"Navigation property '{propertyName}' not found on entity type '{typeof(TEntity).Name}'.");
-
-        return new SubCollectionBuilder<TRelatedEntity>(targetEntityType, navigation);
+        return builder.SubCollection(navigationExpression, _ => { });
     }
 
     /// <summary>
@@ -98,8 +78,8 @@ public static class FirestoreEntityTypeBuilderExtensions
         // Configurar la relación HasMany para crear la navegación
         builder.HasMany(navigationExpression)
             .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id")
-            .OnDelete(DeleteBehavior.Cascade); 
+            .HasForeignKey(ConventionHelpers.GetForeignKeyPropertyName<TEntity>())
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Buscar la navegación recién creada
         var navigation = entityType.FindNavigation(propertyName)

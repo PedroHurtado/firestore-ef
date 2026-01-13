@@ -34,6 +34,33 @@ public static class ConventionHelpers
                 p.Name.Equals($"{typeName}Id", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// Obtiene el nombre de la propiedad que actúa como Primary Key.
+    /// Retorna "Id" o "{TypeName}Id" según la convención.
+    /// </summary>
+    public static string? GetPrimaryKeyPropertyName(Type type)
+    {
+        return GetPrimaryKeyProperty(type)?.Name;
+    }
+
+    /// <summary>
+    /// Obtiene el nombre convencional para una Foreign Key hacia el tipo especificado.
+    /// Sigue la convención de EF Core: "{PrincipalTypeName}Id".
+    /// </summary>
+    public static string GetForeignKeyPropertyName(Type principalType)
+    {
+        return $"{principalType.Name}Id";
+    }
+
+    /// <summary>
+    /// Obtiene el nombre convencional para una Foreign Key hacia el tipo especificado.
+    /// Sigue la convención de EF Core: "{PrincipalTypeName}Id".
+    /// </summary>
+    public static string GetForeignKeyPropertyName<TPrincipal>() where TPrincipal : class
+    {
+        return GetForeignKeyPropertyName(typeof(TPrincipal));
+    }
+
     #endregion
 
     #region Detección de GeoPoint

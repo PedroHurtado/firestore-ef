@@ -144,6 +144,6 @@ public class FirestoreDatabaseTest
         Assert.Single(constructors);
 
         var parameters = constructors[0].GetParameters();
-        Assert.Equal(9, parameters.Length);
+        Assert.Equal(10, parameters.Length);
     }
 }

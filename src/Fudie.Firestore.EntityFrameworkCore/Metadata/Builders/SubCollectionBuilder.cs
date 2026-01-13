@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -40,35 +41,7 @@ public class SubCollectionBuilder<TEntity> where TEntity : class
         Expression<Func<TEntity, IEnumerable<TRelatedEntity>?>> navigationExpression)
         where TRelatedEntity : class
     {
-        var memberInfo = navigationExpression.GetMemberAccess();
-        var propertyName = memberInfo.Name;
-
-        var mutableModel = (IMutableModel)_entityType.Model;
-
-        // Auto-registrar el entity type hijo si no existe
-        var targetEntityType = mutableModel.FindEntityType(typeof(TRelatedEntity))
-            ?? mutableModel.AddEntityType(typeof(TRelatedEntity));
-
-        // Obtener el entity type de TEntity (el padre de esta subcollection)
-        var parentEntityType = mutableModel.FindEntityType(typeof(TEntity))
-            ?? throw new InvalidOperationException(
-                $"Entity type '{typeof(TEntity).Name}' must be configured in the model.");
-
-        // Configurar la relación HasMany usando el EntityTypeBuilder
-#pragma warning disable EF1001 // Internal EF Core API usage
-        var entityTypeBuilder = new EntityTypeBuilder<TEntity>(parentEntityType);
-#pragma warning restore EF1001
-
-        entityTypeBuilder.HasMany(navigationExpression)
-            .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id");
-
-        // Buscar la navegación recién creada
-        var navigation = parentEntityType.FindNavigation(propertyName)
-            ?? throw new InvalidOperationException(
-                $"Navigation property '{propertyName}' not found on entity type '{typeof(TEntity).Name}'.");
-
-        return new SubCollectionBuilder<TRelatedEntity>(targetEntityType, navigation);
+        return SubCollection(navigationExpression, _ => { });
     }
 
     /// <summary>
@@ -110,7 +83,8 @@ public class SubCollectionBuilder<TEntity> where TEntity : class
 
         entityTypeBuilder.HasMany(navigationExpression)
             .WithOne()
-            .HasForeignKey($"{typeof(TEntity).Name}Id");
+            .HasForeignKey(ConventionHelpers.GetForeignKeyPropertyName<TEntity>())
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Buscar la navegación recién creada
         var navigation = parentEntityType.FindNavigation(propertyName)
