@@ -1,7 +1,13 @@
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
 using Fudie.Firestore.EntityFrameworkCore.Metadata;
 using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace Fudie.Firestore.UnitTest.Metadata;
 
@@ -11,6 +17,43 @@ namespace Fudie.Firestore.UnitTest.Metadata;
 /// </summary>
 public class FirestoreModelValidatorRelationshipTests
 {
+    private readonly Mock<IDiagnosticsLogger<DbLoggerCategory.Model.Validation>> _loggerMock;
+    private readonly Mock<ILogger> _innerLoggerMock;
+    private readonly FirestoreModelValidator _validator;
+
+    public FirestoreModelValidatorRelationshipTests()
+    {
+        // Create mock logger
+        _loggerMock = new Mock<IDiagnosticsLogger<DbLoggerCategory.Model.Validation>>();
+        _innerLoggerMock = new Mock<ILogger>();
+        _loggerMock.Setup(l => l.Logger).Returns(_innerLoggerMock.Object);
+
+        // Create validator from a Firestore DbContext's service provider
+        _validator = GetValidator();
+    }
+
+    /// <summary>
+    /// Gets the FirestoreModelValidator from a Firestore DbContext's service provider.
+    /// </summary>
+    private static FirestoreModelValidator GetValidator()
+    {
+        // Configure emulator to avoid real Firestore connection
+        Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
+
+        var options = new DbContextOptionsBuilder<TestFirestoreContext>()
+            .UseFirestore("test-project")
+            .Options;
+
+        using var context = new TestFirestoreContext(options);
+        var serviceProvider = ((IInfrastructure<IServiceProvider>)context).Instance;
+        return (FirestoreModelValidator)serviceProvider.GetRequiredService<IModelValidator>();
+    }
+
+    private class TestFirestoreContext : DbContext
+    {
+        public TestFirestoreContext(DbContextOptions<TestFirestoreContext> options) : base(options) { }
+    }
+
     #region Test Entities
 
     private class Author
@@ -230,7 +273,7 @@ public class FirestoreModelValidatorRelationshipTests
         // Act & Assert
         var exception = Assert.Throws<NotSupportedException>(() =>
         {
-            FirestoreModelValidator.ValidateNoUnsupportedRelationships(model);
+            _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object);
         });
 
         exception.Message.Should().Contain("Many-to-Many");
@@ -238,57 +281,75 @@ public class FirestoreModelValidatorRelationshipTests
     }
 
     [Fact]
-    public void OneToMany_WithoutSubCollection_ShouldThrow_NotSupportedException()
+    public void OneToMany_WithoutSubCollection_ShouldLogWarning()
     {
         // Arrange
         using var context = new OneToManyWithoutSubCollectionContext();
         var model = context.Model;
 
-        // Act & Assert
-        var exception = Assert.Throws<NotSupportedException>(() =>
-        {
-            FirestoreModelValidator.ValidateNoUnsupportedRelationships(model);
-        });
+        // Act - Should not throw, but should log warning
+        var ex = Record.Exception(() => _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object));
 
-        // The validator may detect either the collection side (One-to-Many) or the FK side (Foreign Key)
-        // depending on which navigation is processed first
-        exception.Message.Should().Contain("not supported in Firestore");
-        (exception.Message.Contains("One-to-Many") || exception.Message.Contains("Foreign Key"))
-            .Should().BeTrue("Expected error about One-to-Many or Foreign Key relationship");
+        // Assert
+        ex.Should().BeNull("OneToMany without SubCollection should emit warning, not exception");
+
+        // Verify warning was logged (the validator now emits warnings for non-configured relationships)
+        _innerLoggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("One-to-Many") || v.ToString()!.Contains("Foreign Key")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
     }
 
     [Fact]
-    public void OneToOne_WithoutReference_ShouldThrow_NotSupportedException()
+    public void OneToOne_WithoutReference_ShouldLogWarning()
     {
         // Arrange
         using var context = new OneToOneWithoutReferenceContext();
         var model = context.Model;
 
-        // Act & Assert
-        var exception = Assert.Throws<NotSupportedException>(() =>
-        {
-            FirestoreModelValidator.ValidateNoUnsupportedRelationships(model);
-        });
+        // Act - Should not throw, but should log warning
+        var ex = Record.Exception(() => _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object));
 
-        exception.Message.Should().Contain("not supported in Firestore");
-        exception.Message.Should().Contain("Reference");
+        // Assert
+        ex.Should().BeNull("OneToOne without Reference should emit warning, not exception");
+
+        // Verify warning was logged
+        _innerLoggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("One-to-One") || v.ToString()!.Contains("Foreign Key")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
     }
 
     [Fact]
-    public void ForeignKey_WithoutReference_ShouldThrow_NotSupportedException()
+    public void ForeignKey_WithoutReference_ShouldLogWarning()
     {
         // Arrange
         using var context = new ForeignKeyWithoutReferenceContext();
         var model = context.Model;
 
-        // Act & Assert
-        var exception = Assert.Throws<NotSupportedException>(() =>
-        {
-            FirestoreModelValidator.ValidateNoUnsupportedRelationships(model);
-        });
+        // Act - Should not throw, but should log warning
+        var ex = Record.Exception(() => _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object));
 
-        exception.Message.Should().Contain("not supported in Firestore");
-        exception.Message.Should().Contain("Reference");
+        // Assert
+        ex.Should().BeNull("ForeignKey without Reference should emit warning, not exception");
+
+        // Verify warning was logged
+        _innerLoggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Foreign Key") || v.ToString()!.Contains("Reference")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
     }
 
     [Fact]
@@ -299,7 +360,7 @@ public class FirestoreModelValidatorRelationshipTests
         var model = context.Model;
 
         // Act & Assert - Should not throw
-        var ex = Record.Exception(() => FirestoreModelValidator.ValidateNoUnsupportedRelationships(model));
+        var ex = Record.Exception(() => _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object));
         ex.Should().BeNull("Navigation marked as SubCollection should pass validation");
     }
 
@@ -311,7 +372,7 @@ public class FirestoreModelValidatorRelationshipTests
         var model = context.Model;
 
         // Act & Assert - Should not throw
-        var ex = Record.Exception(() => FirestoreModelValidator.ValidateNoUnsupportedRelationships(model));
+        var ex = Record.Exception(() => _validator.ValidateNoUnsupportedRelationships(model, _loggerMock.Object));
         ex.Should().BeNull("Navigation marked as DocumentReference should pass validation");
     }
 

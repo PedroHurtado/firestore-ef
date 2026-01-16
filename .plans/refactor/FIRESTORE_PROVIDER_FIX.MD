@@ -208,3 +208,204 @@ tests/Customer.UnitTests/Infrastructure/CustomerDbContextTests.cs
    ```
 
 3. Verificar que los Value Objects **NO necesitan** constructor sin parámetros
+
+---
+
+## Solución implementada (Enero 2026)
+
+### Resumen de cambios
+
+Se implementaron **3 correcciones** para permitir patrones DDD con Value Objects:
+
+| Archivo | Cambio | Problema resuelto |
+|---------|--------|-------------------|
+| `FirestoreConventionSetBuilder.cs` | Remover `ConstructorBindingConvention` | Problema 1 |
+| `FirestoreConventionSetBuilder.cs` | Agregar `ComplexTypePropertyDiscoveryConvention` | Descubrir propiedades de records |
+| `FirestoreModelValidator.cs` | Override selectivo de validaciones | Problema 2 |
+
+### Fix 1: Remover ConstructorBindingConvention
+
+En `FirestoreConventionSetBuilder.CreateConventionSet()`:
+
+```csharp
+// Remover ConstructorBindingConvention - Firestore tiene su propio Materializer
+// que puede instanciar tipos con constructores protected usando reflection.
+// Esta convención bloquea Value Objects DDD con constructor protected parametrizado.
+conventionSet.ModelFinalizingConventions.RemoveAll(
+    c => c is ConstructorBindingConvention);
+```
+
+### Fix 2: ComplexTypePropertyDiscoveryConvention
+
+Al remover `ConstructorBindingConvention`, EF Core no puede descubrir automáticamente las propiedades de los ComplexTypes (records) porque no puede enlazar al constructor.
+
+Se creó `ComplexTypePropertyDiscoveryConvention` que descubre manualmente las propiedades públicas de los records con getter:
+
+```csharp
+// En FirestoreConventionSetBuilder.cs
+conventionSet.ComplexPropertyAddedConventions.Add(new ComplexTypePropertyDiscoveryConvention());
+```
+
+### Fix 3: FirestoreModelValidator selectivo
+
+Se analizó `ModelValidator` de EF Core y se determinó qué validaciones son relevantes para Firestore:
+
+**Validaciones MANTENIDAS** (útiles para cualquier proveedor):
+- `ValidateIgnoredMembers`: Previene errores de configuración
+- `ValidatePropertyMapping`: Nuestra versión que permite ComplexProperty nullable
+- `ValidateOwnership`: Mapea a documentos embebidos
+- `ValidateNonNullPrimaryKeys`: Firestore requiere IDs de documento
+- `ValidateNoMutableKeys`: Los IDs de documento son inmutables
+- `ValidateNoCycles`: Previene ciclos de serialización infinita
+- `ValidateClrInheritance`: La herencia aplica a documentos
+- `ValidateInheritanceMapping`: Discriminadores para polimorfismo
+- `ValidateChangeTrackingStrategy`: El change tracking aún se usa
+- `ValidateTypeMappings`: Útil para value converters
+- `ValidatePrimitiveCollections`: ArrayOf se beneficia
+- `LogShadowProperties`: Diagnóstico sin overhead
+
+**Validaciones SALTADAS** (no aplican a bases de datos documentales):
+- `ValidateRelationships`: Firestore usa DocumentReferences/SubCollections
+- `ValidateNoShadowKeys`: Las shadow FKs no aplican a documentos
+- `ValidateForeignKeys`: No hay FKs en bases de datos documentales
+- `ValidateFieldMapping`: FirestoreDocumentDeserializer lo maneja
+- `ValidateQueryFilters`: Implementación diferente en documentos
+- `ValidateData`: No usamos HasData() seeding
+- `ValidateTriggers`: Firestore Cloud Functions son externas
+
+**Validaciones ESPECÍFICAS DE FIRESTORE**:
+- `ValidateFirestoreConstraints`: Valida PKs, tipos de clave, sin claves compuestas
+- `ValidateNoUnsupportedRelationships`: Bloquea relaciones N:M, 1:N, 1:1 no configuradas
+
+### Referencia
+
+Enfoque similar al de `CosmosModelValidator` en EF Core:
+https://github.com/dotnet/efcore/blob/main/src/EFCore.Cosmos/Infrastructure/Internal/CosmosModelValidator.cs
+
+### Fix 4: Registro correcto de FirestoreModelValidator
+
+Se descubrió que el registro anterior de `FirestoreModelValidator` usaba `TryAdd`:
+
+```csharp
+// ANTES - NO funcionaba porque TryAddCoreServices ya registró ModelValidator
+builder.TryAdd<IModelValidator, FirestoreModelValidator>()
+```
+
+`TryAdd` no sobrescribe registros existentes, por lo que `FirestoreModelValidator` **nunca se usaba** en producción. Se cambió a:
+
+```csharp
+// DESPUÉS - Sobrescribe el registro existente
+serviceCollection.AddSingleton<IModelValidator, FirestoreModelValidator>();
+```
+
+Este cambio reveló que la validación `ValidateNoUnsupportedRelationships` nunca se había ejecutado. Para mantener compatibilidad hacia atrás, las relaciones no configuradas ahora generan **advertencias** en lugar de errores:
+
+```csharp
+// Antes: throw new NotSupportedException(...)
+// Ahora: logger.Logger.LogWarning(message)
+```
+
+### Estado de tests
+
+**395/406 tests pasaron** (11 skipped) en la suite completa de integración.
+
+**53/53 tests pasaron** en `ProviderFixesTests`:
+
+```bash
+dotnet test tests/Fudie.Firestore.IntegrationTest --filter "FullyQualifiedName~ProviderFixes"
+
+Passed!  - Failed: 0, Passed: 53, Skipped: 0, Total: 53
+```
+
+### Tests Comprehensivos de Conventions
+
+Los tests en `ProviderFixesTests.cs` sirven como **SEED/PATRÓN** para todos los microservicios que utilicen el provider de Firestore. Cubren:
+
+#### 1. Global Model Configuration
+- ✅ `Model_ShouldUsePropertyAccessModeField` - PropertyAccessMode.Field para DDD
+
+#### 2. Entity Type Registration (4 tests)
+- ✅ `Model_ShouldHaveMenuEntityType`
+- ✅ `Model_ShouldHaveMenuItemEntityType`
+- ✅ `Model_ShouldHaveAllergenEntityType`
+- ✅ `Model_ShouldHaveMenuCategoryEntityType`
+
+#### 3. PrimaryKeyConvention (3 tests)
+- ✅ `PrimaryKeyConvention_Menu_ShouldHaveIdAsPrimaryKey`
+- ✅ `PrimaryKeyConvention_MenuItem_ShouldHaveIdAsPrimaryKey` (Guid)
+- ✅ `PrimaryKeyConvention_Allergen_ShouldHaveIdAsPrimaryKey` (string)
+
+#### 4. CollectionNamingConvention (4 tests)
+- ✅ `CollectionNamingConvention_Menu_ShouldHavePluralizedTableName` (Menus)
+- ✅ `CollectionNamingConvention_MenuItem_ShouldHavePluralizedTableName` (MenuItems)
+- ✅ `CollectionNamingConvention_Allergen_ShouldHavePluralizedTableName` (Allergens)
+- ✅ `CollectionNamingConvention_MenuCategory_ShouldHavePluralizedTableName` (MenuCategories)
+
+#### 5. EnumToStringConvention (2 tests)
+- ✅ `EnumToStringConvention_DepositPolicy_DepositType_ShouldHaveStringConverter`
+- ✅ `EnumToStringConvention_PriceOption_PortionType_ShouldHaveStringConverter`
+
+#### 6. DecimalToDoubleConvention (3 tests)
+- ✅ `DecimalToDoubleConvention_DepositPolicy_Amount_ShouldHaveDoubleConverter`
+- ✅ `DecimalToDoubleConvention_NullableDecimal_ShouldHaveNullableDoubleConverter`
+- ✅ `DecimalToDoubleConvention_NutritionalInfo_Protein_ShouldHaveDoubleConverter`
+
+#### 7. Query Filter Tests (3 tests)
+- ✅ `Menu_ShouldHaveQueryFilter` (multi-tenancy)
+- ✅ `MenuItem_ShouldHaveQueryFilter` (multi-tenancy)
+- ✅ `Allergen_ShouldNotHaveQueryFilter` (catálogo global)
+
+#### 8. ComplexProperty (Value Object) Tests (6 tests)
+- ✅ `Menu_ShouldHaveDepositPolicyAsComplexProperty`
+- ✅ `Menu_DepositPolicy_ShouldBeNullable` (Value Object opcional)
+- ✅ `MenuItem_ShouldHaveDepositOverrideAsComplexProperty`
+- ✅ `MenuItem_DepositOverride_ShouldBeNullable`
+- ✅ `MenuItem_ShouldHaveNutritionalInfoAsComplexProperty`
+- ✅ `MenuItem_NutritionalInfo_ShouldBeNullable`
+
+#### 9. ComplexTypePropertyDiscoveryConvention (3 tests)
+- ✅ `ComplexTypePropertyDiscovery_DepositPolicy_ShouldDiscoverAllProperties` (5 props)
+- ✅ `ComplexTypePropertyDiscovery_NutritionalInfo_ShouldDiscoverAllProperties` (8 props)
+- ✅ `ComplexTypePropertyDiscovery_ItemDepositOverride_ShouldDiscoverAllProperties` (2 props)
+
+#### 10. SubCollection Annotation Tests (4 tests)
+- ✅ `Menu_ShouldHaveCategoriesNavigation`
+- ✅ `Menu_Categories_ShouldBeMarkedAsSubCollection` (Firestore:SubCollection=true)
+- ✅ `Menu_Categories_ShouldBeCollection`
+- ✅ `Menu_Categories_ShouldBeFirestoreConfigured`
+
+#### 11. ArrayOf Embedded Tests (3 tests)
+- ✅ `MenuItem_PriceOptions_ShouldBeArrayOf`
+- ✅ `MenuItem_PriceOptions_ShouldBeArrayOfEmbedded`
+- ✅ `MenuItem_PriceOptions_ShouldHaveCorrectElementType` (PriceOption)
+
+#### 12. ArrayOf Reference Tests (3 tests)
+- ✅ `MenuItem_Allergens_ShouldBeArrayOf`
+- ✅ `MenuItem_Allergens_ShouldBeArrayOfReference`
+- ✅ `MenuItem_Allergens_ShouldHaveCorrectElementType` (Allergen)
+
+#### 13. ArrayOf Embedded with Nested Reference Tests (3 tests)
+- ✅ `MenuCategory_Items_ShouldBeArrayOf`
+- ✅ `MenuCategory_Items_ShouldBeArrayOfEmbedded`
+- ✅ `MenuCategory_Items_ShouldHaveCorrectElementType` (CategoryItem)
+
+#### 14. DocumentReferenceNamingConvention Tests (1 test)
+- ✅ `DocumentReferenceNaming_Categories_ShouldHaveFieldNameAnnotation` ({Property}Ref)
+
+#### 15. DbSet Exposure Tests (3 tests)
+- ✅ `DbContext_ShouldExposeMenusDbSet`
+- ✅ `DbContext_ShouldExposeMenuItemsDbSet`
+- ✅ `DbContext_ShouldExposeAllergensDbSet`
+
+#### 16. Model Validation Tests (2 tests)
+- ✅ `Model_ShouldNotThrowForNullableComplexProperty` (FirestoreModelValidator)
+- ✅ `Model_ShouldNotThrowForProtectedConstructorValueObjects` (ConstructorBindingConvention removed)
+
+#### 17. Integration Tests (4 tests)
+- ✅ `Integration_Menu_ShouldHaveCompleteConfiguration`
+- ✅ `Integration_MenuItem_ShouldHaveCompleteConfiguration`
+- ✅ `Integration_AllEntityTypes_ShouldHavePrimaryKey`
+- ✅ `Integration_AllNavigations_ShouldBeFirestoreConfigured`
+
+#### 18. Regression Tests (1 test)
+- ✅ `Regression_ModelShouldBuildWithoutExceptions`

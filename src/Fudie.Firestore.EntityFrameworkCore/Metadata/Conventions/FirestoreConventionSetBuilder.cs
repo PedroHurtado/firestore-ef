@@ -14,6 +14,12 @@ public class FirestoreConventionSetBuilder : ProviderConventionSetBuilder
     {
         var conventionSet = base.CreateConventionSet();
 
+        // Remover ConstructorBindingConvention - Firestore tiene su propio Materializer
+        // que puede instanciar tipos con constructores protected usando reflection.
+        // Esta convención bloquea Value Objects DDD con constructor protected parametrizado.
+        conventionSet.ModelFinalizingConventions.RemoveAll(
+            c => c is ConstructorBindingConvention);
+
         // Agregar conventions que se ejecutan cuando se agrega una entidad
         var arrayOfConvention = new ArrayOfConvention();
         conventionSet.EntityTypeAddedConventions.Add(new PrimaryKeyConvention());
@@ -29,6 +35,9 @@ public class FirestoreConventionSetBuilder : ProviderConventionSetBuilder
         conventionSet.PropertyAddedConventions.Add(new TimestampConvention());
 
         // Agregar conventions que se ejecutan cuando se agrega una complex property
+        // ComplexTypePropertyDiscoveryConvention debe ejecutarse PRIMERO para descubrir propiedades
+        // de records con constructores protected (que ConstructorBindingConvention no puede manejar)
+        conventionSet.ComplexPropertyAddedConventions.Add(new ComplexTypePropertyDiscoveryConvention());
         conventionSet.ComplexPropertyAddedConventions.Add(new GeoPointConvention());
         conventionSet.ComplexPropertyAddedConventions.Add(new ComplexTypeNavigationPropertyConvention());
 

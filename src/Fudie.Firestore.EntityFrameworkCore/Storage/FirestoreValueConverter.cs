@@ -46,6 +46,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is TimeSpan ts)
             return ts.Ticks;
 
+        // Guid → string (Firestore stores document IDs as strings)
+        if (value is Guid g)
+            return g.ToString();
+
         // Collections: convert elements recursively
         if (value is IEnumerable enumerable && value is not string && value is not byte[])
         {
@@ -156,6 +160,11 @@ public class FirestoreValueConverter : IFirestoreValueConverter
             else if (item is DateTime dt)
             {
                 result.Add(dt.Kind == DateTimeKind.Utc ? dt : dt.ToUniversalTime());
+            }
+            // Guid → string
+            else if (item is Guid g)
+            {
+                result.Add(g.ToString());
             }
             else
             {

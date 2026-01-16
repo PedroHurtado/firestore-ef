@@ -44,7 +44,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                 .TryAdd<IQueryableMethodTranslatingExpressionVisitorFactory, FirestoreQueryableMethodTranslatingExpressionVisitorFactory>()
                 .TryAdd<IShapedQueryCompilingExpressionVisitorFactory, FirestoreShapedQueryCompilingExpressionVisitorFactory>()
                 .TryAdd<ITypeMappingSource, FirestoreTypeMappingSource>()
-                .TryAdd<IModelValidator, FirestoreModelValidator>()
                 .TryAdd<IDatabaseCreator, FirestoreDatabaseCreator>()
                 .TryAdd<IExecutionStrategyFactory, FirestoreExecutionStrategyFactory>();
 
@@ -52,6 +51,11 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             // Must use AddScoped (not TryAdd) since TryAddCoreServices already registered defaults
             serviceCollection.AddScoped<IQueryCompilationContextFactory, FirestoreQueryCompilationContextFactory>();
             serviceCollection.AddScoped<IQueryTranslationPreprocessorFactory, FirestoreQueryTranslationPreprocessorFactory>();
+
+            // FirestoreModelValidator debe reemplazar ModelValidator registrado por TryAddCoreServices.
+            // Usamos AddSingleton para sobrescribir el registro existente.
+            // Esto permite ComplexProperty nullable (Value Objects DDD opcionales).
+            serviceCollection.AddSingleton<IModelValidator, FirestoreModelValidator>();
 
             builder.TryAddProviderSpecificServices(b => b
                     .TryAddScoped<IUpdateSqlGenerator, FirestoreUpdateSqlGenerator>()

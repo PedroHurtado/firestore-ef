@@ -67,6 +67,19 @@ public record DepositPolicy
         MinimumGuestsForDeposit = minimumGuestsForDeposit;
     }
 
+    // ========== FACTORY METHODS ==========
+
+    public static DepositPolicy CreatePerPerson(decimal amountPerPerson, int? minimumGuests = null)
+        => new(DepositType.PerPerson, amountPerPerson, null, null, minimumGuests);
+
+    public static DepositPolicy CreatePercentage(decimal percentage, decimal? minimumBill = null)
+        => new(DepositType.PercentageOfBill, 0, percentage, minimumBill, null);
+
+    public static DepositPolicy CreateFixedAmount(decimal amount, decimal? minimumBill = null, int? minimumGuests = null)
+        => new(DepositType.FixedAmount, amount, null, minimumBill, minimumGuests);
+
+    // ========== DOMAIN METHODS ==========
+
     public bool IsApplicable(int guestCount, decimal estimatedBill)
     {
         if (MinimumGuestsForDeposit.HasValue && guestCount < MinimumGuestsForDeposit.Value)
@@ -121,6 +134,24 @@ public record NutritionalInfo
         Salt = salt;
     }
 
+    // ========== FACTORY METHODS ==========
+
+    public static NutritionalInfo Create(
+        int calories,
+        decimal protein,
+        decimal carbohydrates,
+        decimal fat,
+        int servingSize = 100,
+        decimal? fiber = null,
+        decimal? sugar = null,
+        decimal? salt = null)
+        => new(calories, protein, carbohydrates, fat, servingSize, fiber, sugar, salt);
+
+    public static NutritionalInfo CreateBasic(int calories, decimal protein, decimal carbs, decimal fat)
+        => new(calories, protein, carbs, fat, 100, null, null, null);
+
+    // ========== DOMAIN METHODS ==========
+
     public NutritionalInfo GetNutritionForPortion(decimal portionPercentage)
     {
         return new NutritionalInfo(
@@ -148,6 +179,13 @@ public record ItemDepositOverride
         MinimumQuantityForDeposit = minimumQuantityForDeposit;
     }
 
+    // ========== FACTORY METHODS ==========
+
+    public static ItemDepositOverride Create(decimal depositAmount, int? minimumQuantity = null)
+        => new(depositAmount, minimumQuantity);
+
+    // ========== DOMAIN METHODS ==========
+
     public bool IsApplicable(int quantity)
     {
         if (MinimumQuantityForDeposit.HasValue)
@@ -173,6 +211,18 @@ public record PriceOption
         IsActive = isActive;
     }
 
+    // ========== FACTORY METHODS ==========
+
+    public static PriceOption Create(PortionType portionType, decimal price, bool isActive = true)
+        => new(portionType, price, isActive);
+
+    public static PriceOption CreateSmall(decimal price) => new(PortionType.Small, price, true);
+    public static PriceOption CreateHalf(decimal price) => new(PortionType.Half, price, true);
+    public static PriceOption CreateFull(decimal price) => new(PortionType.Full, price, true);
+    public static PriceOption CreateMarketPrice() => new(PortionType.MarketPrice, null, true);
+
+    // ========== DOMAIN METHODS ==========
+
     public bool RequiresMarketPrice => PortionType == PortionType.MarketPrice && !Price.HasValue;
 
     public string DisplayPrice => RequiresMarketPrice ? "S/M" : Price!.Value.ToString("C");
@@ -196,6 +246,16 @@ public record CategoryItem
         DisplayOrder = displayOrder;
         _priceOverrides = priceOverrides ?? [];
     }
+
+    // ========== FACTORY METHODS ==========
+
+    public static CategoryItem Create(MenuItem menuItem, int displayOrder, params PriceOption[] priceOverrides)
+        => new(menuItem, displayOrder, priceOverrides.Length > 0 ? [.. priceOverrides] : null);
+
+    public static CategoryItem Create(MenuItem menuItem, int displayOrder)
+        => new(menuItem, displayOrder, null);
+
+    // ========== EQUALITY ==========
 
     public virtual bool Equals(CategoryItem? other)
     {
@@ -224,6 +284,39 @@ public class MenuCategory : Entity<Guid>
     protected MenuCategory() : base(Guid.Empty) { }
 
     public MenuCategory(Guid id) : base(id) { }
+
+    // ========== FACTORY METHODS ==========
+
+    public static MenuCategory Create(
+        string name,
+        int displayOrder,
+        string? description = null,
+        bool isActive = true,
+        Guid? id = null)
+    {
+        return new MenuCategory(id ?? Guid.NewGuid())
+        {
+            Name = name,
+            Description = description,
+            DisplayOrder = displayOrder,
+            IsActive = isActive
+        };
+    }
+
+    // ========== MUTATORS (for testing) ==========
+
+    public MenuCategory WithItem(CategoryItem item)
+    {
+        _items.Add(item);
+        return this;
+    }
+
+    public MenuCategory WithItems(params CategoryItem[] items)
+    {
+        foreach (var item in items)
+            _items.Add(item);
+        return this;
+    }
 }
 
 // ============================================================================
@@ -248,6 +341,53 @@ public class Menu : AggregateRoot<Guid>
     protected Menu() : base(Guid.Empty) { }
 
     public Menu(Guid id) : base(id) { }
+
+    // ========== FACTORY METHODS ==========
+
+    public static Menu Create(
+        Guid tenantId,
+        string name,
+        int displayOrder = 0,
+        string? description = null,
+        bool isActive = true,
+        DateTime? effectiveFrom = null,
+        DateTime? effectiveUntil = null,
+        DepositPolicy? depositPolicy = null,
+        Guid? id = null)
+    {
+        return new Menu(id ?? Guid.NewGuid())
+        {
+            TenantId = tenantId,
+            Name = name,
+            Description = description,
+            IsActive = isActive,
+            DisplayOrder = displayOrder,
+            EffectiveFrom = effectiveFrom,
+            EffectiveUntil = effectiveUntil,
+            DepositPolicy = depositPolicy
+        };
+    }
+
+    // ========== MUTATORS (for testing) ==========
+
+    public Menu WithDepositPolicy(DepositPolicy policy)
+    {
+        DepositPolicy = policy;
+        return this;
+    }
+
+    public Menu WithCategory(MenuCategory category)
+    {
+        _categories.Add(category);
+        return this;
+    }
+
+    public Menu WithCategories(params MenuCategory[] categories)
+    {
+        foreach (var category in categories)
+            _categories.Add(category);
+        return this;
+    }
 }
 
 public class MenuItem : AggregateRoot<Guid>
@@ -283,6 +423,94 @@ public class MenuItem : AggregateRoot<Guid>
     protected MenuItem() : base(Guid.Empty) { }
 
     public MenuItem(Guid id) : base(id) { }
+
+    // ========== FACTORY METHODS ==========
+
+    public static MenuItem Create(
+        Guid tenantId,
+        string name,
+        int displayOrder = 0,
+        string? description = null,
+        string? imageUrl = null,
+        bool isActive = true,
+        bool isHighRiskItem = false,
+        bool requiresAdvanceOrder = false,
+        int? minimumAdvanceOrderQuantity = null,
+        bool isAvailable = true,
+        bool isAlwaysAvailable = true,
+        ItemDepositOverride? depositOverride = null,
+        NutritionalInfo? nutritionalInfo = null,
+        string? allergenNotes = null,
+        Guid? id = null)
+    {
+        return new MenuItem(id ?? Guid.NewGuid())
+        {
+            TenantId = tenantId,
+            Name = name,
+            Description = description,
+            ImageUrl = imageUrl,
+            DisplayOrder = displayOrder,
+            IsActive = isActive,
+            IsHighRiskItem = isHighRiskItem,
+            RequiresAdvanceOrder = requiresAdvanceOrder,
+            MinimumAdvanceOrderQuantity = minimumAdvanceOrderQuantity,
+            IsAvailable = isAvailable,
+            IsAlwaysAvailable = isAlwaysAvailable,
+            DepositOverride = depositOverride,
+            NutritionalInfo = nutritionalInfo,
+            AllergenNotes = allergenNotes
+        };
+    }
+
+    public static MenuItem CreateSimple(Guid tenantId, string name, Guid? id = null)
+        => Create(tenantId, name, id: id);
+
+    // ========== MUTATORS (for testing) ==========
+
+    public MenuItem WithNutritionalInfo(NutritionalInfo info)
+    {
+        NutritionalInfo = info;
+        return this;
+    }
+
+    public MenuItem WithDepositOverride(ItemDepositOverride deposit)
+    {
+        DepositOverride = deposit;
+        return this;
+    }
+
+    public MenuItem WithPriceOption(PriceOption option)
+    {
+        _priceOptions.Add(option);
+        return this;
+    }
+
+    public MenuItem WithPriceOptions(params PriceOption[] options)
+    {
+        foreach (var option in options)
+            _priceOptions.Add(option);
+        return this;
+    }
+
+    public MenuItem WithAllergen(Allergen allergen)
+    {
+        _allergens.Add(allergen);
+        return this;
+    }
+
+    public MenuItem WithAllergens(params Allergen[] allergens)
+    {
+        foreach (var allergen in allergens)
+            _allergens.Add(allergen);
+        return this;
+    }
+
+    public MenuItem WithAvailableDays(params DayOfWeek[] days)
+    {
+        foreach (var day in days)
+            _availableDays.Add(day);
+        return this;
+    }
 }
 
 public class Allergen : AggregateRoot<string>
@@ -295,4 +523,32 @@ public class Allergen : AggregateRoot<string>
     protected Allergen() : base(string.Empty) { }
 
     public Allergen(string code) : base(code) { }
+
+    // ========== FACTORY METHODS ==========
+
+    public static Allergen Create(
+        string code,
+        string name,
+        int displayOrder = 0,
+        string? iconUrl = null,
+        bool isActive = true)
+    {
+        return new Allergen(code)
+        {
+            Name = name,
+            IconUrl = iconUrl,
+            IsActive = isActive,
+            DisplayOrder = displayOrder
+        };
+    }
+
+    // Common allergens factory methods
+    public static Allergen Gluten() => Create("GLUTEN", "Gluten", 1);
+    public static Allergen Dairy() => Create("DAIRY", "Lácteos", 2);
+    public static Allergen Nuts() => Create("NUTS", "Frutos secos", 3);
+    public static Allergen Eggs() => Create("EGGS", "Huevos", 4);
+    public static Allergen Shellfish() => Create("SHELLFISH", "Mariscos", 5);
+    public static Allergen Soy() => Create("SOY", "Soja", 6);
+    public static Allergen Fish() => Create("FISH", "Pescado", 7);
+    public static Allergen Peanuts() => Create("PEANUTS", "Cacahuetes", 8);
 }
