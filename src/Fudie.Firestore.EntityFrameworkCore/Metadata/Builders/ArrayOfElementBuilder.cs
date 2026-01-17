@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
 
@@ -75,6 +76,21 @@ public class ArrayOfElementBuilder<TElement>
         var nestedBuilder = new ArrayOfElementBuilder<TNested>(_parentEntityType, $"{_parentPropertyName}.{memberInfo.Name}");
         configure(nestedBuilder);
         _nestedArrays.Add(new ArrayOfNestedArray(memberInfo.Name, typeof(TNested), nestedBuilder));
+        return this;
+    }
+
+    /// <summary>
+    /// Ignora una propiedad del elemento para que no se serialice a Firestore.
+    /// Útil para propiedades calculadas (getters sin backing field).
+    /// </summary>
+    /// <typeparam name="TProperty">Tipo de la propiedad a ignorar</typeparam>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad a ignorar</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public ArrayOfElementBuilder<TElement> Ignore<TProperty>(
+        Expression<Func<TElement, TProperty>> propertyExpression)
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        _parentEntityType.AddArrayOfIgnoredProperty(_parentPropertyName, memberInfo.Name);
         return this;
     }
 

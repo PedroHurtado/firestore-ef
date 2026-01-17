@@ -50,7 +50,12 @@ public class ProviderFixesPersistenceDbContext(DbContextOptions<ProviderFixesPer
             entity.ComplexProperty(m => m.NutritionalInfo);
 
             // ArrayOf embedded: PriceOptions
-            entity.ArrayOf(m => m.PriceOptions);
+            // Ignore computed properties (getters without backing fields)
+            entity.ArrayOf(m => m.PriceOptions, option =>
+            {
+                option.Ignore(o => o.RequiresMarketPrice);
+                option.Ignore(o => o.DisplayPrice);
+            });            
 
             // ArrayOf Reference: Allergens (references to Allergen aggregate)
             entity.ArrayOf(m => m.Allergens).AsReferences();

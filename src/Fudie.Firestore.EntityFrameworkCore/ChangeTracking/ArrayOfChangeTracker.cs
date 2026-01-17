@@ -20,11 +20,13 @@ public static class ArrayOfChangeTracker
     /// JSON serialization options that match the Firestore provider's serialization conventions.
     /// Uses JsonStringEnumConverter to serialize enums as strings (e.g., "Monday" instead of 1),
     /// consistent with IFirestoreValueConverter.ToFirestore() behavior.
+    /// IgnoreReadOnlyProperties is enabled to skip computed properties (getters without setters).
     /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = false,
         PropertyNamingPolicy = null,
+        IgnoreReadOnlyProperties = true,
         Converters = { new JsonStringEnumConverter() }
     };
 

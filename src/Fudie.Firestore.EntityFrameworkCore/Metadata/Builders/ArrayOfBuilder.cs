@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Reflection;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -51,6 +52,38 @@ public class ArrayOfBuilder<TEntity, TElement>
         // Registrar anotación base como Embedded por defecto
         _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Embedded);
         _entityType.SetArrayOfElementClrType(_propertyName, _elementType);
+
+        // Detectar y guardar el backing field para propiedades read-only
+        var backingField = DetectBackingField(typeof(TEntity), _propertyName);
+        _entityType.SetArrayOfBackingField(_propertyName, backingField);
+    }
+
+    /// <summary>
+    /// Detecta el backing field para una propiedad siguiendo las convenciones de EF Core.
+    /// </summary>
+    private static FieldInfo? DetectBackingField(Type entityType, string propertyName)
+    {
+        // Convenciones de EF Core para backing fields:
+        // 1. _propertyName (camelCase with underscore prefix)
+        // 2. _PropertyName (PascalCase with underscore prefix)
+        // 3. m_propertyName (Hungarian notation)
+        // 4. <PropertyName>k__BackingField (compiler-generated)
+        var candidateNames = new[]
+        {
+            $"_{char.ToLowerInvariant(propertyName[0])}{propertyName[1..]}", // _priceOptions
+            $"_{propertyName}",                                               // _PriceOptions
+            $"m_{char.ToLowerInvariant(propertyName[0])}{propertyName[1..]}", // m_priceOptions
+            $"<{propertyName}>k__BackingField"                                // compiler-generated
+        };
+
+        foreach (var fieldName in candidateNames)
+        {
+            var field = entityType.GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field != null)
+                return field;
+        }
+
+        return null;
     }
 
     /// <summary>

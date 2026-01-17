@@ -695,12 +695,13 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 if (arrayType == ArrayOfAnnotations.ArrayType.Embedded)
                 {
                     // List<ValueObject> → List<Dictionary<string, object>>
+                    var ignoredProperties = entityType.GetArrayOfIgnoredProperties(prop.Name);
                     var list = new List<Dictionary<string, object>>();
                     foreach (var item in enumerable)
                     {
                         if (item != null)
                         {
-                            list.Add(SerializeComplexTypeFromObject(item));
+                            list.Add(SerializeComplexTypeFromObject(item, ignoredProperties));
                         }
                     }
                     dict[prop.Name] = list;
@@ -897,12 +898,21 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         private Dictionary<string, object> SerializeComplexTypeFromObject(object complexObject)
+            => SerializeComplexTypeFromObject(complexObject, ignoredProperties: null);
+
+        private Dictionary<string, object> SerializeComplexTypeFromObject(
+            object complexObject,
+            HashSet<string>? ignoredProperties)
         {
             var dict = new Dictionary<string, object>();
             var type = complexObject.GetType();
 
             foreach (var prop in type.GetProperties())
             {
+                // Skip ignored properties (computed properties like DisplayPrice, RequiresMarketPrice)
+                if (ignoredProperties != null && ignoredProperties.Contains(prop.Name))
+                    continue;
+
                 var value = prop.GetValue(complexObject);
                 if (value == null) continue;
 
@@ -925,7 +935,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     }
                     else
                     {
-                        dict[prop.Name] = SerializeComplexTypeFromObject(value);
+                        dict[prop.Name] = SerializeComplexTypeFromObject(value, ignoredProperties);
                     }
                 }
                 else

@@ -1,4 +1,5 @@
 // Archivo: Metadata/Conventions/ArrayOfAnnotations.cs
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
@@ -35,6 +36,18 @@ public static class ArrayOfAnnotations
     /// El valor es el nombre de la propiedad ArrayOf original.
     /// </summary>
     public const string JsonTrackerFor = "Firestore:ArrayOfTrackerFor";
+
+    /// <summary>
+    /// FieldInfo del backing field para la propiedad ArrayOf.
+    /// Se usa para escribir directamente al campo cuando la propiedad es read-only.
+    /// </summary>
+    public const string BackingField = Prefix + "BackingField";
+
+    /// <summary>
+    /// Lista de propiedades ignoradas en elementos de ArrayOf.
+    /// Estas propiedades no se serializan a Firestore.
+    /// </summary>
+    public const string IgnoredProperties = Prefix + "IgnoredProperties";
 
     /// <summary>
     /// Valores posibles para el tipo de array
@@ -110,6 +123,44 @@ public static class ArrayOfAnnotations
     public static bool IsArrayOfReference(this IReadOnlyEntityType entityType, string propertyName)
     {
         return entityType.GetArrayOfType(propertyName) == ArrayType.Reference;
+    }
+
+    /// <summary>
+    /// Obtiene el backing field para una propiedad ArrayOf
+    /// </summary>
+    public static System.Reflection.FieldInfo? GetArrayOfBackingField(this IReadOnlyEntityType entityType, string propertyName)
+    {
+        return entityType.FindAnnotation($"{BackingField}:{propertyName}")?.Value as System.Reflection.FieldInfo;
+    }
+
+    /// <summary>
+    /// Establece el backing field para una propiedad ArrayOf
+    /// </summary>
+    public static void SetArrayOfBackingField(this IMutableEntityType entityType, string propertyName, System.Reflection.FieldInfo? fieldInfo)
+    {
+        if (fieldInfo != null)
+        {
+            entityType.SetAnnotation($"{BackingField}:{propertyName}", fieldInfo);
+        }
+    }
+
+    /// <summary>
+    /// Obtiene las propiedades ignoradas para elementos de una propiedad ArrayOf
+    /// </summary>
+    public static HashSet<string>? GetArrayOfIgnoredProperties(this IReadOnlyEntityType entityType, string propertyName)
+    {
+        return entityType.FindAnnotation($"{IgnoredProperties}:{propertyName}")?.Value as HashSet<string>;
+    }
+
+    /// <summary>
+    /// Agrega una propiedad ignorada para elementos de una propiedad ArrayOf
+    /// </summary>
+    public static void AddArrayOfIgnoredProperty(this IMutableEntityType entityType, string arrayPropertyName, string ignoredPropertyName)
+    {
+        var existing = entityType.FindAnnotation($"{IgnoredProperties}:{arrayPropertyName}")?.Value as HashSet<string>;
+        var set = existing ?? new HashSet<string>();
+        set.Add(ignoredPropertyName);
+        entityType.SetAnnotation($"{IgnoredProperties}:{arrayPropertyName}", set);
     }
 
     #endregion

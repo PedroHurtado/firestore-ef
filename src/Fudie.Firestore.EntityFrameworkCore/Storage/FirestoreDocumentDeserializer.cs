@@ -548,6 +548,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
         /// <summary>
         /// Deserializa un Complex Type (map de Firestore → objeto C#)
+        /// Soporta Value Objects con constructor protected y parámetros (DDD pattern).
         /// </summary>
         private object DeserializeComplexType(
             IDictionary<string, object> data,
@@ -555,23 +556,138 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             IReadOnlyDictionary<string, object>? relatedEntities = null)
         {
             var complexType = complexProperty.ComplexType;
-            var instance = Activator.CreateInstance(complexType.ClrType);
+            var clrType = complexType.ClrType;
+
+            // Try to create instance using best constructor (including protected/private)
+            var instance = CreateComplexTypeInstance(clrType, data);
             if (instance == null)
             {
                 throw new InvalidOperationException(
-                    $"Could not create instance of {complexType.ClrType.Name}");
+                    $"Could not create instance of {clrType.Name}. " +
+                    "Ensure it has a parameterless constructor or a constructor with parameters matching property names.");
             }
 
-            // Deserializar propiedades simples del complex type
-            DeserializeProperties(instance, data, complexType);
-
-            // Deserializar Complex Properties anidados (recursivo)
+            // For parameterless constructor, populate properties
+            // For constructor with parameters, properties are already set - but we may need to handle nested complex types
             DeserializeComplexProperties(instance, data, complexType, relatedEntities);
 
             // Deserializar referencias a entidades dentro del ComplexType
             DeserializeNestedEntityReferences(instance, data, complexProperty, relatedEntities);
 
             return instance;
+        }
+
+        /// <summary>
+        /// Creates an instance of a ComplexType using the best available constructor.
+        /// Supports protected constructors for DDD Value Objects.
+        /// </summary>
+        private object? CreateComplexTypeInstance(Type clrType, IDictionary<string, object> data)
+        {
+            // Get all constructors including non-public (protected/private)
+            var constructors = clrType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            // First, try parameterless constructor
+            var parameterless = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
+            if (parameterless != null)
+            {
+                var instance = parameterless.Invoke(Array.Empty<object>());
+                if (instance != null)
+                {
+                    // Populate properties from data
+                    PopulatePropertiesFromData(instance, clrType, data);
+                    return instance;
+                }
+            }
+
+            // Find constructor with parameters that match data keys
+            var bestConstructor = constructors
+                .Where(c => c.GetParameters().Length > 0)
+                .OrderByDescending(c => c.GetParameters().Length)
+                .FirstOrDefault(c => CanInvokeConstructor(c, data));
+
+            if (bestConstructor != null)
+            {
+                var args = PrepareComplexTypeConstructorArgs(bestConstructor, data);
+                return bestConstructor.Invoke(args);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Checks if a constructor can be invoked with the available data.
+        /// </summary>
+        private static bool CanInvokeConstructor(ConstructorInfo constructor, IDictionary<string, object> data)
+        {
+            var parameters = constructor.GetParameters();
+            foreach (var param in parameters)
+            {
+                // Check if parameter has matching data key (case-insensitive)
+                var hasMatch = data.Keys.Any(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+                var hasDefault = param.HasDefaultValue;
+
+                if (!hasMatch && !hasDefault)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Prepares constructor arguments from data dictionary.
+        /// </summary>
+        private object?[] PrepareComplexTypeConstructorArgs(ConstructorInfo constructor, IDictionary<string, object> data)
+        {
+            var parameters = constructor.GetParameters();
+            var args = new object?[parameters.Length];
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var param = parameters[i];
+                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+
+                if (dataKey != null && data.TryGetValue(dataKey, out var value) && value != null)
+                {
+                    args[i] = ConvertToTargetType(value, param.ParameterType);
+                }
+                else if (param.HasDefaultValue)
+                {
+                    args[i] = param.DefaultValue;
+                }
+                else
+                {
+                    args[i] = param.ParameterType.IsValueType
+                        ? Activator.CreateInstance(param.ParameterType)
+                        : null;
+                }
+            }
+
+            return args;
+        }
+
+        /// <summary>
+        /// Populates properties from data dictionary (for parameterless constructor).
+        /// </summary>
+        private void PopulatePropertiesFromData(object instance, Type clrType, IDictionary<string, object> data)
+        {
+            foreach (var prop in clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!prop.CanWrite)
+                    continue;
+
+                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(prop.Name, StringComparison.OrdinalIgnoreCase));
+                if (dataKey != null && data.TryGetValue(dataKey, out var value) && value != null)
+                {
+                    try
+                    {
+                        var convertedValue = ConvertToTargetType(value, prop.PropertyType);
+                        prop.SetValue(instance, convertedValue);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogTrace(ex, "Failed to set property {PropertyName} on ComplexType", prop.Name);
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -806,7 +922,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
                     if (deserializedCollection != null)
                     {
-                        propertyInfo.SetValue(entity, deserializedCollection);
+                        // Set value via backing field from EF Core model (for IReadOnlyCollection with backing field)
+                        SetCollectionValue(entity, entityType, propertyInfo, deserializedCollection);
                     }
                 }
                 catch (Exception ex)
@@ -1059,25 +1176,82 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
+        /// Sets a collection value on an entity, using backing field from EF Core model if the property is read-only.
+        /// Supports PropertyAccessMode.Field pattern used in DDD.
+        /// </summary>
+        private void SetCollectionValue(object entity, IEntityType entityType, PropertyInfo propertyInfo, object collection)
+        {
+            // If property has a setter, use it directly
+            if (propertyInfo.CanWrite)
+            {
+                propertyInfo.SetValue(entity, collection);
+                return;
+            }
+
+            // Get backing field from EF Core model annotations (configured in ArrayOfBuilder)
+            var backingField = entityType.GetArrayOfBackingField(propertyInfo.Name);
+            if (backingField != null)
+            {
+                // Convert collection to field type if needed (e.g., List<T> to HashSet<T>)
+                var convertedCollection = ConvertCollectionToFieldType(collection, backingField.FieldType);
+                backingField.SetValue(entity, convertedCollection);
+                _logger.LogTrace("Set backing field {FieldName} for property {PropertyName}", backingField.Name, propertyInfo.Name);
+                return;
+            }
+
+            _logger.LogWarning(
+                "Could not set property {PropertyName} - no setter and no backing field found in model. " +
+                "Ensure the property is configured with ArrayOf() and has a backing field.",
+                propertyInfo.Name);
+        }
+
+        /// <summary>
+        /// Converts a collection to the target field type (e.g., List to HashSet).
+        /// </summary>
+        private static object ConvertCollectionToFieldType(object collection, Type fieldType)
+        {
+            if (fieldType.IsAssignableFrom(collection.GetType()))
+                return collection;
+
+            // If field is HashSet<T> but we have List<T>, convert
+            if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(HashSet<>))
+            {
+                var elementType = fieldType.GetGenericArguments()[0];
+                var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
+                var hashSet = Activator.CreateInstance(hashSetType)!;
+                var addMethod = hashSetType.GetMethod("Add")!;
+
+                foreach (var item in (IEnumerable)collection)
+                {
+                    addMethod.Invoke(hashSet, new[] { item });
+                }
+
+                return hashSet;
+            }
+
+            return collection;
+        }
+
+        /// <summary>
         /// Crea una instancia usando el mejor constructor disponible.
+        /// Includes non-public constructors to support DDD Value Objects with protected constructors.
+        /// For records with init properties, prefers constructors WITH parameters over parameterless.
         /// </summary>
         private static object? CreateInstanceWithBestConstructor(Type type, IDictionary<string, object> data)
         {
-            // Primero intentar constructor sin parámetros
-            var parameterlessConstructor = type.GetConstructors()
-                .FirstOrDefault(c => c.GetParameters().Length == 0);
+            // Get all constructors including non-public (protected/private)
+            var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
-            if (parameterlessConstructor != null)
-            {
-                return parameterlessConstructor.Invoke(Array.Empty<object>());
-            }
-
-            // Buscar constructor con parámetros que coincidan con los datos
-            foreach (var constructor in type.GetConstructors().OrderByDescending(c => c.GetParameters().Length))
+            // FIRST: Try constructors with parameters that match data keys
+            // This is essential for records where properties are init-only and cannot be set after construction
+            foreach (var constructor in constructors
+                .Where(c => c.GetParameters().Length > 0)
+                .OrderByDescending(c => c.GetParameters().Length))
             {
                 var parameters = constructor.GetParameters();
                 var args = new object?[parameters.Length];
                 var allMatched = true;
+                var matchedDataKeys = 0;
 
                 for (int i = 0; i < parameters.Length; i++)
                 {
@@ -1087,6 +1261,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     if (dataKey != null && data.TryGetValue(dataKey, out var value))
                     {
                         args[i] = ConvertValueToType(value, param.ParameterType);
+                        matchedDataKeys++;
                     }
                     else if (param.HasDefaultValue)
                     {
@@ -1099,10 +1274,19 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     }
                 }
 
-                if (allMatched)
+                // Use this constructor if all parameters matched and at least one came from data
+                if (allMatched && matchedDataKeys > 0)
                 {
                     return constructor.Invoke(args);
                 }
+            }
+
+            // FALLBACK: Use parameterless constructor only if no parameterized constructor worked
+            // Note: For records with init properties, this will result in default values
+            var parameterlessConstructor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
+            if (parameterlessConstructor != null)
+            {
+                return parameterlessConstructor.Invoke(Array.Empty<object>());
             }
 
             return null;
