@@ -50,8 +50,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             var data = document.ToDictionary();
 
-            // Crear entidad usando el constructor apropiado (con entidades relacionadas si las necesita)
-            var entity = CreateEntityInstance<T>(document.Id, data, entityType, relatedEntities);
+            // Crear entidad usando el constructor apropiado
+            var entity = CreateEntityInstance<T>(document.Id, data, entityType);
 
             // Poblar propiedades que no fueron seteadas por el constructor (pasando relatedEntities para ComplexTypes)
             DeserializeIntoEntityWithRelated(document, entity, relatedEntities);
@@ -63,190 +63,38 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Crea una instancia de la entidad usando el constructor apropiado,
-        /// incluyendo entidades relacionadas para parámetros de navegación.
+        /// Crea una instancia de la entidad usando CreateInstanceFromData.
+        /// Para entidades, añade el documentId al diccionario de datos.
         /// </summary>
         private T CreateEntityInstance<T>(
             string documentId,
             IDictionary<string, object> data,
-            IEntityType entityType,
-            IReadOnlyDictionary<string, object> relatedEntities) where T : class
+            IEntityType entityType) where T : class
         {
-            var type = typeof(T);
-            var constructors = type.GetConstructors();
+            // Añadir el ID del documento al diccionario para que el constructor lo reciba
+            var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
+            var dataWithId = new Dictionary<string, object>(data, StringComparer.OrdinalIgnoreCase);
 
-            // Primero intentar constructor sin parámetros
-            var parameterlessConstructor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
-            if (parameterlessConstructor != null)
+            // Convertir el documentId al tipo de la clave
+            var keyProperty = entityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (keyProperty != null)
             {
-                return (T)parameterlessConstructor.Invoke(Array.Empty<object>());
+                var convertedId = _valueConverter.FromFirestore(documentId, keyProperty.ClrType);
+                if (convertedId != null)
+                {
+                    dataWithId[keyPropertyName] = convertedId;
+                }
             }
 
-            // Si no hay constructor sin parámetros, buscar el mejor constructor con parámetros
-            var constructor = SelectBestConstructor(constructors, data, entityType, relatedEntities);
-            if (constructor == null)
+            var instance = CreateInstanceFromData(typeof(T), dataWithId);
+            if (instance == null)
             {
                 throw new InvalidOperationException(
-                    $"No suitable constructor found for type {type.Name}. " +
+                    $"No suitable constructor found for type {typeof(T).Name}. " +
                     "Ensure it has a parameterless constructor or a constructor with parameters matching property names.");
             }
 
-            // Preparar argumentos para el constructor (incluyendo navegaciones)
-            var args = PrepareConstructorArguments(constructor, documentId, data, entityType, relatedEntities);
-            return (T)constructor.Invoke(args);
-        }
-
-        /// <summary>
-        /// Selecciona el mejor constructor basado en los parámetros disponibles,
-        /// incluyendo navegaciones de entidades relacionadas.
-        /// </summary>
-        private static ConstructorInfo? SelectBestConstructor(
-            ConstructorInfo[] constructors,
-            IDictionary<string, object> data,
-            IEntityType entityType,
-            IReadOnlyDictionary<string, object> relatedEntities)
-        {
-            var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
-
-            // Obtener nombres de navegaciones disponibles
-            var navigationNames = entityType.GetNavigations()
-                .Select(n => n.Name)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // Filtrar constructores cuyos parámetros coincidan con propiedades
-            var validConstructors = new List<(ConstructorInfo constructor, int matchCount)>();
-
-            foreach (var constructor in constructors)
-            {
-                var parameters = constructor.GetParameters();
-                var allMatch = true;
-                var matchCount = 0;
-
-                foreach (var param in parameters)
-                {
-                    // Verificar si el parámetro coincide con una propiedad (case-insensitive)
-                    var matchesKey = param.Name?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false;
-                    var matchesData = data.Keys.Any(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
-                    var matchesNavigation = param.Name != null && navigationNames.Contains(param.Name);
-
-                    if (matchesKey || matchesData || matchesNavigation)
-                    {
-                        matchCount++;
-                    }
-                    else
-                    {
-                        allMatch = false;
-                        break;
-                    }
-                }
-
-                if (allMatch)
-                {
-                    validConstructors.Add((constructor, matchCount));
-                }
-            }
-
-            // Retornar el constructor con más parámetros que coincidan
-            return validConstructors
-                .OrderByDescending(x => x.matchCount)
-                .Select(x => x.constructor)
-                .FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Prepara los argumentos para invocar el constructor,
-        /// incluyendo entidades relacionadas para parámetros de navegación.
-        /// </summary>
-        private object?[] PrepareConstructorArguments(
-            ConstructorInfo constructor,
-            string documentId,
-            IDictionary<string, object> data,
-            IEntityType entityType,
-            IReadOnlyDictionary<string, object> relatedEntities)
-        {
-            var parameters = constructor.GetParameters();
-            var args = new object?[parameters.Length];
-            var keyPropertyName = entityType.FindPrimaryKey()?.Properties.FirstOrDefault()?.Name ?? "Id";
-
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                var param = parameters[i];
-                var paramName = param.Name;
-
-                // ¿Es la clave primaria (Id)?
-                if (paramName?.Equals(keyPropertyName, StringComparison.OrdinalIgnoreCase) ?? false)
-                {
-                    args[i] = ConvertToTargetType(documentId, param.ParameterType);
-                    continue;
-                }
-
-                // ¿Es una navegación? Buscar en relatedEntities
-                var navigation = entityType.GetNavigations()
-                    .FirstOrDefault(n => n.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-
-                if (navigation != null)
-                {
-                    args[i] = FindRelatedEntity(navigation, data, relatedEntities);
-                    continue;
-                }
-
-                // Buscar en el diccionario de datos (case-insensitive)
-                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-                if (dataKey != null && data.TryGetValue(dataKey, out var value))
-                {
-                    // Buscar la propiedad correspondiente para aplicar conversiones
-                    var property = entityType.GetProperties()
-                        .FirstOrDefault(p => p.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase));
-
-                    if (property != null && value != null)
-                    {
-                        args[i] = ApplyReverseConverter(property, value);
-                    }
-                    else
-                    {
-                        args[i] = ConvertToTargetType(value, param.ParameterType);
-                    }
-                }
-                else
-                {
-                    // Usar valor por defecto del tipo
-                    args[i] = param.ParameterType.IsValueType
-                        ? Activator.CreateInstance(param.ParameterType)
-                        : null;
-                }
-            }
-
-            return args;
-        }
-
-        /// <summary>
-        /// Busca la entidad relacionada para una navegación en el diccionario de entidades.
-        /// Para FK: busca por el path del DocumentReference.
-        /// Para SubCollections: busca entidades hijas por path padre.
-        /// </summary>
-        private static object? FindRelatedEntity(
-            IReadOnlyNavigation navigation,
-            IDictionary<string, object> data,
-            IReadOnlyDictionary<string, object> relatedEntities)
-        {
-            // Para FK (DocumentReference)
-            if (!navigation.IsCollection)
-            {
-                // Buscar el DocumentReference en los datos
-                if (data.TryGetValue(navigation.Name, out var refValue) && refValue is DocumentReference docRef)
-                {
-                    // Buscar la entidad por su path
-                    if (relatedEntities.TryGetValue(docRef.Path, out var entity))
-                    {
-                        return entity;
-                    }
-                }
-                return null;
-            }
-
-            // Para SubCollections: las colecciones se asignan después via AssignNavigations
-            // porque necesitamos crear la colección del tipo correcto
-            return null;
+            return (T)instance;
         }
 
         /// <summary>
@@ -275,6 +123,117 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             catch
             {
                 return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+            }
+        }
+
+        /// <summary>
+        /// Determina si un tipo es nullable (Nullable&lt;T&gt; o reference type).
+        /// </summary>
+        private static bool IsNullableType(Type type)
+        {
+            // Nullable<T> (e.g., int?, decimal?)
+            if (Nullable.GetUnderlyingType(type) != null)
+                return true;
+
+            // Reference types are inherently nullable
+            return !type.IsValueType;
+        }
+
+        /// <summary>
+        /// Crea una instancia de cualquier tipo (entidad, ComplexType, record, clase) usando el mejor constructor disponible.
+        /// Método unificado que reemplaza CreateEntityInstance, CreateComplexTypeInstance, CreateInstanceWithBestConstructor y CreateGeoPointInstance.
+        /// </summary>
+        /// <param name="type">El tipo a instanciar</param>
+        /// <param name="data">Diccionario con los datos para el constructor</param>
+        /// <returns>Instancia del tipo o null si no se pudo crear</returns>
+        private object? CreateInstanceFromData(Type type, IDictionary<string, object> data)
+        {
+            // Get all constructors including non-public (protected/private) for DDD Value Objects
+            var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            // FIRST: Try constructors WITH parameters (ordered by parameter count descending)
+            // This is essential for records where properties are init-only and cannot be set after construction
+            foreach (var constructor in constructors
+                .Where(c => c.GetParameters().Length > 0)
+                .OrderByDescending(c => c.GetParameters().Length))
+            {
+                var parameters = constructor.GetParameters();
+                var args = new object?[parameters.Length];
+                var allMatched = true;
+                var matchedFromData = 0;
+
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    var param = parameters[i];
+                    var dataKey = data.Keys.FirstOrDefault(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
+
+                    if (dataKey != null && data.TryGetValue(dataKey, out var value))
+                    {
+                        args[i] = ConvertToTargetType(value, param.ParameterType);
+                        matchedFromData++;
+                    }
+                    else if (param.HasDefaultValue)
+                    {
+                        args[i] = param.DefaultValue;
+                    }
+                    else if (IsNullableType(param.ParameterType))
+                    {
+                        // For nullable parameters without data, pass null
+                        args[i] = null;
+                    }
+                    else
+                    {
+                        allMatched = false;
+                        break;
+                    }
+                }
+
+                // Use this constructor if all parameters matched and at least one came from data
+                if (allMatched && matchedFromData > 0)
+                {
+                    return constructor.Invoke(args);
+                }
+            }
+
+            // FALLBACK: Use parameterless constructor only if no parameterized constructor worked
+            var parameterlessConstructor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
+            if (parameterlessConstructor != null)
+            {
+                var instance = parameterlessConstructor.Invoke(Array.Empty<object>());
+
+                // Populate properties from data dictionary
+                PopulatePropertiesFromData(instance, type, data);
+
+                return instance;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Populates writable properties of an instance from a data dictionary.
+        /// Used when instance was created with parameterless constructor.
+        /// </summary>
+        private void PopulatePropertiesFromData(object instance, Type type, IDictionary<string, object> data)
+        {
+            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!property.CanWrite)
+                    continue;
+
+                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(property.Name, StringComparison.OrdinalIgnoreCase));
+                if (dataKey != null && data.TryGetValue(dataKey, out var value))
+                {
+                    var convertedValue = ConvertToTargetType(value, property.PropertyType);
+                    try
+                    {
+                        property.SetValue(instance, convertedValue);
+                    }
+                    catch
+                    {
+                        // Skip properties that can't be set
+                    }
+                }
             }
         }
 
@@ -481,7 +440,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
-        /// Deserializa un GeoPoint de Firestore a un objeto C#
+        /// Deserializa un GeoPoint de Firestore a un objeto C#.
+        /// Convierte a diccionario y usa CreateInstanceFromData.
         /// </summary>
         private object DeserializeGeoPoint(object value, IComplexType complexType)
         {
@@ -491,57 +451,13 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     $"Expected GeoPoint but got {value.GetType().Name}");
             }
 
-            var clrType = complexType.ClrType;
-
-            // Buscar propiedades Latitude/Longitude
-            var latProp = FindLatitudeProperty(clrType);
-            var lonProp = FindLongitudeProperty(clrType);
-
-            // Intentar crear usando constructor con parámetros (para records)
-            var constructor = clrType.GetConstructors()
-                .FirstOrDefault(c =>
-                {
-                    var parameters = c.GetParameters();
-                    return parameters.Length == 2 &&
-                           parameters.All(p => p.ParameterType == typeof(double));
-                });
-
-            if (constructor != null)
-            {
-                // Determinar el orden de los parámetros según el nombre
-                var parameters = constructor.GetParameters();
-                var args = new object[2];
-
-                for (int i = 0; i < parameters.Length; i++)
-                {
-                    var paramName = parameters[i].Name;
-                    if (paramName != null &&
-                        (paramName.Equals("latitude", StringComparison.OrdinalIgnoreCase) ||
-                         paramName.Equals("lat", StringComparison.OrdinalIgnoreCase) ||
-                         paramName.Equals("latitud", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        args[i] = geoPoint.Latitude;
-                    }
-                    else
-                    {
-                        args[i] = geoPoint.Longitude;
-                    }
-                }
-
-                return constructor.Invoke(args);
-            }
-
-            // Fallback: usar constructor sin parámetros y setear propiedades
-            var instance = Activator.CreateInstance(clrType);
+            var instance = CreateGeoPointInstance(complexType.ClrType, geoPoint);
             if (instance == null)
             {
                 throw new InvalidOperationException(
-                    $"Could not create instance of {clrType.Name}. " +
-                    "Ensure it has a parameterless constructor or a constructor with (double, double) parameters.");
+                    $"Could not create instance of {complexType.ClrType.Name}. " +
+                    "Ensure it has a parameterless constructor or a constructor with parameters matching Latitude/Longitude.");
             }
-
-            latProp.SetValue(instance, geoPoint.Latitude);
-            lonProp.SetValue(instance, geoPoint.Longitude);
 
             return instance;
         }
@@ -558,8 +474,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             var complexType = complexProperty.ComplexType;
             var clrType = complexType.ClrType;
 
-            // Try to create instance using best constructor (including protected/private)
-            var instance = CreateComplexTypeInstance(clrType, data);
+            // Create instance using unified method (supports protected constructors)
+            var instance = CreateInstanceFromData(clrType, data);
             if (instance == null)
             {
                 throw new InvalidOperationException(
@@ -575,119 +491,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             DeserializeNestedEntityReferences(instance, data, complexProperty, relatedEntities);
 
             return instance;
-        }
-
-        /// <summary>
-        /// Creates an instance of a ComplexType using the best available constructor.
-        /// Supports protected constructors for DDD Value Objects.
-        /// </summary>
-        private object? CreateComplexTypeInstance(Type clrType, IDictionary<string, object> data)
-        {
-            // Get all constructors including non-public (protected/private)
-            var constructors = clrType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-            // First, try parameterless constructor
-            var parameterless = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
-            if (parameterless != null)
-            {
-                var instance = parameterless.Invoke(Array.Empty<object>());
-                if (instance != null)
-                {
-                    // Populate properties from data
-                    PopulatePropertiesFromData(instance, clrType, data);
-                    return instance;
-                }
-            }
-
-            // Find constructor with parameters that match data keys
-            var bestConstructor = constructors
-                .Where(c => c.GetParameters().Length > 0)
-                .OrderByDescending(c => c.GetParameters().Length)
-                .FirstOrDefault(c => CanInvokeConstructor(c, data));
-
-            if (bestConstructor != null)
-            {
-                var args = PrepareComplexTypeConstructorArgs(bestConstructor, data);
-                return bestConstructor.Invoke(args);
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Checks if a constructor can be invoked with the available data.
-        /// </summary>
-        private static bool CanInvokeConstructor(ConstructorInfo constructor, IDictionary<string, object> data)
-        {
-            var parameters = constructor.GetParameters();
-            foreach (var param in parameters)
-            {
-                // Check if parameter has matching data key (case-insensitive)
-                var hasMatch = data.Keys.Any(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
-                var hasDefault = param.HasDefaultValue;
-
-                if (!hasMatch && !hasDefault)
-                    return false;
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Prepares constructor arguments from data dictionary.
-        /// </summary>
-        private object?[] PrepareComplexTypeConstructorArgs(ConstructorInfo constructor, IDictionary<string, object> data)
-        {
-            var parameters = constructor.GetParameters();
-            var args = new object?[parameters.Length];
-
-            for (int i = 0; i < parameters.Length; i++)
-            {
-                var param = parameters[i];
-                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
-
-                if (dataKey != null && data.TryGetValue(dataKey, out var value) && value != null)
-                {
-                    args[i] = ConvertToTargetType(value, param.ParameterType);
-                }
-                else if (param.HasDefaultValue)
-                {
-                    args[i] = param.DefaultValue;
-                }
-                else
-                {
-                    args[i] = param.ParameterType.IsValueType
-                        ? Activator.CreateInstance(param.ParameterType)
-                        : null;
-                }
-            }
-
-            return args;
-        }
-
-        /// <summary>
-        /// Populates properties from data dictionary (for parameterless constructor).
-        /// </summary>
-        private void PopulatePropertiesFromData(object instance, Type clrType, IDictionary<string, object> data)
-        {
-            foreach (var prop in clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (!prop.CanWrite)
-                    continue;
-
-                var dataKey = data.Keys.FirstOrDefault(k => k.Equals(prop.Name, StringComparison.OrdinalIgnoreCase));
-                if (dataKey != null && data.TryGetValue(dataKey, out var value) && value != null)
-                {
-                    try
-                    {
-                        var convertedValue = ConvertToTargetType(value, prop.PropertyType);
-                        prop.SetValue(instance, convertedValue);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogTrace(ex, "Failed to set property {PropertyName} on ComplexType", prop.Name);
-                    }
-                }
-            }
         }
 
         /// <summary>
@@ -841,28 +644,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             return value;
         }
 
-        /// <summary>
-        /// Encuentra la propiedad Latitude/Latitud en un tipo
-        /// </summary>
-        private static PropertyInfo FindLatitudeProperty(Type type)
-        {
-            return type.GetProperty("Latitude", BindingFlags.Public | BindingFlags.Instance)
-                ?? type.GetProperty("Latitud", BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new InvalidOperationException(
-                    $"Type '{type.Name}' must have a 'Latitude' or 'Latitud' property to use HasGeoPoint()");
-        }
-
-        /// <summary>
-        /// Encuentra la propiedad Longitude/Longitud en un tipo
-        /// </summary>
-        private static PropertyInfo FindLongitudeProperty(Type type)
-        {
-            return type.GetProperty("Longitude", BindingFlags.Public | BindingFlags.Instance)
-                ?? type.GetProperty("Longitud", BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new InvalidOperationException(
-                    $"Type '{type.Name}' must have a 'Longitude' or 'Longitud' property to use HasGeoPoint()");
-        }
-
 #region ArrayOf Deserialization
 
         /// <summary>
@@ -914,7 +695,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
                     object? deserializedCollection = arrayType switch
                     {
-                        ArrayOfAnnotations.ArrayType.Embedded => DeserializeArrayOfEmbedded(arrayValue, elementType, propertyInfo.PropertyType, entityType, propertyName, relatedEntities),
+                        ArrayOfAnnotations.ArrayType.Embedded => DeserializeArrayOfEmbedded(arrayValue, elementType, propertyInfo.PropertyType, relatedEntities),
                         ArrayOfAnnotations.ArrayType.GeoPoint => DeserializeArrayOfGeoPoints(arrayValue, elementType, propertyInfo.PropertyType),
                         ArrayOfAnnotations.ArrayType.Reference => DeserializeArrayOfReferences(arrayValue, elementType, propertyInfo.PropertyType, relatedEntities),
                         _ => null
@@ -940,8 +721,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             IEnumerable<object> arrayValue,
             Type elementType,
             Type propertyType,
-            IEntityType entityType,
-            string propertyName,
             IReadOnlyDictionary<string, object>? relatedEntities)
         {
             var collection = CreateTypedCollection(elementType, propertyType);
@@ -950,7 +729,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             {
                 if (item is IDictionary<string, object> map)
                 {
-                    var element = DeserializeEmbeddedElement(map, elementType, entityType, propertyName, relatedEntities);
+                    var element = DeserializeEmbeddedElement(map, elementType, relatedEntities);
                     if (element != null)
                     {
                         AddToCollection(collection, element);
@@ -963,79 +742,116 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
         /// <summary>
         /// Deserializa un elemento embebido de un array.
+        /// Usa CreateInstanceFromData y luego asigna referencias desde relatedEntities.
         /// </summary>
         private object? DeserializeEmbeddedElement(
             IDictionary<string, object> map,
             Type elementType,
-            IEntityType entityType,
-            string propertyName,
             IReadOnlyDictionary<string, object>? relatedEntities)
         {
-            // Crear instancia del elemento
-            var instance = CreateInstanceWithBestConstructor(elementType, map);
-            if (instance == null)
-                return null;
+            // CreateInstanceFromData maneja tanto records (constructor con parámetros)
+            // como clases con constructor sin parámetros
+            var instance = CreateInstanceFromData(elementType, map);
 
-            // Poblar propiedades simples
-            foreach (var prop in elementType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            if (instance != null && relatedEntities != null && relatedEntities.Count > 0)
             {
-                if (!prop.CanWrite)
-                    continue;
-
-                if (map.TryGetValue(prop.Name, out var value) && value != null)
-                {
-                    try
-                    {
-                        // Verificar si es una referencia anidada (DocumentReference)
-                        if (value is DocumentReference docRef)
-                        {
-                            // Buscar en relatedEntities
-                            if (relatedEntities != null && relatedEntities.TryGetValue(docRef.Path, out var relatedEntity))
-                            {
-                                prop.SetValue(instance, relatedEntity);
-                            }
-                            continue;
-                        }
-
-                        // Verificar si es un array anidado
-                        if (value is IEnumerable<object> nestedArray && !prop.PropertyType.IsAssignableFrom(typeof(string)))
-                        {
-                            var nestedElementType = GetCollectionElementType(prop.PropertyType);
-                            if (nestedElementType != null)
-                            {
-                                // Determinar tipo de array anidado
-                                // First check if it's an array of DocumentReferences (ArrayOf Reference)
-                                if (IsArrayOfDocumentReferences(nestedArray))
-                                {
-                                    var nestedCollection = DeserializeArrayOfReferences(nestedArray, nestedElementType, prop.PropertyType, relatedEntities);
-                                    prop.SetValue(instance, nestedCollection);
-                                }
-                                else if (ConventionHelpers.IsGeoPointType(nestedElementType))
-                                {
-                                    var nestedCollection = DeserializeArrayOfGeoPoints(nestedArray, nestedElementType, prop.PropertyType);
-                                    prop.SetValue(instance, nestedCollection);
-                                }
-                                else if (!ConventionHelpers.IsPrimitiveOrSimpleType(nestedElementType))
-                                {
-                                    var nestedCollection = DeserializeArrayOfEmbedded(nestedArray, nestedElementType, prop.PropertyType, entityType, propertyName, relatedEntities);
-                                    prop.SetValue(instance, nestedCollection);
-                                }
-                                continue;
-                            }
-                        }
-
-                        // Conversión normal
-                        var convertedValue = ConvertToTargetType(value, prop.PropertyType);
-                        prop.SetValue(instance, convertedValue);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogTrace(ex, "Failed to set property {PropertyName} on embedded element", prop.Name);
-                    }
-                }
+                // Asignar referencias (DocumentReference → entidad) dentro del elemento embebido
+                AssignReferencesInEmbeddedElement(instance, map, relatedEntities);
             }
 
             return instance;
+        }
+
+        /// <summary>
+        /// Asigna referencias (DocumentReference) a propiedades de navegación dentro de un elemento embebido.
+        /// También procesa arrays anidados recursivamente.
+        /// </summary>
+        private void AssignReferencesInEmbeddedElement(
+            object instance,
+            IDictionary<string, object> map,
+            IReadOnlyDictionary<string, object> relatedEntities)
+        {
+            var type = instance.GetType();
+
+            foreach (var kvp in map)
+            {
+                // Caso 1: DocumentReference directo
+                if (kvp.Value is DocumentReference docRef)
+                {
+                    var property = type.GetProperty(kvp.Key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    if (property == null || !property.CanWrite)
+                        continue;
+
+                    if (relatedEntities.TryGetValue(docRef.Path, out var relatedEntity))
+                    {
+                        if (property.PropertyType.IsAssignableFrom(relatedEntity.GetType()))
+                        {
+                            property.SetValue(instance, relatedEntity);
+                        }
+                    }
+                }
+                // Caso 2: Array anidado - puede ser de embedded objects o de DocumentReferences
+                else if (kvp.Value is IEnumerable<object> nestedArray)
+                {
+                    var property = type.GetProperty(kvp.Key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    if (property == null)
+                        continue;
+
+                    var nestedArrayList = nestedArray.ToList();
+                    if (nestedArrayList.Count == 0)
+                        continue;
+
+                    // Caso 2a: Array de DocumentReferences (ArrayOf References dentro de embedded)
+                    if (nestedArrayList[0] is DocumentReference)
+                    {
+                        // Obtener el tipo del elemento de la colección (List<T> → T)
+                        var elementType = property.PropertyType.IsGenericType
+                            ? property.PropertyType.GetGenericArguments().FirstOrDefault()
+                            : null;
+                        if (elementType == null)
+                            continue;
+
+                        // Crear la colección de entidades resueltas
+                        var resolvedCollection = CreateTypedCollection(elementType, property.PropertyType);
+
+                        foreach (var item in nestedArrayList)
+                        {
+                            if (item is DocumentReference nestedDocRef &&
+                                relatedEntities.TryGetValue(nestedDocRef.Path, out var resolvedEntity))
+                            {
+                                if (elementType.IsAssignableFrom(resolvedEntity.GetType()))
+                                {
+                                    AddToCollection(resolvedCollection, resolvedEntity);
+                                }
+                            }
+                        }
+
+                        // Asignar la colección a la propiedad
+                        if (property.CanWrite)
+                        {
+                            property.SetValue(instance, resolvedCollection);
+                        }
+                    }
+                    // Caso 2b: Array de objetos embebidos - procesar recursivamente
+                    else if (nestedArrayList[0] is IDictionary<string, object>)
+                    {
+                        // Obtener la colección actual de la instancia
+                        var currentCollection = property.GetValue(instance);
+                        if (currentCollection is not IEnumerable currentEnumerable)
+                            continue;
+
+                        var currentList = currentEnumerable.Cast<object>().ToList();
+
+                        for (int i = 0; i < Math.Min(nestedArrayList.Count, currentList.Count); i++)
+                        {
+                            if (nestedArrayList[i] is IDictionary<string, object> nestedMap)
+                            {
+                                AssignReferencesInEmbeddedElement(currentList[i], nestedMap, relatedEntities);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -1065,53 +881,25 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
         /// <summary>
         /// Crea una instancia del tipo GeoPoint personalizado.
+        /// Convierte GeoPoint nativo de Firestore a diccionario y usa CreateInstanceFromData.
         /// </summary>
         private object? CreateGeoPointInstance(Type elementType, GeoPoint geoPoint)
         {
-            // Intentar constructor con 2 doubles (para records)
-            var constructor = elementType.GetConstructors()
-                .FirstOrDefault(c =>
-                {
-                    var parameters = c.GetParameters();
-                    return parameters.Length == 2 &&
-                           parameters.All(p => p.ParameterType == typeof(double));
-                });
-
-            if (constructor != null)
+            // Convertir GeoPoint a diccionario con nombres comunes para Latitude/Longitude
+            var geoData = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
-                var parameters = constructor.GetParameters();
-                var args = new object[2];
+                ["Latitude"] = geoPoint.Latitude,
+                ["Longitude"] = geoPoint.Longitude,
+                // Aliases en español
+                ["Latitud"] = geoPoint.Latitude,
+                ["Longitud"] = geoPoint.Longitude,
+                // Aliases cortos
+                ["Lat"] = geoPoint.Latitude,
+                ["Lng"] = geoPoint.Longitude,
+                ["Lon"] = geoPoint.Longitude
+            };
 
-                for (int i = 0; i < parameters.Length; i++)
-                {
-                    var paramName = parameters[i].Name;
-                    if (paramName != null &&
-                        (paramName.Equals("latitude", StringComparison.OrdinalIgnoreCase) ||
-                         paramName.Equals("lat", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        args[i] = geoPoint.Latitude;
-                    }
-                    else
-                    {
-                        args[i] = geoPoint.Longitude;
-                    }
-                }
-
-                return constructor.Invoke(args);
-            }
-
-            // Fallback: constructor sin parámetros + setear propiedades
-            var instance = Activator.CreateInstance(elementType);
-            if (instance == null)
-                return null;
-
-            var latProp = ConventionHelpers.GetLatitudeProperty(elementType);
-            var lonProp = ConventionHelpers.GetLongitudeProperty(elementType);
-
-            latProp?.SetValue(instance, geoPoint.Latitude);
-            lonProp?.SetValue(instance, geoPoint.Longitude);
-
-            return instance;
+            return CreateInstanceFromData(elementType, geoData);
         }
 
         /// <summary>
@@ -1140,22 +928,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             }
 
             return collection;
-        }
-
-        /// <summary>
-        /// Checks if the enumerable contains DocumentReferences (ArrayOf Reference).
-        /// </summary>
-        private static bool IsArrayOfDocumentReferences(IEnumerable<object> array)
-        {
-            foreach (var item in array)
-            {
-                // Check first non-null item
-                if (item is DocumentReference)
-                    return true;
-                if (item != null)
-                    return false; // Not a DocumentReference
-            }
-            return false;
         }
 
         /// <summary>
@@ -1230,111 +1002,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             }
 
             return collection;
-        }
-
-        /// <summary>
-        /// Crea una instancia usando el mejor constructor disponible.
-        /// Includes non-public constructors to support DDD Value Objects with protected constructors.
-        /// For records with init properties, prefers constructors WITH parameters over parameterless.
-        /// </summary>
-        private static object? CreateInstanceWithBestConstructor(Type type, IDictionary<string, object> data)
-        {
-            // Get all constructors including non-public (protected/private)
-            var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-            // FIRST: Try constructors with parameters that match data keys
-            // This is essential for records where properties are init-only and cannot be set after construction
-            foreach (var constructor in constructors
-                .Where(c => c.GetParameters().Length > 0)
-                .OrderByDescending(c => c.GetParameters().Length))
-            {
-                var parameters = constructor.GetParameters();
-                var args = new object?[parameters.Length];
-                var allMatched = true;
-                var matchedDataKeys = 0;
-
-                for (int i = 0; i < parameters.Length; i++)
-                {
-                    var param = parameters[i];
-                    var dataKey = data.Keys.FirstOrDefault(k => k.Equals(param.Name, StringComparison.OrdinalIgnoreCase));
-
-                    if (dataKey != null && data.TryGetValue(dataKey, out var value))
-                    {
-                        args[i] = ConvertValueToType(value, param.ParameterType);
-                        matchedDataKeys++;
-                    }
-                    else if (param.HasDefaultValue)
-                    {
-                        args[i] = param.DefaultValue;
-                    }
-                    else
-                    {
-                        allMatched = false;
-                        break;
-                    }
-                }
-
-                // Use this constructor if all parameters matched and at least one came from data
-                if (allMatched && matchedDataKeys > 0)
-                {
-                    return constructor.Invoke(args);
-                }
-            }
-
-            // FALLBACK: Use parameterless constructor only if no parameterized constructor worked
-            // Note: For records with init properties, this will result in default values
-            var parameterlessConstructor = constructors.FirstOrDefault(c => c.GetParameters().Length == 0);
-            if (parameterlessConstructor != null)
-            {
-                return parameterlessConstructor.Invoke(Array.Empty<object>());
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Convierte un valor al tipo destino (helper estático).
-        /// </summary>
-        private static object? ConvertValueToType(object? value, Type targetType)
-        {
-            if (value == null)
-                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
-
-            if (targetType.IsAssignableFrom(value.GetType()))
-                return value;
-
-            // Conversiones comunes de Firestore
-            if (targetType == typeof(decimal) && value is double d)
-                return (decimal)d;
-
-            if (targetType == typeof(int) && value is long l)
-                return (int)l;
-
-            if (targetType == typeof(DateTime) && value is Google.Cloud.Firestore.Timestamp ts)
-                return ts.ToDateTime();
-
-            if (targetType == typeof(TimeSpan) && value is long ticks)
-                return TimeSpan.FromTicks(ticks);
-
-            try
-            {
-                return Convert.ChangeType(value, targetType);
-            }
-            catch
-            {
-                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
-            }
-        }
-
-        /// <summary>
-        /// Obtiene el tipo de elemento de una colección genérica.
-        /// </summary>
-        private static Type? GetCollectionElementType(Type type)
-        {
-            if (type.IsGenericType)
-                return type.GetGenericArguments().FirstOrDefault();
-
-            return null;
         }
 
         #endregion
