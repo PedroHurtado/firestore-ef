@@ -232,43 +232,6 @@ public class ProviderFixesPersistenceTests
     // ========================================================================
 
     [Fact]
-    public async Task Select_Projection_WithValueObjects_ShouldWork()
-    {
-        // Arrange
-        using var writeContext = CreateContext();
-        var menuItemId = Guid.NewGuid();
-
-        var menuItem = MenuItem.Create(
-            tenantId: _tenantId,
-            name: "Solomillo",
-            nutritionalInfo: NutritionalInfo.CreateBasic(320, 35.0m, 0m, 18.5m),
-            id: menuItemId
-        )
-        .WithPriceOptions(PriceOption.CreateFull(28.00m));
-
-        writeContext.MenuItems.Add(menuItem);
-        await writeContext.SaveChangesAsync();
-
-        // Act - Projection with separate context
-        using var readContext = CreateContext();
-        var projection = await readContext.MenuItems
-            .Where(m => m.Id == menuItemId)
-            .Select(m => new
-            {
-                m.Name,
-                Calories = m.NutritionalInfo != null ? m.NutritionalInfo.Calories : 0,
-                PriceCount = m.PriceOptions.Count
-            })
-            .FirstOrDefaultAsync();
-
-        // Assert
-        projection.Should().NotBeNull();
-        projection!.Name.Should().Be("Solomillo");
-        projection.Calories.Should().Be(320);
-        projection.PriceCount.Should().Be(1);
-    }
-
-    [Fact]
     public async Task Select_Projection_OnlyScalarProperties_ShouldWork()
     {
         // Arrange

@@ -419,11 +419,32 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     Expression.Constant(false));
             }
 
+            // Handle !FirestoreArrayContainsExpression → NOT SUPPORTED by Firestore
+            // This case occurs when the visitor has already transformed e.Array.Contains(value) to FirestoreArrayContainsExpression
+            if (notExpression.Operand is FirestoreArrayContainsExpression arrayContainsExpr)
+            {
+                throw new NotSupportedException(
+                    $"Firestore does not support 'NOT array-contains' queries. " +
+                    $"The expression '!{arrayContainsExpr.PropertyName}.Contains(value)' cannot be translated. " +
+                    $"Consider using client-side filtering with AsEnumerable() or restructuring your query.");
+            }
+
+            // Handle !FirestoreArrayContainsAnyExpression → NOT SUPPORTED by Firestore
+            if (notExpression.Operand is FirestoreArrayContainsAnyExpression arrayContainsAnyExpr)
+            {
+                throw new NotSupportedException(
+                    $"Firestore does not support 'NOT array-contains-any' queries. " +
+                    $"The expression '!{arrayContainsAnyExpr.PropertyName}.ContainsAny(values)' cannot be translated. " +
+                    $"Consider using client-side filtering with AsEnumerable() or restructuring your query.");
+            }
+
             // Handle !list.Contains(field) → NotIn
             if (notExpression.Operand is MethodCallExpression methodCall &&
                 methodCall.Method.Name == "Contains")
             {
                 // Case 1: Instance method - !list.Contains(e.Field) → NotIn
+                // Note: !e.ArrayField.Contains(value) is handled by ArrayContainsPatternTransformer
+                // which throws NotSupportedException during preprocessing.
                 if (methodCall.Object != null && methodCall.Arguments.Count == 1)
                 {
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
@@ -492,21 +513,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     }
                 }
 
-                // Case 3: e.ArrayField.Contains(value) → ArrayContains
-                if (methodCall.Object is MemberExpression objMember &&
-                    objMember.Member is PropertyInfo objProp &&
-                    methodCall.Arguments.Count == 1)
-                {
-                    var propertyName = BuildPropertyPath(objMember);
-                    return new List<FirestoreWhereClause>
-                    {
-                        new FirestoreWhereClause(propertyName, FirestoreOperator.ArrayContains, methodCall.Arguments[0])
-                    };
-                }
-
-                // Note: Case 4 (EF.Property<List<T>>().AsQueryable().Contains()) is handled by
-                // the Visitor's PreprocessArrayContainsPatterns which converts it to
-                // FirestoreArrayContainsExpression before it reaches this translator.
+                // Note: ArrayContains patterns (e.ArrayField.Contains(value) and
+                // EF.Property<List<T>>().AsQueryable().Contains()) are handled by
+                // ArrayContainsPatternTransformer in the preprocessing phase, which converts
+                // them to FirestoreArrayContainsExpression before reaching this translator.
             }
 
             return null;

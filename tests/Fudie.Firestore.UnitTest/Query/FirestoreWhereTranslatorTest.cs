@@ -196,23 +196,9 @@ public class FirestoreWhereTranslatorTest
         result.AndClauses[0].Operator.Should().Be(FirestoreOperator.In);
     }
 
-    [Fact]
-    public void Translate_Property_Contains_Returns_ArrayContains_Operator()
-    {
-        // p => p.Tags.Contains("tag1")
-        var parameter = Expression.Parameter(typeof(TestEntity), "p");
-        var property = Expression.Property(parameter, "Tags");
-        var constant = Expression.Constant("tag1");
-        var containsMethod = typeof(List<string>).GetMethod("Contains", new[] { typeof(string) })!;
-        var methodCall = Expression.Call(property, containsMethod, constant);
-
-        var result = _translator.Translate(methodCall);
-
-        result.Should().NotBeNull();
-        result!.AndClauses.Should().HaveCount(1);
-        result.AndClauses[0].PropertyName.Should().Be("Tags");
-        result.AndClauses[0].Operator.Should().Be(FirestoreOperator.ArrayContains);
-    }
+    // Note: ArrayContains patterns (p.Tags.Contains("value")) are handled by
+    // ArrayContainsPatternTransformer in preprocessing, not by this translator.
+    // See ArrayContainsPatternTransformerTests for those tests.
 
     #endregion
 

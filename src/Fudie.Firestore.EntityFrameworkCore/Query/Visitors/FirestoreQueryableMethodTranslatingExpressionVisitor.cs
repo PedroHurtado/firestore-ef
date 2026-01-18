@@ -59,6 +59,12 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Visitors
         /// <summary>
         /// Override Visit to preprocess the expression tree and transform array Contains patterns
         /// BEFORE the base class tries to process them as subqueries.
+        ///
+        /// This preprocessing is REQUIRED for patterns like:
+        /// - EF.Property&lt;List&lt;T&gt;&gt;().AsQueryable().Contains(value)
+        ///
+        /// Without this, EF Core interprets AsQueryable() as a subquery and fails with
+        /// "could not be translated" before reaching FirestoreWhereTranslator.
         /// </summary>
         public override Expression? Visit(Expression? expression)
         {

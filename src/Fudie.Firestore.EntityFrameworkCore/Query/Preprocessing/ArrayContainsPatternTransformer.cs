@@ -56,6 +56,27 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Preprocessing
             if (expression is UnaryExpression unary)
             {
                 var newOperand = Transform(unary.Operand);
+
+                // Check for NOT ArrayContains patterns - NOT SUPPORTED by Firestore
+                if (unary.NodeType == ExpressionType.Not)
+                {
+                    if (newOperand is FirestoreArrayContainsExpression arrayContainsExpr)
+                    {
+                        throw new System.NotSupportedException(
+                            $"Firestore does not support 'NOT array-contains' queries. " +
+                            $"The expression '!{arrayContainsExpr.PropertyName}.Contains(value)' cannot be translated. " +
+                            $"Consider using client-side filtering with AsEnumerable() or restructuring your query.");
+                    }
+
+                    if (newOperand is FirestoreArrayContainsAnyExpression arrayContainsAnyExpr)
+                    {
+                        throw new System.NotSupportedException(
+                            $"Firestore does not support 'NOT array-contains-any' queries. " +
+                            $"The expression '!{arrayContainsAnyExpr.PropertyName}.ContainsAny(values)' cannot be translated. " +
+                            $"Consider using client-side filtering with AsEnumerable() or restructuring your query.");
+                    }
+                }
+
                 if (newOperand != unary.Operand)
                 {
                     return unary.Update(newOperand);
@@ -100,6 +121,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Preprocessing
         /// Tries to transform Contains patterns to FirestoreArrayContainsExpression.
         /// Pattern 1: instance.Contains(value) where instance is AsQueryable()
         /// Pattern 2: Enumerable.Contains(asQueryable, value)
+        /// Pattern 3: e.Property.Contains(value) - direct MemberExpression (for enum, decimal, etc.)
+        /// Pattern 4: Enumerable.Contains(e.Property, value) - static method on MemberExpression
         /// </summary>
         private static Expression? TryTransformContains(
             MethodCallExpression methodCall,
@@ -137,7 +160,54 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Preprocessing
                 }
             }
 
+            // Pattern 3: e.Property.Contains(value) - direct MemberExpression (for enum, decimal, etc.)
+            // EF Core generates this pattern for value types instead of AsQueryable()
+            if (newObject is MemberExpression memberExpr && newArgs.Count == 1)
+            {
+                // Verify it's a collection property (List<T>, IEnumerable<T>, etc.)
+                var memberType = memberExpr.Type;
+                if (IsCollectionType(memberType))
+                {
+                    return new FirestoreArrayContainsExpression(memberExpr.Member.Name, newArgs[0]);
+                }
+            }
+
+            // Pattern 4: Static Enumerable.Contains(e.Property, value) - for value types
+            if (newObject == null && newArgs.Count == 2 &&
+                newArgs[0] is MemberExpression staticMemberExpr)
+            {
+                var memberType = staticMemberExpr.Type;
+                if (IsCollectionType(memberType))
+                {
+                    return new FirestoreArrayContainsExpression(staticMemberExpr.Member.Name, newArgs[1]);
+                }
+            }
+
             return null;
+        }
+
+        /// <summary>
+        /// Checks if a type is a collection type (List, IEnumerable, ICollection, etc.)
+        /// </summary>
+        private static bool IsCollectionType(System.Type type)
+        {
+            if (type == typeof(string)) return false; // string is IEnumerable<char> but not a collection for our purposes
+
+            if (type.IsGenericType)
+            {
+                var genericDef = type.GetGenericTypeDefinition();
+                if (genericDef == typeof(List<>) ||
+                    genericDef == typeof(IList<>) ||
+                    genericDef == typeof(ICollection<>) ||
+                    genericDef == typeof(IEnumerable<>))
+                {
+                    return true;
+                }
+            }
+
+            // Check if it implements IEnumerable<T>
+            return type.GetInterfaces().Any(i =>
+                i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
         }
 
         /// <summary>
