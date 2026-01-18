@@ -1110,7 +1110,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             // ✅ Si es colección, ignorar el converter de EF Core
             if (value is IEnumerable enumerable && value is not string && value is not byte[])
             {
-                return ConvertCollection(property, enumerable);
+                return ConvertCollection(enumerable);
             }
 
             // ✅ Para otros tipos, buscar converter en property O en typeMapping
@@ -1215,27 +1215,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     $"El tipo '{type.Name}' debe tener una propiedad 'Longitude' o 'Longitud' para usar HasGeoPoint()");
         }
 
-        private object ConvertCollection(IProperty property, IEnumerable collection)
+        private object ConvertCollection(IEnumerable collection)
         {
-            var elementType = property.ClrType.GetGenericArguments().FirstOrDefault()
-                              ?? property.ClrType.GetElementType();
-
-            if (elementType == null)
-                return collection;
-
-            // ✅ Para decimal → double
-            if (elementType == typeof(decimal))
-            {
-                return collection.Cast<decimal>().Select(d => (double)d).ToList();
-            }
-
-            // ✅ Para enum → string
-            if (elementType.IsEnum)
-            {
-                return collection.Cast<object>().Select(e => e.ToString()!).ToList();
-            }
-
-            return collection;
+            // Delegar toda la conversión al servicio centralizado
+            return _valueConverter.ToFirestore(collection)!;
         }
 
         private CoreTypeMapping? FindMappingForType(Type type)

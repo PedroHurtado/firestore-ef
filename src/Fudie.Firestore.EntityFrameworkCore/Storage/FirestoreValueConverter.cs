@@ -135,7 +135,7 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         return value;
     }
 
-    private static object[] ConvertCollectionToFirestore(IEnumerable enumerable)
+    private static List<object> ConvertCollectionToFirestore(IEnumerable enumerable)
     {
         var result = new List<object>();
 
@@ -172,7 +172,7 @@ public class FirestoreValueConverter : IFirestoreValueConverter
             }
         }
 
-        return result.ToArray();
+        return result;
     }
 
     private object ConvertCollectionFromFirestore(IEnumerable enumerable, Type targetType)

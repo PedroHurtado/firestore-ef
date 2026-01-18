@@ -793,7 +793,7 @@ public class PrimitiveArraySerializationTests
         {
             Id = id,
             Name = "GuidTest",
-            ExternalIds = guids.ToList()
+            ExternalIds = [.. guids]
         };
 
         context.PrimitiveArrays.Add(entity);
