@@ -710,6 +710,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                         ArrayOfAnnotations.ArrayType.Embedded => DeserializeArrayOfEmbedded(arrayValue, elementType, propertyInfo.PropertyType, relatedEntities),
                         ArrayOfAnnotations.ArrayType.GeoPoint => DeserializeArrayOfGeoPoints(arrayValue, elementType, propertyInfo.PropertyType),
                         ArrayOfAnnotations.ArrayType.Reference => DeserializeArrayOfReferences(arrayValue, elementType, propertyInfo.PropertyType, relatedEntities),
+                        ArrayOfAnnotations.ArrayType.Primitive => DeserializeArrayOfPrimitives(arrayValue, elementType, propertyInfo.PropertyType),
                         _ => null
                     };
 
@@ -936,6 +937,28 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     {
                         AddToCollection(collection, entity);
                     }
+                }
+            }
+
+            return collection;
+        }
+
+        /// <summary>
+        /// Deserializa un array de primitivos (int, string, enum, etc.) a List&lt;T&gt; o HashSet&lt;T&gt;.
+        /// </summary>
+        private object DeserializeArrayOfPrimitives(
+            IEnumerable<object> arrayValue,
+            Type elementType,
+            Type propertyType)
+        {
+            var collection = CreateTypedCollection(elementType, propertyType);
+
+            foreach (var item in arrayValue)
+            {
+                var convertedValue = _valueConverter.FromFirestore(item, elementType);
+                if (convertedValue != null)
+                {
+                    AddToCollection(collection, convertedValue);
                 }
             }
 

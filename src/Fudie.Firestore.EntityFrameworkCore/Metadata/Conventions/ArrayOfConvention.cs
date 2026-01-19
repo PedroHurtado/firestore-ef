@@ -22,10 +22,11 @@ namespace Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingConvention
 {
     // Almacena los tipos de elementos que se han marcado como ArrayOf para limpiarlos después
-    private static readonly HashSet<Type> _arrayOfElementTypes = [];
+    // NOTA: No usar static para evitar interferencia entre tests paralelos
+    private readonly HashSet<Type> _arrayOfElementTypes = [];
 
     // Almacena las propiedades que podrían ser ArrayOf Reference pendientes de validar
-    private static readonly List<(Type EntityType, string PropertyName, Type ElementType)> _pendingReferenceArrays = [];
+    private readonly List<(Type EntityType, string PropertyName, Type ElementType)> _pendingReferenceArrays = [];
 
     public void ProcessEntityTypeAdded(
         IConventionEntityTypeBuilder entityTypeBuilder,
@@ -147,8 +148,29 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
 
         _arrayOfElementTypes.Clear();
 
-        // Paso 5: Crear shadow properties para change tracking de todas las propiedades ArrayOf
+        // Paso 5: Detectar colecciones con backing fields que EF Core ignoró
+        // (ej: IReadOnlyCollection<DayOfWeek> AvailableDays con backing field _availableDays)
+        DetectIgnoredCollectionsWithBackingFields(model);
+
+        // Paso 6: Detectar backing fields para TODAS las propiedades ArrayOf que no lo tengan
+        // (incluye las configuradas por ArrayOfBuilder en OnModelCreating)
+        DetectBackingFieldsForAllArrayOf(model);
+
+        // Paso 7: Crear shadow properties para change tracking de todas las propiedades ArrayOf
         CreateShadowPropertiesForArrayOf(model);
+
+        var debug = model.GetEntityTypes()
+        .Select(et => new { 
+            Entity = et.ClrType.Name, 
+            Annotations = et.GetAnnotations()
+                .Where(a => a.Name.StartsWith("Firestore:ArrayOf:"))
+                .Select(a => $"{a.Name}={a.Value}")
+                .ToList() 
+        })
+        .Where(x => x.Annotations.Count > 0)
+        .ToList();
+
+        
     }
 
     /// <summary>
@@ -256,6 +278,95 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
                 if (registeredEntityTypes.Contains(elementType))
                 {
                     ApplyArrayOfReference(entityType, propertyInfo.Name, elementType);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Detecta colecciones con backing fields que EF Core ignoró silenciosamente.
+    /// Esto incluye propiedades como IReadOnlyCollection&lt;DayOfWeek&gt; AvailableDays
+    /// que tienen un backing field _availableDays pero EF Core las ignora porque
+    /// no tienen setter público.
+    /// </summary>
+    private static void DetectIgnoredCollectionsWithBackingFields(IConventionModel model)
+    {
+        var registeredEntityTypes = model.GetEntityTypes()
+            .Select(et => et.ClrType)
+            .ToHashSet();
+
+        foreach (var entityType in model.GetEntityTypes().ToList())
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var (propertyName, fieldInfo, elementType) in ConventionHelpers.FindCollectionBackingFields(clrType))
+            {
+                // Ya está configurado como ArrayOf
+                if (entityType.IsArrayOf(propertyName))
+                    continue;
+
+                // Es una navegación de EF Core (no ignorada)
+                if (entityType.FindNavigation(propertyName) != null)
+                    continue;
+
+                // Es una propiedad escalar de EF Core
+                if (entityType.FindProperty(propertyName) != null)
+                    continue;
+
+                var mutableEntityType = (IMutableEntityType)entityType;
+
+                // Determinar el tipo de ArrayOf según el elementType
+                if (ConventionHelpers.IsPrimitiveOrSimpleType(elementType))
+                {
+                    // Primitivo o Enum → ArrayOf Primitive
+                    ApplyArrayOfPrimitive(entityType, propertyName, elementType);
+                }
+                else if (ConventionHelpers.IsGeoPointType(elementType))
+                {
+                    ApplyArrayOfGeoPoint(entityType, propertyName, elementType);
+                }
+                else if (registeredEntityTypes.Contains(elementType))
+                {
+                    // Es una entidad registrada → ArrayOf Reference
+                    ApplyArrayOfReference(entityType, propertyName, elementType);
+                }
+                else if (elementType.IsClass && !elementType.IsAbstract)
+                {
+                    // ComplexType → ArrayOf Embedded
+                    ApplyArrayOfEmbedded(entityType, propertyName, elementType);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Detecta backing fields para TODAS las propiedades ArrayOf que no lo tengan.
+    /// Esto incluye las configuradas por ArrayOfBuilder en OnModelCreating.
+    /// </summary>
+    private static void DetectBackingFieldsForAllArrayOf(IConventionModel model)
+    {
+        foreach (var entityType in model.GetEntityTypes())
+        {
+            var clrType = entityType.ClrType;
+            var mutableEntityType = (IMutableEntityType)entityType;
+
+            foreach (var propertyInfo in clrType.GetProperties())
+            {
+                var propertyName = propertyInfo.Name;
+
+                // Solo procesar propiedades ArrayOf
+                if (!entityType.IsArrayOf(propertyName))
+                    continue;
+
+                // Ya tiene backing field configurado
+                if (entityType.GetArrayOfBackingField(propertyName) != null)
+                    continue;
+
+                // Detectar backing field
+                var backingField = ConventionHelpers.FindBackingField(clrType, propertyName);
+                if (backingField != null)
+                {
+                    mutableEntityType.SetArrayOfBackingField(propertyName, backingField);
                 }
             }
         }

@@ -172,4 +172,94 @@ public static class ConventionHelpers
     }
 
     #endregion
+
+    #region Detección de Backing Fields
+
+    /// <summary>
+    /// Busca el backing field para una propiedad usando las convenciones de EF Core.
+    /// Patrones soportados (en orden de precedencia):
+    /// 1. _camelCasedPropertyName (ej: _priceOptions para PriceOptions)
+    /// 2. _PropertyName (ej: _PriceOptions para PriceOptions)
+    /// 3. m_camelCasedPropertyName (ej: m_priceOptions para PriceOptions)
+    /// 4. m_PropertyName (ej: m_PriceOptions para PriceOptions)
+    /// </summary>
+    public static FieldInfo? FindBackingField(Type clrType, string propertyName)
+    {
+        if (string.IsNullOrEmpty(propertyName))
+            return null;
+
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var camelCase = char.ToLowerInvariant(propertyName[0]) + propertyName[1..];
+
+        // Patrones EF Core en orden de precedencia
+        string[] patterns =
+        [
+            $"_{camelCase}",      // _priceOptions
+            $"_{propertyName}",   // _PriceOptions
+            $"m_{camelCase}",     // m_priceOptions
+            $"m_{propertyName}"   // m_PriceOptions
+        ];
+
+        return patterns
+            .Select(name => clrType.GetField(name, flags))
+            .FirstOrDefault(f => f != null);
+    }
+
+    /// <summary>
+    /// Busca backing fields de colecciones que no fueron detectados por EF Core.
+    /// Retorna tuplas (propertyName, fieldInfo, elementType) para cada backing field encontrado.
+    /// </summary>
+    public static IEnumerable<(string PropertyName, FieldInfo FieldInfo, Type ElementType)> FindCollectionBackingFields(Type clrType)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        foreach (var field in clrType.GetFields(flags))
+        {
+            var fieldType = field.FieldType;
+
+            // Solo procesar colecciones genéricas
+            if (!IsGenericCollection(fieldType))
+                continue;
+
+            var elementType = GetCollectionElementType(fieldType);
+            if (elementType == null)
+                continue;
+
+            // Inferir nombre de propiedad desde el nombre del field
+            var propertyName = InferPropertyNameFromField(field.Name);
+            if (propertyName == null)
+                continue;
+
+            // Verificar que existe una propiedad pública con ese nombre
+            var property = clrType.GetProperty(propertyName);
+            if (property == null)
+                continue;
+
+            yield return (propertyName, field, elementType);
+        }
+    }
+
+    /// <summary>
+    /// Infiere el nombre de la propiedad desde el nombre del backing field.
+    /// Soporta patrones: _camelCase, _PascalCase, m_camelCase, m_PascalCase
+    /// </summary>
+    private static string? InferPropertyNameFromField(string fieldName)
+    {
+        string baseName;
+
+        if (fieldName.StartsWith("m_"))
+            baseName = fieldName[2..];
+        else if (fieldName.StartsWith("_"))
+            baseName = fieldName[1..];
+        else
+            return null;
+
+        if (string.IsNullOrEmpty(baseName))
+            return null;
+
+        // Convertir a PascalCase si es camelCase
+        return char.ToUpperInvariant(baseName[0]) + baseName[1..];
+    }
+
+    #endregion
 }
