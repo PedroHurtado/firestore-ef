@@ -144,4 +144,160 @@ public class MixedArraySerializationTests
         // Bool
         retrieved.MixedValues[7].Should().Be(testBool);
     }
+
+    // ========================================================================
+    // LIST<OBJECT> CHANGE TRACKING
+    // ========================================================================
+
+    [Fact]
+    public async Task ListObject_ModifyElement_ShouldPersistChange()
+    {
+        // Arrange
+        var id = FirestoreTestFixture.GenerateId("mixed-ct");
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = new MixedArrayEntity
+            {
+                Id = id,
+                Name = "MixedChangeTrackingTest",
+                MixedValues = ["original", 42, true]
+            };
+            context.MixedArrays.Add(entity);
+            await context.SaveChangesAsync();
+        }
+
+        // Act - Modify an element
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = await context.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            entity!.MixedValues[0] = "modified";
+            entity.MixedValues[1] = 999;
+            await context.SaveChangesAsync();
+        }
+
+        // Assert
+        using (var readContext = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var retrieved = await readContext.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            retrieved.Should().NotBeNull();
+            retrieved!.MixedValues.Should().HaveCount(3);
+            retrieved.MixedValues[0].Should().Be("modified");
+            Convert.ToInt32(retrieved.MixedValues[1]).Should().Be(999);
+            retrieved.MixedValues[2].Should().Be(true);
+        }
+    }
+
+    [Fact]
+    public async Task ListObject_AddElement_ShouldPersistChange()
+    {
+        // Arrange
+        var id = FirestoreTestFixture.GenerateId("mixed-ct");
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = new MixedArrayEntity
+            {
+                Id = id,
+                Name = "MixedAddTest",
+                MixedValues = ["a", "b"]
+            };
+            context.MixedArrays.Add(entity);
+            await context.SaveChangesAsync();
+        }
+
+        // Act - Add new elements
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = await context.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            entity!.MixedValues.Add(123);
+            entity.MixedValues.Add(true);
+            await context.SaveChangesAsync();
+        }
+
+        // Assert
+        using (var readContext = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var retrieved = await readContext.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            retrieved.Should().NotBeNull();
+            retrieved!.MixedValues.Should().HaveCount(4);
+            retrieved.MixedValues[0].Should().Be("a");
+            retrieved.MixedValues[1].Should().Be("b");
+            Convert.ToInt32(retrieved.MixedValues[2]).Should().Be(123);
+            retrieved.MixedValues[3].Should().Be(true);
+        }
+    }
+
+    [Fact]
+    public async Task ListObject_RemoveElement_ShouldPersistChange()
+    {
+        // Arrange
+        var id = FirestoreTestFixture.GenerateId("mixed-ct");
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = new MixedArrayEntity
+            {
+                Id = id,
+                Name = "MixedRemoveTest",
+                MixedValues = ["first", "second", 42, true]
+            };
+            context.MixedArrays.Add(entity);
+            await context.SaveChangesAsync();
+        }
+
+        // Act - Remove elements
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = await context.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            entity!.MixedValues.Remove("second");
+            entity.MixedValues.RemoveAt(entity.MixedValues.Count - 1);
+            await context.SaveChangesAsync();
+        }
+
+        // Assert
+        using (var readContext = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var retrieved = await readContext.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            retrieved.Should().NotBeNull();
+            retrieved!.MixedValues.Should().HaveCount(2);
+            retrieved.MixedValues[0].Should().Be("first");
+            Convert.ToInt32(retrieved.MixedValues[1]).Should().Be(42);
+        }
+    }
+
+    [Fact]
+    public async Task ListObject_ClearAndReplace_ShouldPersistChange()
+    {
+        // Arrange
+        var id = FirestoreTestFixture.GenerateId("mixed-ct");
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = new MixedArrayEntity
+            {
+                Id = id,
+                Name = "MixedClearTest",
+                MixedValues = ["old1", "old2", 100]
+            };
+            context.MixedArrays.Add(entity);
+            await context.SaveChangesAsync();
+        }
+
+        // Act - Clear and add new elements
+        using (var context = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var entity = await context.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            entity!.MixedValues.Clear();
+            entity.MixedValues.Add("new1");
+            entity.MixedValues.Add(999);
+            await context.SaveChangesAsync();
+        }
+
+        // Assert
+        using (var readContext = _fixture.CreateContext<MixedArrayTestDbContext>())
+        {
+            var retrieved = await readContext.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+            retrieved.Should().NotBeNull();
+            retrieved!.MixedValues.Should().HaveCount(2);
+            retrieved.MixedValues[0].Should().Be("new1");
+            Convert.ToInt32(retrieved.MixedValues[1]).Should().Be(999);
+        }
+    }
 }

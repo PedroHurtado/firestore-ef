@@ -1,9 +1,7 @@
 using Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
 using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
-using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
 using Google.Cloud.Firestore;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
+
 
 namespace Fudie.Firestore.UnitTest.Update;
 
@@ -63,10 +61,13 @@ public class PartialUpdateBuilderTests
         }
     }
 
-    private static TestDbContext CreateInMemoryContext()
+    private static TestDbContext CreateTestContext()
     {
+        // Configure emulator to avoid real Firestore connection
+        Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
+
         var options = new DbContextOptionsBuilder<TestDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseFirestore("test-project")
             .Options;
 
         return new TestDbContext(options);
@@ -78,15 +79,11 @@ public class PartialUpdateBuilderTests
 
     private static EntityEntry<Customer> SetupTrackedCustomer(TestDbContext context, Customer customer)
     {
-        context.Customers.Add(customer);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach as unchanged
+        // Attach as unchanged (simulating entity loaded from database)
         context.Customers.Attach(customer);
         var entry = context.Entry(customer);
 
-        // Initialize ArrayOf shadow properties
+        // Initialize ArrayOf shadow properties (simulating what TrackingHandler does on load)
         InitializeArrayOfShadowProperties(entry);
 
         entry.State = EntityState.Unchanged;
@@ -122,7 +119,7 @@ public class PartialUpdateBuilderTests
     public void PropertyEntry_WhenModified_ShouldHaveIsModifiedTrue()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -146,7 +143,7 @@ public class PartialUpdateBuilderTests
     public void PropertyEntry_WhenSetToNull_ShouldHaveIsModifiedTrueAndNullValues()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -170,7 +167,7 @@ public class PartialUpdateBuilderTests
     public void PropertyEntry_WhenMultipleModified_ShouldDetectAll()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -196,7 +193,7 @@ public class PartialUpdateBuilderTests
     public void PropertyEntry_WhenNoChanges_AllShouldBeUnmodified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -223,7 +220,7 @@ public class PartialUpdateBuilderTests
     public void ComplexPropertyEntry_WhenFieldModified_ShouldDetect()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -252,7 +249,7 @@ public class PartialUpdateBuilderTests
     public void ComplexPropertyEntry_WhenFieldSetToNull_ShouldDetect()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -281,7 +278,7 @@ public class PartialUpdateBuilderTests
     public void ComplexPropertyEntry_WhenMultipleFieldsModified_ShouldDetectAll()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -314,7 +311,7 @@ public class PartialUpdateBuilderTests
     public void ArrayOfShadowProperty_WhenElementAdded_ShouldMarkModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -326,7 +323,7 @@ public class PartialUpdateBuilderTests
         };
 
         var entry = SetupTrackedCustomer(context, customer);
-        var shadowPropName = ArrayOfBuilder<Customer, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
 
         // Act - Add new element
         customer.OpeningHours.Add(new OpeningHour { Day = "Tuesday", OpenTime = "09:00", CloseTime = "18:00" });
@@ -341,7 +338,7 @@ public class PartialUpdateBuilderTests
     public void ArrayOfShadowProperty_WhenElementRemoved_ShouldMarkModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -354,7 +351,7 @@ public class PartialUpdateBuilderTests
         };
 
         var entry = SetupTrackedCustomer(context, customer);
-        var shadowPropName = ArrayOfBuilder<Customer, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
 
         // Act - Remove element
         customer.OpeningHours.RemoveAt(1);
@@ -369,7 +366,7 @@ public class PartialUpdateBuilderTests
     public void ArrayOfShadowProperty_WhenElementModified_ShouldMarkModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -381,7 +378,7 @@ public class PartialUpdateBuilderTests
         };
 
         var entry = SetupTrackedCustomer(context, customer);
-        var shadowPropName = ArrayOfBuilder<Customer, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
 
         // Act - Modify element
         customer.OpeningHours[0].OpenTime = "10:00";
@@ -396,7 +393,7 @@ public class PartialUpdateBuilderTests
     public void ArrayOfShadowProperty_WhenNoChanges_ShouldNotBeModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -408,7 +405,7 @@ public class PartialUpdateBuilderTests
         };
 
         var entry = SetupTrackedCustomer(context, customer);
-        var shadowPropName = ArrayOfBuilder<Customer, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
 
         // Act - No modifications, just sync
         ArrayOfChangeTracker.SyncArrayOfChanges(context);
@@ -426,7 +423,7 @@ public class PartialUpdateBuilderTests
     public void MixedChanges_ShouldDetectAllModifications()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var customer = new Customer
         {
             Id = "cust-1",
@@ -455,7 +452,7 @@ public class PartialUpdateBuilderTests
         entry.Property(nameof(Customer.Phone)).IsModified.Should().BeTrue();
         entry.ComplexProperty(nameof(Customer.Address)).Property(nameof(Address.City)).IsModified.Should().BeTrue();
 
-        var shadowPropName = ArrayOfBuilder<Customer, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         entry.Property(shadowPropName).IsModified.Should().BeTrue();
     }
 

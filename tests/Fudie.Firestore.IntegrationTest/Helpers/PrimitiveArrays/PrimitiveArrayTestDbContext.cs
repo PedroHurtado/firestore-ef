@@ -1,3 +1,4 @@
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.IntegrationTest.Helpers.PrimitiveArrays;
@@ -19,6 +20,14 @@ public class MixedArrayTestDbContext(DbContextOptions<MixedArrayTestDbContext> o
     : DbContext(options)
 {
     public DbSet<MixedArrayEntity> MixedArrays => Set<MixedArrayEntity>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MixedArrayEntity>(entity =>
+        {
+           entity.ArrayOf(p=>p.MixedValues);
+        });
+    }
 }
 
 /// <summary>

@@ -50,6 +50,12 @@ public static class ArrayOfAnnotations
     public const string IgnoredProperties = Prefix + "IgnoredProperties";
 
     /// <summary>
+    /// Genera el nombre de la shadow property para tracking de cambios.
+    /// Formato: __{PropertyName}_Json
+    /// </summary>
+    public static string GetShadowPropertyName(string propertyName) => $"__{propertyName}_Json";
+
+    /// <summary>
     /// Valores posibles para el tipo de array
     /// </summary>
     public static class ArrayType

@@ -1,6 +1,6 @@
 using Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
-using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
 using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
+using Fudie.Firestore.UnitTest.TestHelpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Fudie.Firestore.UnitTest.ChangeTracking;
@@ -8,6 +8,7 @@ namespace Fudie.Firestore.UnitTest.ChangeTracking;
 /// <summary>
 /// Tests for ArrayOfChangeTracker helper.
 /// Verifies that ArrayOf changes are properly detected and entities are marked as Modified.
+/// Uses Firestore conventions (via FirestoreTestHelpers) to ensure shadow properties are created correctly.
 /// </summary>
 public class ArrayOfChangeTrackerTests
 {
@@ -37,15 +38,6 @@ public class ArrayOfChangeTrackerTests
 
         public TestDbContext(DbContextOptions<TestDbContext> options) : base(options) { }
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            modelBuilder.Entity<Store>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.ArrayOf(e => e.OpeningHours);
-            });
-        }
-
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
             ArrayOfChangeTracker.SyncArrayOfChanges(this);
@@ -59,10 +51,13 @@ public class ArrayOfChangeTrackerTests
         }
     }
 
-    private static TestDbContext CreateInMemoryContext()
+    private static TestDbContext CreateTestContext()
     {
+        // Configure emulator to avoid real Firestore connection
+        Environment.SetEnvironmentVariable("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080");
+
         var options = new DbContextOptionsBuilder<TestDbContext>()
-            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .UseFirestore("test-project")
             .Options;
 
         return new TestDbContext(options);
@@ -76,7 +71,7 @@ public class ArrayOfChangeTrackerTests
     public void SyncArrayOfChanges_WhenArrayElementModified_ShouldMarkEntityAsModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var store = new Store
         {
             Id = "store-1",
@@ -87,22 +82,18 @@ public class ArrayOfChangeTrackerTests
             }
         };
 
-        context.Stores.Add(store);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach as unchanged
+        // Simular que la entidad viene de la base de datos (attached como Unchanged)
         context.Stores.Attach(store);
-        var originalState = context.Entry(store).State;
-
-        // Initialize shadow property (simulating what TrackingHandler does)
-        var entityType = context.Model.FindEntityType(typeof(Store))!;
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
         var entry = context.Entry(store);
+
+        // Initialize shadow property (simulating what TrackingHandler does on load)
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var initialJson = System.Text.Json.JsonSerializer.Serialize(store.OpeningHours);
         entry.Property(shadowPropName).CurrentValue = initialJson;
         entry.Property(shadowPropName).OriginalValue = initialJson;
         entry.State = EntityState.Unchanged;
+
+        var originalState = entry.State;
 
         // Act - Modify array element
         store.OpeningHours[0].OpenTime = "10:00";
@@ -118,7 +109,7 @@ public class ArrayOfChangeTrackerTests
     public void SyncArrayOfChanges_WhenNoChanges_ShouldKeepEntityUnchanged()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var store = new Store
         {
             Id = "store-1",
@@ -129,15 +120,9 @@ public class ArrayOfChangeTrackerTests
             }
         };
 
-        context.Stores.Add(store);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach as unchanged with initialized shadow property
         context.Stores.Attach(store);
-        var entityType = context.Model.FindEntityType(typeof(Store))!;
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
         var entry = context.Entry(store);
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var initialJson = System.Text.Json.JsonSerializer.Serialize(store.OpeningHours);
         entry.Property(shadowPropName).CurrentValue = initialJson;
         entry.Property(shadowPropName).OriginalValue = initialJson;
@@ -154,7 +139,7 @@ public class ArrayOfChangeTrackerTests
     public void SyncArrayOfChanges_WhenElementAdded_ShouldMarkEntityAsModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var store = new Store
         {
             Id = "store-1",
@@ -165,14 +150,9 @@ public class ArrayOfChangeTrackerTests
             }
         };
 
-        context.Stores.Add(store);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach as unchanged with initialized shadow property
         context.Stores.Attach(store);
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
         var entry = context.Entry(store);
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var initialJson = System.Text.Json.JsonSerializer.Serialize(store.OpeningHours);
         entry.Property(shadowPropName).CurrentValue = initialJson;
         entry.Property(shadowPropName).OriginalValue = initialJson;
@@ -190,7 +170,7 @@ public class ArrayOfChangeTrackerTests
     public void SyncArrayOfChanges_WhenElementRemoved_ShouldMarkEntityAsModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var store = new Store
         {
             Id = "store-1",
@@ -202,14 +182,9 @@ public class ArrayOfChangeTrackerTests
             }
         };
 
-        context.Stores.Add(store);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach as unchanged with initialized shadow property
         context.Stores.Attach(store);
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
         var entry = context.Entry(store);
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var initialJson = System.Text.Json.JsonSerializer.Serialize(store.OpeningHours);
         entry.Property(shadowPropName).CurrentValue = initialJson;
         entry.Property(shadowPropName).OriginalValue = initialJson;
@@ -227,7 +202,7 @@ public class ArrayOfChangeTrackerTests
     public void SyncArrayOfChanges_WhenEntityAlreadyModified_ShouldRemainModified()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var store = new Store
         {
             Id = "store-1",
@@ -238,18 +213,14 @@ public class ArrayOfChangeTrackerTests
             }
         };
 
-        context.Stores.Add(store);
-        context.SaveChanges();
-        context.ChangeTracker.Clear();
-
-        // Re-attach and modify Name first
         context.Stores.Attach(store);
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
         var entry = context.Entry(store);
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var initialJson = System.Text.Json.JsonSerializer.Serialize(store.OpeningHours);
         entry.Property(shadowPropName).CurrentValue = initialJson;
         entry.Property(shadowPropName).OriginalValue = initialJson;
 
+        // Modify Name first
         store.Name = "Updated Store";
         entry.State.Should().Be(EntityState.Modified);
 
@@ -263,17 +234,17 @@ public class ArrayOfChangeTrackerTests
 
     #endregion
 
-    #region Shadow Property Naming Tests
+    #region Shadow Property Tests (Convention Integration)
 
     [Fact]
-    public void ShadowProperty_ShouldBeCreatedWithCorrectName()
+    public void Convention_ShouldCreateShadowPropertyWithCorrectName()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var entityType = context.Model.FindEntityType(typeof(Store))!;
 
         // Act
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var shadowProperty = entityType.FindProperty(shadowPropName);
 
         // Assert
@@ -282,12 +253,12 @@ public class ArrayOfChangeTrackerTests
     }
 
     [Fact]
-    public void ShadowProperty_ShouldHaveCorrectAnnotation()
+    public void Convention_ShadowPropertyShouldHaveCorrectAnnotation()
     {
         // Arrange
-        using var context = CreateInMemoryContext();
+        using var context = CreateTestContext();
         var entityType = context.Model.FindEntityType(typeof(Store))!;
-        var shadowPropName = ArrayOfBuilder<Store, OpeningHour>.GetShadowPropertyName("OpeningHours");
+        var shadowPropName = ArrayOfAnnotations.GetShadowPropertyName("OpeningHours");
         var shadowProperty = entityType.FindProperty(shadowPropName);
 
         // Act
@@ -295,6 +266,18 @@ public class ArrayOfChangeTrackerTests
 
         // Assert
         trackerFor.Should().Be("OpeningHours");
+    }
+
+    [Fact]
+    public void Convention_ShouldMarkPropertyAsArrayOfEmbedded()
+    {
+        // Arrange
+        using var context = CreateTestContext();
+        var entityType = context.Model.FindEntityType(typeof(Store))!;
+
+        // Assert - La convención debe detectar automáticamente OpeningHours como Embedded
+        entityType.IsArrayOf("OpeningHours").Should().BeTrue();
+        entityType.IsArrayOfEmbedded("OpeningHours").Should().BeTrue();
     }
 
     #endregion

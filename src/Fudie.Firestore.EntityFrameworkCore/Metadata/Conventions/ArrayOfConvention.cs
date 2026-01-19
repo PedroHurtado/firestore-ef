@@ -146,6 +146,43 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
         }
 
         _arrayOfElementTypes.Clear();
+
+        // Paso 5: Crear shadow properties para change tracking de todas las propiedades ArrayOf
+        CreateShadowPropertiesForArrayOf(model);
+    }
+
+    /// <summary>
+    /// Crea shadow properties __{PropertyName}_Json para todas las propiedades ArrayOf.
+    /// Estas shadow properties se usan para detectar cambios en los arrays.
+    /// </summary>
+    private static void CreateShadowPropertiesForArrayOf(IConventionModel model)
+    {
+        foreach (var entityType in model.GetEntityTypes())
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var propertyInfo in clrType.GetProperties())
+            {
+                var propertyName = propertyInfo.Name;
+
+                // Solo procesar propiedades que están anotadas como ArrayOf
+                if (!entityType.IsArrayOf(propertyName))
+                    continue;
+
+                // Verificar si ya existe la shadow property (creada por ArrayOfBuilder anteriormente)
+                var shadowPropertyName = ArrayOfAnnotations.GetShadowPropertyName(propertyName);
+                if (entityType.FindProperty(shadowPropertyName) != null)
+                    continue;
+
+                // Crear la shadow property
+                var mutableEntityType = (IMutableEntityType)entityType;
+                var shadowProperty = mutableEntityType.AddProperty(shadowPropertyName, typeof(string));
+                shadowProperty.IsNullable = true;
+
+                // Marcar como tracker JSON
+                shadowProperty.SetAnnotation(ArrayOfAnnotations.JsonTrackerFor, propertyName);
+            }
+        }
     }
 
     /// <summary>
