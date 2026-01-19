@@ -416,6 +416,16 @@ public class PartialUpdateBuilder
 
             var currentArray = arrayProperty.GetValue(entity) as IEnumerable;
 
+            // For Primitive arrays (List<object>), do full replacement instead of ArrayUnion/ArrayRemove
+            // because Firestore's array operations don't preserve order and element comparison
+            // doesn't work well for modified primitive values
+            if (arrayType == ArrayOfAnnotations.ArrayType.Primitive)
+            {
+                var convertedArray = ConvertPrimitiveArrayToFirestore(currentArray);
+                result.Updates[trackerFor] = convertedArray;
+                continue;
+            }
+
             // Compute diff and add to result
             ComputeArrayDiff(
                 trackerFor,
@@ -722,6 +732,32 @@ public class PartialUpdateBuilder
         }
 
         return dict;
+    }
+
+    /// <summary>
+    /// Converts a primitive array (List&lt;object&gt;) to Firestore format.
+    /// Each element is converted using the value converter for proper type handling.
+    /// </summary>
+    private object ConvertPrimitiveArrayToFirestore(IEnumerable? array)
+    {
+        if (array == null)
+            return new List<object>();
+
+        var result = new List<object>();
+        foreach (var item in array)
+        {
+            if (item == null)
+            {
+                result.Add(null!);
+                continue;
+            }
+
+            // Use the value converter to properly convert each primitive
+            var converted = _valueConverter.ToFirestore(item);
+            result.Add(converted ?? item);
+        }
+
+        return result;
     }
 
     #endregion
