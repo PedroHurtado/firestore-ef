@@ -950,4 +950,106 @@ public class PrimitiveArraySerializationTests
         retrieved.Priorities.Should().NotBeNull().And.BeEmpty();
         retrieved.ExternalIds.Should().NotBeNull().And.BeEmpty();
     }
+
+    // ========================================================================
+    // PROJECTION - All primitive array types
+    // ========================================================================
+
+    [Fact]
+    public async Task Projection_AllPrimitiveArrayTypes_ShouldDeserializeCorrectly()
+    {
+        // Arrange
+        var id = FirestoreTestFixture.GenerateId("prim");
+        var guids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dates = new[]
+        {
+            new DateTime(2024, 1, 15, 10, 30, 0, DateTimeKind.Utc),
+            new DateTime(2024, 6, 20, 14, 0, 0, DateTimeKind.Utc)
+        };
+
+        using (var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>())
+        {
+            var entity = new PrimitiveArrayEntity
+            {
+                Id = id,
+                Name = "ProjectionTest",
+                Tags = ["tag1", "tag2", "tag3"],
+                Quantities = [10, 20, 30],
+                BigNumbers = [1000000000L, 2000000000L],
+                Measurements = [1.5, 2.75, 3.14159],
+                Prices = [19.99m, 29.99m, 99.95m],
+                Flags = [true, false, true],
+                EventDates = [.. dates],
+                Priorities = [Priority.Low, Priority.High, Priority.Critical],
+                ExternalIds = [.. guids]
+            };
+
+            context.PrimitiveArrays.Add(entity);
+            await context.SaveChangesAsync();
+        }
+
+        // Act - Project to anonymous type (uses different deserialization path)
+        using var readContext = _fixture.CreateContext<PrimitiveArrayTestDbContext>();
+        var projection = await readContext.PrimitiveArrays
+            .Where(e => e.Id == id)
+            .Select(e => new
+            {
+                e.Id,
+                e.Name,
+                e.Tags,
+                e.Quantities,
+                e.BigNumbers,
+                e.Measurements,
+                e.Prices,
+                e.Flags,
+                e.EventDates,
+                e.Priorities,
+                e.ExternalIds
+            })
+            .FirstOrDefaultAsync();
+
+        // Assert
+        projection.Should().NotBeNull();
+        projection!.Id.Should().Be(id);
+        projection.Name.Should().Be("ProjectionTest");
+
+        // List<string>
+        projection.Tags.Should().HaveCount(3);
+        projection.Tags.Should().ContainInOrder("tag1", "tag2", "tag3");
+
+        // List<int>
+        projection.Quantities.Should().HaveCount(3);
+        projection.Quantities.Should().ContainInOrder(10, 20, 30);
+
+        // List<long>
+        projection.BigNumbers.Should().HaveCount(2);
+        projection.BigNumbers.Should().ContainInOrder(1000000000L, 2000000000L);
+
+        // List<double>
+        projection.Measurements.Should().HaveCount(3);
+        projection.Measurements[0].Should().BeApproximately(1.5, 0.001);
+        projection.Measurements[1].Should().BeApproximately(2.75, 0.001);
+        projection.Measurements[2].Should().BeApproximately(3.14159, 0.00001);
+
+        // List<decimal>
+        projection.Prices.Should().HaveCount(3);
+        projection.Prices.Should().ContainInOrder(19.99m, 29.99m, 99.95m);
+
+        // List<bool>
+        projection.Flags.Should().HaveCount(3);
+        projection.Flags.Should().ContainInOrder(true, false, true);
+
+        // List<DateTime>
+        projection.EventDates.Should().HaveCount(2);
+        projection.EventDates[0].Should().Be(dates[0]);
+        projection.EventDates[1].Should().Be(dates[1]);
+
+        // List<enum>
+        projection.Priorities.Should().HaveCount(3);
+        projection.Priorities.Should().ContainInOrder(Priority.Low, Priority.High, Priority.Critical);
+
+        // List<Guid>
+        projection.ExternalIds.Should().HaveCount(2);
+        projection.ExternalIds.Should().ContainInOrder(guids);
+    }
 }
