@@ -204,7 +204,7 @@ public class PartialUpdateBuilder
         // Handle collections
         if (value is IEnumerable enumerable && value is not string && value is not byte[])
         {
-            return ConvertCollection(property, enumerable);
+            return ConvertCollection(enumerable);
         }
 
         // Get converter from property or type mapping
@@ -218,27 +218,11 @@ public class PartialUpdateBuilder
         return _valueConverter.ToFirestore(value);
     }
 
-    private object ConvertCollection(IProperty property, IEnumerable collection)
+    private object ConvertCollection(IEnumerable collection)
     {
-        var elementType = property.ClrType.GetGenericArguments().FirstOrDefault()
-                          ?? property.ClrType.GetElementType();
-
-        if (elementType == null)
-            return collection;
-
-        // decimal → double
-        if (elementType == typeof(decimal))
-        {
-            return collection.Cast<decimal>().Select(d => (double)d).ToList();
-        }
-
-        // enum → string
-        if (elementType.IsEnum)
-        {
-            return collection.Cast<object>().Select(e => e.ToString()!).ToList();
-        }
-
-        return collection;
+        // Use FirestoreValueConverter.ToFirestore which handles all type conversions:
+        // decimal → double, enum → string, Guid → string, DateTime → UTC, etc.
+        return _valueConverter.ToFirestore(collection) ?? collection;
     }
 
     #endregion

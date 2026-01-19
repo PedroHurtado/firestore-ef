@@ -2,8 +2,6 @@ using Fudie.Firestore.EntityFrameworkCore.Infrastructure.Internal;
 using Fudie.Firestore.IntegrationTest.Helpers;
 using Fudie.Firestore.IntegrationTest.Helpers.PrimitiveArrays;
 using Google.Api.Gax;
-using Google.Cloud.Firestore;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Fudie.Firestore.IntegrationTest.PrimitiveArrays;
