@@ -49,8 +49,15 @@ public class ArrayOfBuilder<TEntity, TElement>
         var shadowProperty = _entityType.FindProperty(shadowPropertyName);
         shadowProperty?.SetAnnotation(ArrayOfAnnotations.JsonTrackerFor, _propertyName);
 
-        // Registrar anotación base como Embedded por defecto
-        _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Embedded);
+        // Registrar anotación base: Primitive para object, Embedded para el resto
+        if (_elementType == typeof(object))
+        {
+            _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Primitive);
+        }
+        else
+        {
+            _entityType.SetArrayOfType(_propertyName, ArrayOfAnnotations.ArrayType.Embedded);
+        }
         _entityType.SetArrayOfElementClrType(_propertyName, _elementType);
 
         // Detectar y guardar el backing field para propiedades read-only
