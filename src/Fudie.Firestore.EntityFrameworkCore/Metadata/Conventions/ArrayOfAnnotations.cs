@@ -57,6 +57,7 @@ public static class ArrayOfAnnotations
         public const string Embedded = "Embedded";
         public const string GeoPoint = "GeoPoint";
         public const string Reference = "Reference";
+        public const string Primitive = "Primitive";
     }
 
     #region Extension Methods para IReadOnlyEntityType

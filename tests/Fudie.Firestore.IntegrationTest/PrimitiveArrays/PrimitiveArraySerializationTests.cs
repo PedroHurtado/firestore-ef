@@ -1,6 +1,10 @@
+using Fudie.Firestore.EntityFrameworkCore.Infrastructure.Internal;
 using Fudie.Firestore.IntegrationTest.Helpers;
 using Fudie.Firestore.IntegrationTest.Helpers.PrimitiveArrays;
+using Google.Api.Gax;
+using Google.Cloud.Firestore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Fudie.Firestore.IntegrationTest.PrimitiveArrays;
 
@@ -873,11 +877,11 @@ public class PrimitiveArraySerializationTests
     }
 
     // ========================================================================
-    // EMPTY ARRAYS
+    // EMPTY ARRAYS - Should not be serialized to Firestore
     // ========================================================================
 
     [Fact]
-    public async Task EmptyArrays_ShouldPersistAndRetrieve()
+    public async Task EmptyArrays_ShouldNotBeSerializedToFirestore_VerifiedWithSdk()
     {
         // Arrange
         var id = FirestoreTestFixture.GenerateId("prim");
@@ -886,23 +890,66 @@ public class PrimitiveArraySerializationTests
         var entity = new PrimitiveArrayEntity
         {
             Id = id,
-            Name = "EmptyTest"
-            // All arrays default to empty []
+            Name = "EmptyArraysTest",
+            Tags = ["tag1", "tag2"] // Only Tags has values
+            // All other arrays are empty []
         };
 
         context.PrimitiveArrays.Add(entity);
         await context.SaveChangesAsync();
 
-        // Act
+        // Act - Read directly with Firestore SDK to verify what's actually stored
+        var firestoreDb = await new FirestoreDbBuilder
+        {
+            ProjectId = FirestoreTestFixture.ProjectId,
+            EmulatorDetection = EmulatorDetection.EmulatorOnly
+        }.BuildAsync();
+
+#pragma warning disable EF1001 // Internal EF Core API usage - acceptable in integration tests
+        var collectionManager = new FirestoreCollectionManager(NullLogger<FirestoreCollectionManager>.Instance);
+        var collectionName = collectionManager.GetCollectionName(typeof(PrimitiveArrayEntity));
+#pragma warning restore EF1001
+        var docRef = firestoreDb.Collection(collectionName).Document(id);
+        var snapshot = await docRef.GetSnapshotAsync();
+
+        // Assert - Verify the document exists
+        snapshot.Exists.Should().BeTrue();
+
+        // Get the raw document data
+        var data = snapshot.ToDictionary();
+
+        // Verify Tags IS present (the only non-empty array)
+        data.Should().ContainKey("Tags");
+        data["Tags"].Should().BeEquivalentTo(new[] { "tag1", "tag2" });
+
+        // Verify Name is present
+        data.Should().ContainKey("Name");
+        data["Name"].Should().Be("EmptyArraysTest");
+
+        // Verify empty arrays are NOT present in the document
+        // This is the key assertion - empty arrays should not be serialized
+        data.Should().NotContainKey("Quantities", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("BigNumbers", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("Measurements", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("Prices", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("Flags", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("EventDates", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("Priorities", "empty arrays should not be stored in Firestore");
+        data.Should().NotContainKey("ExternalIds", "empty arrays should not be stored in Firestore");
+
+        // Also verify that EF Core correctly deserializes missing fields as empty lists
         using var readContext = _fixture.CreateContext<PrimitiveArrayTestDbContext>();
         var retrieved = await readContext.PrimitiveArrays.FirstOrDefaultAsync(e => e.Id == id);
 
-        // Assert
         retrieved.Should().NotBeNull();
-        retrieved!.Tags.Should().BeEmpty();
-        retrieved.Quantities.Should().BeEmpty();
-        retrieved.Prices.Should().BeEmpty();
-        retrieved.Flags.Should().BeEmpty();
-        retrieved.Priorities.Should().BeEmpty();
+        retrieved!.Tags.Should().ContainInOrder("tag1", "tag2");
+        retrieved.Quantities.Should().NotBeNull().And.BeEmpty();
+        retrieved.BigNumbers.Should().NotBeNull().And.BeEmpty();
+        retrieved.Measurements.Should().NotBeNull().And.BeEmpty();
+        retrieved.Prices.Should().NotBeNull().And.BeEmpty();
+        retrieved.Flags.Should().NotBeNull().And.BeEmpty();
+        retrieved.EventDates.Should().NotBeNull().And.BeEmpty();
+        retrieved.Priorities.Should().NotBeNull().And.BeEmpty();
+        retrieved.ExternalIds.Should().NotBeNull().And.BeEmpty();
     }
 }

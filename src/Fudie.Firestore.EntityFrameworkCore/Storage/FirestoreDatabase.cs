@@ -691,6 +691,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 if (value is not IEnumerable enumerable)
                     continue;
 
+                // ✅ No serializar colecciones vacías (ahorra espacio en Firestore)
+                if (!enumerable.Cast<object>().Any())
+                    continue;
+
                 // Serializar según el tipo de ArrayOf
                 if (arrayType == ArrayOfAnnotations.ArrayType.Embedded)
                 {
@@ -752,6 +756,11 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                         list.Add(docRef);
                     }
                     dict[prop.Name] = list;
+                }
+                else if (arrayType == ArrayOfAnnotations.ArrayType.Primitive)
+                {
+                    // List<object> → colección de primitivos mixtos
+                    dict[prop.Name] = ConvertCollection(enumerable);
                 }
             }
         }
@@ -909,6 +918,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
 
             foreach (var prop in type.GetProperties())
             {
+                // Skip indexers (e.g., this[int index]) - they require parameters
+                if (prop.GetIndexParameters().Length > 0)
+                    continue;
+
                 // Skip ignored properties (computed properties like DisplayPrice, RequiresMarketPrice)
                 if (ignoredProperties != null && ignoredProperties.Contains(prop.Name))
                     continue;
@@ -1110,6 +1123,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             // ✅ Si es colección, ignorar el converter de EF Core
             if (value is IEnumerable enumerable && value is not string && value is not byte[])
             {
+                // ✅ No serializar colecciones vacías (ahorra espacio en Firestore)
+                if (!enumerable.Cast<object>().Any())
+                    return null;
+
                 return ConvertCollection(enumerable);
             }
 

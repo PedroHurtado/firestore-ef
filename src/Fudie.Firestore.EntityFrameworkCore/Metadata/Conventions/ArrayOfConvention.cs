@@ -74,7 +74,15 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
                 continue;
             }
 
-            // Caso 2: Es ComplexType → ArrayOf Embedded
+            // Caso 2: List<object> → ArrayOf Primitive (colección mixta de primitivos)
+            if (elementType == typeof(object))
+            {
+                ApplyArrayOfPrimitive(entityType, propertyInfo.Name, elementType);
+                IgnoreProperty(entityTypeBuilder, propertyInfo.Name);
+                continue;
+            }
+
+            // Caso 3: Es ComplexType → ArrayOf Embedded
             if (elementType.IsClass && !elementType.IsAbstract)
             {
                 ApplyArrayOfEmbedded(entityType, propertyInfo.Name, elementType);
@@ -234,6 +242,13 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
     {
         var mutableEntityType = (IMutableEntityType)entityType;
         mutableEntityType.SetArrayOfType(propertyName, ArrayOfAnnotations.ArrayType.Reference);
+        mutableEntityType.SetArrayOfElementClrType(propertyName, elementType);
+    }
+
+    private static void ApplyArrayOfPrimitive(IConventionEntityType entityType, string propertyName, Type elementType)
+    {
+        var mutableEntityType = (IMutableEntityType)entityType;
+        mutableEntityType.SetArrayOfType(propertyName, ArrayOfAnnotations.ArrayType.Primitive);
         mutableEntityType.SetArrayOfElementClrType(propertyName, elementType);
     }
 

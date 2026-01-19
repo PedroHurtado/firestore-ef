@@ -106,7 +106,15 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             if (value == null)
                 return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
 
-            if (targetType.IsAssignableFrom(value.GetType()))
+            // When targetType is object, return value as-is (preserve original type)
+            if (targetType == typeof(object))
+                return value;
+
+            // Always use the converter for collections to ensure proper element conversion
+            var isCollection = value is IEnumerable && value is not string && value is not byte[];
+
+            // If type is already compatible and NOT a collection, return directly
+            if (!isCollection && targetType.IsAssignableFrom(value.GetType()))
                 return value;
 
             // Usar el converter centralizado para todas las conversiones
@@ -340,8 +348,12 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         /// </summary>
         private object? ApplyReverseConverter(IProperty property, object value)
         {
-            // Si el tipo ya es compatible, retornar directamente
-            if (property.ClrType.IsAssignableFrom(value.GetType()))
+            // Always use the converter for collections to ensure proper element conversion
+            // (e.g., List<object> elements need to preserve their actual types)
+            var isCollection = value is IEnumerable && value is not string && value is not byte[];
+
+            // Si el tipo ya es compatible y NO es una colección, retornar directamente
+            if (!isCollection && property.ClrType.IsAssignableFrom(value.GetType()))
             {
                 return value;
             }

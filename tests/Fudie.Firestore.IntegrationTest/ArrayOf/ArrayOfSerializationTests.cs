@@ -92,7 +92,7 @@ public class ArrayOfSerializationTests
     }
 
     [Fact]
-    public async Task Serialization_ArrayOfEmbedded_EmptyList_ShouldStoreEmptyArray()
+    public async Task Serialization_ArrayOfEmbedded_EmptyList_ShouldNotBeStored()
     {
         // Arrange
         var tiendaId = FirestoreTestFixture.GenerateId("tienda");
@@ -109,12 +109,9 @@ public class ArrayOfSerializationTests
         context.Tiendas.Add(tienda);
         await context.SaveChangesAsync();
 
-        // Assert
+        // Assert - Empty arrays should NOT be stored in Firestore (saves document size)
         var rawData = await GetDocumentRawData<TiendaConHorarios>(tiendaId);
-        rawData.Should().ContainKey("Horarios");
-
-        var horarios = rawData["Horarios"] as IEnumerable<object>;
-        horarios.Should().BeEmpty();
+        rawData.Should().NotContainKey("Horarios", "empty arrays should not be stored in Firestore");
     }
 
     [Fact]

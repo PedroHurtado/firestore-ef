@@ -77,17 +77,36 @@ public class MixedArraySerializationTests
     }
 
     [Fact]
-    public async Task ListObject_OnlyNumbers_ShouldPersistAndRetrieve()
+    public async Task ListObject_AllSupportedPrimitives_ShouldPersistAndRetrieve()
     {
         // Arrange
         var id = FirestoreTestFixture.GenerateId("mixed");
         using var context = _fixture.CreateContext<MixedArrayTestDbContext>();
 
+        var testString = "test-string";
+        var testInt = 42;
+        var testLong = 9876543210L;
+        var testDouble = 3.14159;
+        var testDecimal = 123.45m;
+        var testGuid = Guid.NewGuid();
+        var testEnum = Priority.High;
+        var testBool = true;
+
         var entity = new MixedArrayEntity
         {
             Id = id,
-            Name = "NumbersOnlyTest",
-            MixedValues = [1, 2.5, 3, 4.75]
+            Name = "AllPrimitivesTest",
+            MixedValues =
+            [
+                testString,
+                testInt,
+                testLong,
+                testDouble,
+                testDecimal,
+                testGuid,
+                testEnum,
+                testBool
+            ]
         };
 
         context.MixedArrays.Add(entity);
@@ -99,32 +118,30 @@ public class MixedArraySerializationTests
 
         // Assert
         retrieved.Should().NotBeNull();
-        retrieved!.MixedValues.Should().HaveCount(4);
-    }
+        retrieved!.MixedValues.Should().HaveCount(8);
 
-    [Fact]
-    public async Task ListObject_Empty_ShouldPersistAndRetrieve()
-    {
-        // Arrange
-        var id = FirestoreTestFixture.GenerateId("mixed");
-        using var context = _fixture.CreateContext<MixedArrayTestDbContext>();
+        // String
+        retrieved.MixedValues[0].Should().Be(testString);
 
-        var entity = new MixedArrayEntity
-        {
-            Id = id,
-            Name = "EmptyMixedTest",
-            MixedValues = []
-        };
+        // Int (Firestore returns as long or double)
+        Convert.ToInt32(retrieved.MixedValues[1]).Should().Be(testInt);
 
-        context.MixedArrays.Add(entity);
-        await context.SaveChangesAsync();
+        // Long (Firestore returns as long)
+        Convert.ToInt64(retrieved.MixedValues[2]).Should().Be(testLong);
 
-        // Act
-        using var readContext = _fixture.CreateContext<MixedArrayTestDbContext>();
-        var retrieved = await readContext.MixedArrays.FirstOrDefaultAsync(e => e.Id == id);
+        // Double
+        Convert.ToDouble(retrieved.MixedValues[3]).Should().BeApproximately(testDouble, 0.00001);
 
-        // Assert
-        retrieved.Should().NotBeNull();
-        retrieved!.MixedValues.Should().BeEmpty();
+        // Decimal (Firestore stores as double)
+        Convert.ToDecimal(retrieved.MixedValues[4]).Should().Be(testDecimal);
+
+        // Guid (Firestore stores as string)
+        retrieved.MixedValues[5].Should().Be(testGuid.ToString());
+
+        // Enum (Firestore stores as string)
+        retrieved.MixedValues[6].Should().Be(testEnum.ToString());
+
+        // Bool
+        retrieved.MixedValues[7].Should().Be(testBool);
     }
 }
