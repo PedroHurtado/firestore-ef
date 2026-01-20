@@ -20,10 +20,9 @@ public class ExecutionHandlerTests
 
         constructors.Should().HaveCount(1);
         var parameters = constructors[0].GetParameters();
-        parameters.Should().HaveCount(3);
+        parameters.Should().HaveCount(2);
         parameters[0].ParameterType.Should().Be(typeof(IFirestoreClientWrapper));
         parameters[1].ParameterType.Should().Be(typeof(IQueryBuilder));
-        parameters[2].ParameterType.Should().Be(typeof(ISnapshotShaper));
     }
 
     [Fact]
@@ -31,9 +30,8 @@ public class ExecutionHandlerTests
     {
         var mockClient = new Mock<IFirestoreClientWrapper>();
         var mockBuilder = new Mock<IQueryBuilder>();
-        var mockShaper = new Mock<ISnapshotShaper>();
 
-        var handler = new ExecutionHandler(mockClient.Object, mockBuilder.Object, mockShaper.Object);
+        var handler = new ExecutionHandler(mockClient.Object, mockBuilder.Object);
 
         handler.Should().NotBeNull();
     }

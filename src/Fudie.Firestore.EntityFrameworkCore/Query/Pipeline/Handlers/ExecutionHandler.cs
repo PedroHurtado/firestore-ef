@@ -19,18 +19,13 @@ public class ExecutionHandler : IQueryPipelineHandler
 {
     private readonly IFirestoreClientWrapper _client;
     private readonly IQueryBuilder _queryBuilder;
-    private readonly ISnapshotShaper _snapshotShaper;
-    
-    private ResolvedFirestoreQuery _resolved;
 
     public ExecutionHandler(
         IFirestoreClientWrapper client,
-        IQueryBuilder queryBuilder,
-        ISnapshotShaper snapshotShaper)
+        IQueryBuilder queryBuilder)
     {
         _client = client;
         _queryBuilder = queryBuilder;
-        _snapshotShaper = snapshotShaper;
     }
 
     public async Task<PipelineResult> HandleAsync(
@@ -38,8 +33,7 @@ public class ExecutionHandler : IQueryPipelineHandler
         PipelineDelegate next,
         CancellationToken cancellationToken)
     {
-        var resolved = context.ResolvedQuery!;        
-        _resolved = resolved;
+        var resolved = context.ResolvedQuery!;
 
         // Aggregations: Count, Any, Sum, Average → Scalar
         if (resolved.IsAggregation && resolved.AggregationType != FirestoreAggregationType.Min
@@ -131,15 +125,6 @@ public class ExecutionHandler : IQueryPipelineHandler
             .WithMetadata(PipelineMetadataKeys.AllSnapshots, allSnapshots)
             .WithMetadata(PipelineMetadataKeys.SubcollectionAggregations, subcollectionAggregations);
         var items = allSnapshots.Values.Cast<object>().ToList();
-
-        // Shape snapshots into hierarchical structure for debugging
-        var debugSnapshots = allSnapshots.Values
-            .OfType<Google.Cloud.Firestore.DocumentSnapshot>()
-            .ToList();
-
-        var shapedResult = _snapshotShaper.Shape(_resolved, debugSnapshots, subcollectionAggregations);
-        // shapedResult.ToString() returns formatted output for debugging
-        // Set breakpoint here to inspect shapedResult
 
         return new PipelineResult.Materialized(items, contextWithData);
     }
