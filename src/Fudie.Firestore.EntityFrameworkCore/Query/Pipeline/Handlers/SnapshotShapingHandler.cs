@@ -14,10 +14,12 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 public class SnapshotShapingHandler : IQueryPipelineHandler
 {
     private readonly ISnapshotShaper _snapshotShaper;
+    private readonly IMaterializer _materializer;
 
-    public SnapshotShapingHandler(ISnapshotShaper snapshotShaper)
+    public SnapshotShapingHandler(ISnapshotShaper snapshotShaper, IMaterializer materializer)
     {
         _snapshotShaper = snapshotShaper;
+        _materializer = materializer;
     }
 
     public async Task<PipelineResult> HandleAsync(
@@ -40,7 +42,7 @@ public class SnapshotShapingHandler : IQueryPipelineHandler
 
                 if (allSnapshots != null)
                 {
-                    // Shape snapshots into hierarchical structure for debugging
+                    // Shape snapshots into hierarchical structure
                     var debugSnapshots = allSnapshots.Values
                         .OfType<DocumentSnapshot>()
                         .ToList();
@@ -48,6 +50,12 @@ public class SnapshotShapingHandler : IQueryPipelineHandler
                     var shapedResult = _snapshotShaper.Shape(resolved, debugSnapshots, subcollectionAggregations);
                     // shapedResult.ToString() returns formatted output for debugging
                     // Set breakpoint here to inspect shapedResult
+
+                    // Materialize shaped dictionaries into typed CLR instances
+                    var projectedFields = resolved.Projection?.Fields;
+                    var materializedItems = _materializer.Materialize(shapedResult, context.ResultType, projectedFields);
+                    // Set breakpoint here to inspect materializedItems
+                    
                 }
             }
         }

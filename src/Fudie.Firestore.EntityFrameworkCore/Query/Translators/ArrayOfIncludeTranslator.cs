@@ -104,6 +104,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                                 isCollection: false,
                                 collectionName: _collectionManager.GetCollectionName(targetInfo.Value.TargetType),
                                 targetClrType: targetInfo.Value.TargetType,
+                                primaryKeyPropertyName: GetPrimaryKeyPropertyName(targetInfo.Value.TargetType),
                                 parentClrType: null);
 
                             _firestoreContext.AddArrayOfInclude(includeInfo);
@@ -127,6 +128,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                                 isCollection: false,
                                 collectionName: _collectionManager.GetCollectionName(subCollectionTargetInfo.Value.TargetType),
                                 targetClrType: subCollectionTargetInfo.Value.TargetType,
+                                primaryKeyPropertyName: GetPrimaryKeyPropertyName(subCollectionTargetInfo.Value.TargetType),
                                 parentClrType: parentEntityType);
 
                             _firestoreContext.AddArrayOfInclude(includeInfo);
@@ -535,7 +537,21 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 isCollection: false,
                 collectionName: collectionName,
                 targetClrType: elementType,
+                primaryKeyPropertyName: GetPrimaryKeyPropertyName(elementType),
                 parentClrType: parentClrType);
+        }
+
+        /// <summary>
+        /// Gets the primary key property name for an entity type.
+        /// </summary>
+        private string? GetPrimaryKeyPropertyName(Type entityClrType)
+        {
+            var entityType = _firestoreContext.Model.FindEntityType(entityClrType);
+            if (entityType == null)
+                return null;
+
+            var pkProperties = entityType.FindPrimaryKey()?.Properties;
+            return pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
         }
     }
 }

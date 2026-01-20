@@ -210,8 +210,51 @@ public class SnapshotShaper : ISnapshotShaper
         var pkName = query.PrimaryKeyPropertyName;
         var includePk = ShouldIncludePk(query.Projection?.Fields, pkName);
 
-        return new ShapedResult(
-            roots.Select(root => ShapeNode(context, root, query.Includes, projectionSubcollections, includePk, pkName)).ToList());
+        var shapedNodes = roots
+            .Select(root => ShapeNode(context, root, query.Includes, projectionSubcollections, includePk, pkName))
+            .ToList();
+
+        // For projections, flatten the dictionaries so paths like "Direccion.Ciudad" become top-level keys
+        if (query.HasProjection)
+        {
+            shapedNodes = shapedNodes.Select(FlattenForProjection).ToList();
+        }
+
+        return new ShapedResult(shapedNodes);
+    }
+
+    /// <summary>
+    /// Flattens a hierarchical dictionary into a flat dictionary with dot-separated keys.
+    /// Used for projections where the Materializer needs to find values by path.
+    /// </summary>
+    /// <example>
+    /// Input: { "Direccion": { "Ciudad": "Bilbao", "Coordenadas": { "Altitud": 19 } } }
+    /// Output: { "Direccion.Ciudad": "Bilbao", "Direccion.Coordenadas.Altitud": 19 }
+    /// </example>
+    private static Dictionary<string, object?> FlattenForProjection(Dictionary<string, object?> dict)
+    {
+        var result = new Dictionary<string, object?>();
+        FlattenRecursive(dict, "", result);
+        return result;
+    }
+
+    private static void FlattenRecursive(Dictionary<string, object?> source, string prefix, Dictionary<string, object?> result)
+    {
+        foreach (var kvp in source)
+        {
+            var key = string.IsNullOrEmpty(prefix) ? kvp.Key : $"{prefix}.{kvp.Key}";
+
+            if (kvp.Value is Dictionary<string, object?> nested)
+            {
+                // Recurse into nested dictionary
+                FlattenRecursive(nested, key, result);
+            }
+            else
+            {
+                // Leaf value - add with full path as key
+                result[key] = kvp.Value;
+            }
+        }
     }
 
     private static bool ShouldIncludePk(IReadOnlyList<FirestoreProjectedField>? fields, string? pkName) =>

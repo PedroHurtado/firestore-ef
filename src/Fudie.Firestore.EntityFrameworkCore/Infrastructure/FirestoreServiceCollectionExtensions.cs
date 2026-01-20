@@ -89,6 +89,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
 
             // Pipeline Services
+            serviceCollection.AddSingleton<IMaterializer, Materializer>();
             serviceCollection.AddSingleton<ISnapshotShaper, SnapshotShaper>();
             serviceCollection.AddSingleton<IExpressionEvaluator, ExpressionEvaluator>();
             serviceCollection.AddSingleton<IFirestoreAstResolver>(sp =>
