@@ -19,11 +19,18 @@ public class ExecutionHandler : IQueryPipelineHandler
 {
     private readonly IFirestoreClientWrapper _client;
     private readonly IQueryBuilder _queryBuilder;
+    private readonly ISnapshotShaper _snapshotShaper;
+    
+    private ResolvedFirestoreQuery _resolved;
 
-    public ExecutionHandler(IFirestoreClientWrapper client, IQueryBuilder queryBuilder)
+    public ExecutionHandler(
+        IFirestoreClientWrapper client,
+        IQueryBuilder queryBuilder,
+        ISnapshotShaper snapshotShaper)
     {
         _client = client;
         _queryBuilder = queryBuilder;
+        _snapshotShaper = snapshotShaper;
     }
 
     public async Task<PipelineResult> HandleAsync(
@@ -31,7 +38,8 @@ public class ExecutionHandler : IQueryPipelineHandler
         PipelineDelegate next,
         CancellationToken cancellationToken)
     {
-        var resolved = context.ResolvedQuery!;
+        var resolved = context.ResolvedQuery!;        
+        _resolved = resolved;
 
         // Aggregations: Count, Any, Sum, Average → Scalar
         if (resolved.IsAggregation && resolved.AggregationType != FirestoreAggregationType.Min
@@ -124,11 +132,15 @@ public class ExecutionHandler : IQueryPipelineHandler
             .WithMetadata(PipelineMetadataKeys.SubcollectionAggregations, subcollectionAggregations);
         var items = allSnapshots.Values.Cast<object>().ToList();
 
-        var debugData = allSnapshots.Values
+        // Shape snapshots into hierarchical structure for debugging
+        var debugSnapshots = allSnapshots.Values
             .OfType<Google.Cloud.Firestore.DocumentSnapshot>()
-            .Select(s => new { s.Id, Data = s.ToDictionary() })
             .ToList();
-            
+
+        var shapedResult = _snapshotShaper.Shape(_resolved, debugSnapshots, subcollectionAggregations);
+        // shapedResult.ToString() returns formatted output for debugging
+        // Set breakpoint here to inspect shapedResult
+
         return new PipelineResult.Materialized(items, contextWithData);
     }
 
