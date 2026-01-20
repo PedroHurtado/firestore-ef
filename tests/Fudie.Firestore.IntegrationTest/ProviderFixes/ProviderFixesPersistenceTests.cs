@@ -485,4 +485,345 @@ public class ProviderFixesPersistenceTests
         retrieved.AvailableDays.Should().HaveCount(3);
         retrieved.AvailableDays.Should().Contain(new[] { DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday });
     }
+
+    // ========================================================================
+    // COMPLETE GRAPH TEST (Menu -> Categories -> Items -> Allergens)
+    // ========================================================================
+
+    [Fact]
+    public async Task FullIntegration_Menu_WithCategories_Items_AndAllergens_ShouldPersistAndRetrieve()
+    {
+        // =====================================================================
+        // ARRANGE - Create complete data hierarchy
+        // =====================================================================
+
+        // 1. Create Allergens (root aggregates)
+        using var allergenContext = CreateContext();
+        var glutenId = "GLUTEN-" + Guid.NewGuid().ToString("N")[..8];
+        var dairyId = "DAIRY-" + Guid.NewGuid().ToString("N")[..8];
+        var eggsId = "EGGS-" + Guid.NewGuid().ToString("N")[..8];
+        var nutsId = "NUTS-" + Guid.NewGuid().ToString("N")[..8];
+        var shellfishId = "SHELLFISH-" + Guid.NewGuid().ToString("N")[..8];
+
+        var gluten = Allergen.Create(glutenId, "Gluten", 1, "https://icons.com/gluten.png");
+        var dairy = Allergen.Create(dairyId, "Lácteos", 2, "https://icons.com/dairy.png");
+        var eggs = Allergen.Create(eggsId, "Huevos", 3, "https://icons.com/eggs.png");
+        var nuts = Allergen.Create(nutsId, "Frutos secos", 4, "https://icons.com/nuts.png");
+        var shellfish = Allergen.Create(shellfishId, "Mariscos", 5, "https://icons.com/shellfish.png");
+
+        allergenContext.Allergens.AddRange(gluten, dairy, eggs, nuts, shellfish);
+        await allergenContext.SaveChangesAsync();
+
+        // 2. Create MenuItems (root aggregates) with all features
+        using var menuItemContext = CreateContext();
+
+        var paellaId = Guid.NewGuid();
+        var paella = MenuItem.Create(
+            tenantId: _tenantId,
+            name: "Paella Valenciana",
+            description: "Auténtica paella valenciana con mariscos frescos",
+            imageUrl: "https://images.com/paella.jpg",
+            displayOrder: 1,
+            isActive: true,
+            isHighRiskItem: true,
+            requiresAdvanceOrder: true,
+            minimumAdvanceOrderQuantity: 4,
+            nutritionalInfo: NutritionalInfo.Create(
+                calories: 520,
+                protein: 28.5m,
+                carbohydrates: 62.0m,
+                fat: 18.3m,
+                servingSize: 400,
+                fiber: 3.5m,
+                sugar: 2.8m,
+                salt: 2.1m),
+            depositOverride: ItemDepositOverride.Create(20.00m, minimumQuantity: 2),
+            allergenNotes: "Puede contener trazas de apio y mostaza",
+            id: paellaId
+        )
+        .WithPriceOptions(
+            PriceOption.CreateSmall(16.50m),
+            PriceOption.CreateHalf(22.00m),
+            PriceOption.CreateFull(28.90m)
+        )
+        .WithAllergens(shellfish, gluten)
+        .WithAvailableDays(DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday);
+
+        var tartaId = Guid.NewGuid();
+        var tarta = MenuItem.Create(
+            tenantId: _tenantId,
+            name: "Tarta de Queso",
+            description: "Tarta de queso cremosa al estilo San Sebastián",
+            imageUrl: "https://images.com/tarta.jpg",
+            displayOrder: 2,
+            nutritionalInfo: NutritionalInfo.Create(
+                calories: 380,
+                protein: 8.2m,
+                carbohydrates: 32.0m,
+                fat: 24.5m,
+                servingSize: 150,
+                fiber: 0.5m,
+                sugar: 22.0m,
+                salt: 0.8m),
+            id: tartaId
+        )
+        .WithPriceOptions(
+            PriceOption.CreateSmall(6.50m),
+            PriceOption.CreateFull(9.90m)
+        )
+        .WithAllergens(dairy, eggs, gluten);
+
+        var ensaladaId = Guid.NewGuid();
+        var ensalada = MenuItem.Create(
+            tenantId: _tenantId,
+            name: "Ensalada César",
+            description: "Lechuga romana, pollo, parmesano y croutons",
+            displayOrder: 3,
+            nutritionalInfo: NutritionalInfo.CreateBasic(320, 18.0m, 12.0m, 22.0m),
+            id: ensaladaId
+        )
+        .WithPriceOptions(PriceOption.CreateFull(12.50m))
+        .WithAllergens(dairy, gluten, eggs)
+        .WithAvailableDays(DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+            DayOfWeek.Thursday, DayOfWeek.Friday);
+
+        var mariscosId = Guid.NewGuid();
+        var mariscos = MenuItem.Create(
+            tenantId: _tenantId,
+            name: "Mariscada del Chef",
+            description: "Selección de mariscos frescos del día",
+            displayOrder: 4,
+            isHighRiskItem: true,
+            requiresAdvanceOrder: true,
+            minimumAdvanceOrderQuantity: 2,
+            id: mariscosId
+        )
+        .WithPriceOptions(PriceOption.CreateMarketPrice())
+        .WithAllergens(shellfish);
+
+        menuItemContext.MenuItems.AddRange(paella, tarta, ensalada, mariscos);
+        await menuItemContext.SaveChangesAsync();
+
+        // 3. Create Menu with Categories (SubCollection) and CategoryItems (ArrayOf Embedded with References)
+        using var menuContext = CreateContext();
+
+        var menuId = Guid.NewGuid();
+        var menu = Menu.Create(
+            tenantId: _tenantId,
+            name: "Carta de Verano 2024",
+            description: "Nuestra selección especial de verano con productos de temporada",
+            displayOrder: 1,
+            isActive: true,
+            effectiveFrom: new DateTime(2024, 6, 1),
+            effectiveUntil: new DateTime(2024, 9, 30),
+            depositPolicy: DepositPolicy.CreatePerPerson(15.00m, minimumGuests: 4),
+            id: menuId
+        );
+
+        // Category 1: Entrantes
+        var entrantesId = Guid.NewGuid();
+        var entrantes = MenuCategory.Create(
+            name: "Entrantes",
+            displayOrder: 1,
+            description: "Para empezar con buen pie",
+            isActive: true,
+            id: entrantesId
+        )
+        .WithItems(
+            CategoryItem.Create(ensalada, displayOrder: 1),
+            CategoryItem.Create(mariscos, displayOrder: 2,
+                PriceOption.Create(PortionType.Small, 35.00m)) // Override price
+        );
+
+        // Category 2: Principales
+        var principalesId = Guid.NewGuid();
+        var principales = MenuCategory.Create(
+            name: "Platos Principales",
+            displayOrder: 2,
+            description: "El corazón de nuestra cocina",
+            isActive: true,
+            id: principalesId
+        )
+        .WithItem(
+            CategoryItem.Create(paella, displayOrder: 1,
+                PriceOption.Create(PortionType.Full, 32.00m)) // Override price for this menu
+        );
+
+        // Category 3: Postres
+        var postresId = Guid.NewGuid();
+        var postres = MenuCategory.Create(
+            name: "Postres",
+            displayOrder: 3,
+            description: "El broche de oro",
+            isActive: true,
+            id: postresId
+        )
+        .WithItem(CategoryItem.Create(tarta, displayOrder: 1));
+
+        menu.WithCategories(entrantes, principales, postres);
+
+        menuContext.Menus.Add(menu);
+        await menuContext.SaveChangesAsync();
+
+        // =====================================================================
+        // ACT - Read everything back with separate context
+        // =====================================================================
+
+        using var readContext = CreateContext();
+
+        // Read Menu with SubCollection (Categories)
+        var retrievedMenu = await readContext.Menus
+            .Include(m => m.Categories)   
+            .ThenInclude(c=>c.Items)
+            .ThenInclude(i=>i.MenuItem)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        // Read MenuItems with Allergens for verification
+        var retrievedPaella = await readContext.MenuItems
+            .Include(m => m.Allergens)
+            .FirstOrDefaultAsync(m => m.Id == paellaId);
+
+        var retrievedTarta = await readContext.MenuItems
+            .Include(m => m.Allergens)
+            .FirstOrDefaultAsync(m => m.Id == tartaId);
+
+        var retrievedEnsalada = await readContext.MenuItems
+            .Include(m => m.Allergens)
+            .FirstOrDefaultAsync(m => m.Id == ensaladaId);
+
+        var retrievedMariscos = await readContext.MenuItems
+            .Include(m => m.Allergens)
+            .FirstOrDefaultAsync(m => m.Id == mariscosId);
+
+        // =====================================================================
+        // ASSERT - Verify complete graph
+        // =====================================================================
+
+        // --- Menu assertions ---
+        retrievedMenu.Should().NotBeNull();
+        retrievedMenu!.Name.Should().Be("Carta de Verano 2024");
+        retrievedMenu.Description.Should().Be("Nuestra selección especial de verano con productos de temporada");
+        retrievedMenu.DisplayOrder.Should().Be(1);
+        retrievedMenu.IsActive.Should().BeTrue();
+        // Firestore stores timestamps in UTC, so compare dates only (UTC conversion may shift by a day)
+        retrievedMenu.EffectiveFrom.Should().NotBeNull();
+        retrievedMenu.EffectiveFrom!.Value.Date.Should().BeOneOf(
+            new DateTime(2024, 6, 1), new DateTime(2024, 5, 31));
+        retrievedMenu.EffectiveUntil.Should().NotBeNull();
+        retrievedMenu.EffectiveUntil!.Value.Date.Should().BeOneOf(
+            new DateTime(2024, 9, 30), new DateTime(2024, 9, 29));
+
+        // Menu.DepositPolicy (ComplexProperty)
+        retrievedMenu.DepositPolicy.Should().NotBeNull();
+        retrievedMenu.DepositPolicy!.DepositType.Should().Be(DepositType.PerPerson);
+        retrievedMenu.DepositPolicy.Amount.Should().Be(15.00m);
+        retrievedMenu.DepositPolicy.MinimumGuestsForDeposit.Should().Be(4);
+
+        // --- Categories assertions (SubCollection) ---
+        retrievedMenu.Categories.Should().HaveCount(3);
+
+        var retrievedEntrantes = retrievedMenu.Categories.FirstOrDefault(c => c.Name == "Entrantes");
+        retrievedEntrantes.Should().NotBeNull();
+        retrievedEntrantes!.DisplayOrder.Should().Be(1);
+        retrievedEntrantes.Description.Should().Be("Para empezar con buen pie");
+        retrievedEntrantes.Items.Should().HaveCount(2);
+
+        var retrievedPrincipales = retrievedMenu.Categories.FirstOrDefault(c => c.Name == "Platos Principales");
+        retrievedPrincipales.Should().NotBeNull();
+        retrievedPrincipales!.DisplayOrder.Should().Be(2);
+        retrievedPrincipales.Items.Should().HaveCount(1);
+
+        var retrievedPostres = retrievedMenu.Categories.FirstOrDefault(c => c.Name == "Postres");
+        retrievedPostres.Should().NotBeNull();
+        retrievedPostres!.DisplayOrder.Should().Be(3);
+        retrievedPostres.Items.Should().HaveCount(1);
+
+        // --- CategoryItems assertions (ArrayOf Embedded with Reference) ---
+        // Entrantes items
+        var ensaladaItem = retrievedEntrantes.Items.FirstOrDefault(i => i.DisplayOrder == 1);
+        ensaladaItem.Should().NotBeNull();
+        ensaladaItem!.MenuItem.Should().NotBeNull();
+        ensaladaItem.MenuItem.Id.Should().Be(ensaladaId);
+        ensaladaItem.PriceOverrides.Should().BeEmpty();
+
+        var mariscosItem = retrievedEntrantes.Items.FirstOrDefault(i => i.DisplayOrder == 2);
+        mariscosItem.Should().NotBeNull();
+        mariscosItem!.MenuItem.Should().NotBeNull();
+        mariscosItem.MenuItem.Id.Should().Be(mariscosId);
+        mariscosItem.PriceOverrides.Should().HaveCount(1);
+        mariscosItem.PriceOverrides.First().Price.Should().Be(35.00m);
+
+        // Principales items
+        var paellaItem = retrievedPrincipales.Items.First();
+        paellaItem.MenuItem.Should().NotBeNull();
+        paellaItem.MenuItem.Id.Should().Be(paellaId);
+        paellaItem.PriceOverrides.Should().HaveCount(1);
+        paellaItem.PriceOverrides.First().Price.Should().Be(32.00m);
+
+        // Postres items
+        var tartaItem = retrievedPostres.Items.First();
+        tartaItem.MenuItem.Should().NotBeNull();
+        tartaItem.MenuItem.Id.Should().Be(tartaId);
+
+        // --- Paella assertions (complete MenuItem) ---
+        retrievedPaella.Should().NotBeNull();
+        retrievedPaella!.Name.Should().Be("Paella Valenciana");
+        retrievedPaella.Description.Should().Be("Auténtica paella valenciana con mariscos frescos");
+        retrievedPaella.ImageUrl.Should().Be("https://images.com/paella.jpg");
+        retrievedPaella.IsHighRiskItem.Should().BeTrue();
+        retrievedPaella.RequiresAdvanceOrder.Should().BeTrue();
+        retrievedPaella.MinimumAdvanceOrderQuantity.Should().Be(4);
+        retrievedPaella.AllergenNotes.Should().Be("Puede contener trazas de apio y mostaza");
+
+        // Paella.NutritionalInfo
+        retrievedPaella.NutritionalInfo.Should().NotBeNull();
+        retrievedPaella.NutritionalInfo!.Calories.Should().Be(520);
+        retrievedPaella.NutritionalInfo.Protein.Should().BeApproximately(28.5m, 0.01m);
+        retrievedPaella.NutritionalInfo.ServingSize.Should().Be(400);
+
+        // Paella.DepositOverride
+        retrievedPaella.DepositOverride.Should().NotBeNull();
+        retrievedPaella.DepositOverride!.DepositAmount.Should().Be(20.00m);
+        retrievedPaella.DepositOverride.MinimumQuantityForDeposit.Should().Be(2);
+
+        // Paella.PriceOptions (ArrayOf Embedded)
+        retrievedPaella.PriceOptions.Should().HaveCount(3);
+        retrievedPaella.PriceOptions.Should().Contain(p => p.PortionType == PortionType.Small && p.Price == 16.50m);
+        retrievedPaella.PriceOptions.Should().Contain(p => p.PortionType == PortionType.Half && p.Price == 22.00m);
+        retrievedPaella.PriceOptions.Should().Contain(p => p.PortionType == PortionType.Full && p.Price == 28.90m);
+
+        // Paella.Allergens (ArrayOf Reference)
+        retrievedPaella.Allergens.Should().HaveCount(2);
+        retrievedPaella.Allergens.Select(a => a.Id).Should().Contain(new[] { shellfishId, glutenId });
+
+        // Paella.AvailableDays (ArrayOf Primitive)
+        retrievedPaella.AvailableDays.Should().HaveCount(4);
+        retrievedPaella.AvailableDays.Should().Contain(new[]
+        {
+            DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday
+        });
+
+        // --- Tarta assertions ---
+        retrievedTarta.Should().NotBeNull();
+        retrievedTarta!.Name.Should().Be("Tarta de Queso");
+        retrievedTarta.PriceOptions.Should().HaveCount(2);
+        retrievedTarta.Allergens.Should().HaveCount(3);
+        retrievedTarta.Allergens.Select(a => a.Id).Should().Contain(new[] { dairyId, eggsId, glutenId });
+
+        // --- Ensalada assertions ---
+        retrievedEnsalada.Should().NotBeNull();
+        retrievedEnsalada!.Name.Should().Be("Ensalada César");
+        retrievedEnsalada.PriceOptions.Should().HaveCount(1);
+        retrievedEnsalada.Allergens.Should().HaveCount(3);
+        retrievedEnsalada.AvailableDays.Should().HaveCount(5);
+
+        // --- Mariscos assertions (Market Price) ---
+        retrievedMariscos.Should().NotBeNull();
+        retrievedMariscos!.Name.Should().Be("Mariscada del Chef");
+        retrievedMariscos.PriceOptions.Should().HaveCount(1);
+        retrievedMariscos.PriceOptions.First().PortionType.Should().Be(PortionType.MarketPrice);
+        retrievedMariscos.PriceOptions.First().Price.Should().BeNull();
+        retrievedMariscos.Allergens.Should().HaveCount(1);
+        retrievedMariscos.Allergens.First().Id.Should().Be(shellfishId);
+    }
 }

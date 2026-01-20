@@ -117,6 +117,41 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             if (!isCollection && targetType.IsAssignableFrom(value.GetType()))
                 return value;
 
+            // Handle collection of embedded objects (List<object> of maps -> HashSet<T>/List<T>)
+            if (isCollection && targetType.IsGenericType)
+            {
+                var genericDef = targetType.GetGenericTypeDefinition();
+                if (genericDef == typeof(HashSet<>) || genericDef == typeof(List<>) ||
+                    genericDef == typeof(IReadOnlyCollection<>) || genericDef == typeof(ICollection<>) ||
+                    genericDef == typeof(IEnumerable<>))
+                {
+                    var elementType = targetType.GetGenericArguments()[0];
+
+                    // Check if it's a collection of maps (embedded objects)
+                    if (value is IEnumerable<object> enumerable)
+                    {
+                        var items = enumerable.ToList();
+                        if (items.Count > 0 && items[0] is IDictionary<string, object>)
+                        {
+                            // Deserialize each map to the element type
+                            var collection = CreateTypedCollection(elementType, targetType);
+                            foreach (var item in items)
+                            {
+                                if (item is IDictionary<string, object> map)
+                                {
+                                    var element = CreateInstanceFromData(elementType, map);
+                                    if (element != null)
+                                    {
+                                        AddToCollection(collection, element);
+                                    }
+                                }
+                            }
+                            return collection;
+                        }
+                    }
+                }
+            }
+
             // Usar el converter centralizado para todas las conversiones
             // (Timestamp→DateTime, double→decimal, string→enum, long→int, etc.)
             var converted = _valueConverter.FromFirestore(value, targetType);
@@ -762,17 +797,49 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             Type elementType,
             IReadOnlyDictionary<string, object>? relatedEntities)
         {
+            // For records with constructor parameters, we need to resolve DocumentReferences
+            // BEFORE calling CreateInstanceFromData, because the constructor needs the actual entities
+            var resolvedMap = ResolveReferencesInMap(map, relatedEntities);
+
             // CreateInstanceFromData maneja tanto records (constructor con parámetros)
             // como clases con constructor sin parámetros
-            var instance = CreateInstanceFromData(elementType, map);
+            var instance = CreateInstanceFromData(elementType, resolvedMap);
 
             if (instance != null && relatedEntities != null && relatedEntities.Count > 0)
             {
                 // Asignar referencias (DocumentReference → entidad) dentro del elemento embebido
+                // Esto es para propiedades que no fueron seteadas por el constructor
                 AssignReferencesInEmbeddedElement(instance, map, relatedEntities);
             }
 
             return instance;
+        }
+
+        /// <summary>
+        /// Resolves DocumentReferences in a map to their actual entities from relatedEntities.
+        /// This is needed for records where properties are set via constructor parameters.
+        /// </summary>
+        private static IDictionary<string, object> ResolveReferencesInMap(
+            IDictionary<string, object> map,
+            IReadOnlyDictionary<string, object>? relatedEntities)
+        {
+            if (relatedEntities == null || relatedEntities.Count == 0)
+                return map;
+
+            var resolved = new Dictionary<string, object>(map, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var kvp in map)
+            {
+                if (kvp.Value is DocumentReference docRef)
+                {
+                    if (relatedEntities.TryGetValue(docRef.Path, out var entity))
+                    {
+                        resolved[kvp.Key] = entity;
+                    }
+                }
+            }
+
+            return resolved;
         }
 
         /// <summary>
@@ -1150,7 +1217,44 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 AddToCollection(collection, child);
             }
 
-            navigation.PropertyInfo.SetValue(entity, collection);
+            // Set value via backing field from model annotations (for IReadOnlyCollection with backing field)
+            SetNavigationCollectionValue(entity, navigation, collection);
+        }
+
+        /// <summary>
+        /// Sets a navigation collection value, using backing field from model annotations if property is read-only.
+        /// </summary>
+        private void SetNavigationCollectionValue(object entity, IReadOnlyNavigation navigation, object collection)
+        {
+            var propertyInfo = navigation.PropertyInfo;
+            if (propertyInfo == null)
+                return;
+
+            // If property has a setter, use it directly
+            if (propertyInfo.CanWrite)
+            {
+                propertyInfo.SetValue(entity, collection);
+                return;
+            }
+
+            // Get backing field from model annotations (configured in BackingFieldConvention)
+            var backingField = BackingFieldConvention.GetNavigationBackingField(
+                navigation.DeclaringEntityType, navigation.Name);
+
+            if (backingField != null)
+            {
+                // Convert collection to field type if needed (e.g., List<T> to HashSet<T>)
+                var convertedCollection = ConvertCollectionToFieldType(collection, backingField.FieldType);
+                backingField.SetValue(entity, convertedCollection);
+                _logger.LogTrace("Set backing field {FieldName} for navigation {NavigationName}",
+                    backingField.Name, navigation.Name);
+                return;
+            }
+
+            _logger.LogWarning(
+                "Could not set navigation {NavigationName} - no setter and no backing field found in model. " +
+                "Ensure the entity uses backing field pattern (_fieldName) for read-only collections.",
+                navigation.Name);
         }
 
         /// <summary>

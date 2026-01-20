@@ -92,7 +92,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                         return Visit(node.Arguments[0]);
                     }
 
-                    // Case 3: Detect chain of Include/ThenInclude on ArrayOf Embedded
+                    // Case 3: Detect chain of Include/ThenInclude on ArrayOf Embedded (root entity)
                     // This handles: .Include(r => r.Menus).ThenInclude(m => m.Secciones).ThenInclude(s => s.Items).ThenInclude(i => i.Plato)
                     if (TryExtractEmbeddedIncludeChain(node, out var chainPath, out var sourceExpression, out var targetInfo))
                     {
@@ -111,6 +111,29 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
 
                         // Skip the entire chain and continue from the source
                         return Visit(sourceExpression);
+                    }
+
+                    // Case 4: Detect ThenInclude chain on SubCollection that targets ArrayOf Embedded with Reference
+                    // This handles: .Include(m => m.Categories).ThenInclude(c => c.Items).ThenInclude(i => i.MenuItem)
+                    // Where Categories is SubCollection, Items is ArrayOf Embedded, MenuItem is Reference
+                    if (TryExtractSubCollectionArrayOfChain(node, out var subCollectionChainPath, out var subCollectionSource, out var subCollectionTargetInfo, out var parentEntityType))
+                    {
+                        if (subCollectionTargetInfo.HasValue && parentEntityType != null)
+                        {
+                            // Generate IncludeInfo with the path relative to SubCollection entity
+                            // ParentClrType is the SubCollection entity type (e.g., MenuCategory)
+                            var includeInfo = new IncludeInfo(
+                                navigationName: subCollectionChainPath,
+                                isCollection: false,
+                                collectionName: _collectionManager.GetCollectionName(subCollectionTargetInfo.Value.TargetType),
+                                targetClrType: subCollectionTargetInfo.Value.TargetType,
+                                parentClrType: parentEntityType);
+
+                            _firestoreContext.AddArrayOfInclude(includeInfo);
+                        }
+
+                        // Skip the ThenInclude chain but KEEP the SubCollection Include for EF Core
+                        return Visit(subCollectionSource);
                     }
                 }
             }
@@ -240,6 +263,153 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 chainPath = string.Join(".", pathParts);
                 sourceExpression = rootSource;
                 targetInfo = finalTarget;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Tries to extract a chain of ThenInclude calls after a SubCollection Include,
+        /// where the ThenIncludes target ArrayOf Embedded properties with References.
+        /// </summary>
+        /// <remarks>
+        /// Pattern: .Include(m => m.Categories).ThenInclude(c => c.Items).ThenInclude(i => i.MenuItem)
+        /// Where:
+        /// - Categories is a SubCollection (EF Core navigation)
+        /// - Items is ArrayOf Embedded on MenuCategory
+        /// - MenuItem is a Reference inside CategoryItem
+        ///
+        /// Returns the path "Items.MenuItem" with parentEntityType = typeof(MenuCategory)
+        /// and sourceExpression = the Include(Categories) call (so EF Core still processes it)
+        /// </remarks>
+        private bool TryExtractSubCollectionArrayOfChain(
+            MethodCallExpression node,
+            out string chainPath,
+            out Expression sourceExpression,
+            out (Type TargetType, bool IsCollection)? targetInfo,
+            out Type? parentEntityType)
+        {
+            chainPath = "";
+            sourceExpression = node;
+            targetInfo = null;
+            parentEntityType = null;
+
+            // Build the chain by walking down the expression tree
+            var pathParts = new List<string>();
+            var current = node;
+            Expression? subCollectionInclude = null;
+            Type? subCollectionTargetType = null;
+            (Type TargetType, bool IsCollection)? finalTarget = null;
+
+            while (current != null)
+            {
+                if (current.Method.DeclaringType != typeof(Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions))
+                    break;
+
+                if (current.Method.Name != "Include" && current.Method.Name != "ThenInclude")
+                    break;
+
+                // Get lambda from this node
+                var lambda = ExtractLambda(current);
+                if (lambda == null)
+                    break;
+
+                // Get property info from lambda
+                if (lambda.Body is not MemberExpression memberExpr)
+                    break;
+
+                var propertyInfo = memberExpr.Member as PropertyInfo;
+                if (propertyInfo == null)
+                    break;
+
+                var propertyName = propertyInfo.Name;
+                var propertyType = propertyInfo.PropertyType;
+                var parameterType = lambda.Parameters[0].Type;
+
+                // Check if this is the root Include targeting a SubCollection
+                if (current.Method.Name == "Include")
+                {
+                    var entityType = _firestoreContext.Model.FindEntityType(parameterType);
+                    if (entityType != null)
+                    {
+                        // Check if this is a navigation (SubCollection)
+                        var navigation = entityType.FindNavigation(propertyName);
+                        if (navigation != null && navigation.IsCollection)
+                        {
+                            // Found SubCollection Include - this is the root
+                            // We need at least one ThenInclude after this for ArrayOf
+                            if (pathParts.Count > 0)
+                            {
+                                subCollectionInclude = current;
+                                subCollectionTargetType = navigation.TargetEntityType.ClrType;
+                            }
+                            break;
+                        }
+                    }
+                    // Not a SubCollection Include, stop
+                    break;
+                }
+
+                // This is a ThenInclude - check what it targets
+                var parentEntityTypeForProperty = _firestoreContext.Model.FindEntityType(parameterType);
+
+                if (propertyType.IsGenericType)
+                {
+                    var elementType = propertyType.GetGenericArguments()[0];
+
+                    // Check if the element type is an entity (Reference target)
+                    var elementEntityType = _firestoreContext.Model.FindEntityType(elementType);
+                    if (elementEntityType != null)
+                    {
+                        // Check if this is ArrayOf Reference on an entity
+                        if (parentEntityTypeForProperty != null && parentEntityTypeForProperty.IsArrayOfReference(propertyName))
+                        {
+                            // ArrayOf Reference - this is the end of the chain
+                            finalTarget = (elementType, true);
+                            pathParts.Insert(0, propertyName);
+                        }
+                        // else: Could be navigation or ArrayOf Embedded with entity elements
+                    }
+                    else
+                    {
+                        // Element is not an entity - this is ArrayOf Embedded, continue
+                        pathParts.Insert(0, propertyName);
+                    }
+                }
+                else
+                {
+                    // Single property (not collection) - could be Reference inside Embedded
+                    var singleEntityType = _firestoreContext.Model.FindEntityType(propertyType);
+                    if (singleEntityType != null)
+                    {
+                        // This is a reference to an entity
+                        finalTarget = (propertyType, false);
+                        pathParts.Insert(0, propertyName);
+                    }
+                }
+
+                // Move to parent (ThenInclude's source is Arg[0])
+                if (current.Arguments[0] is MethodCallExpression parentCall)
+                {
+                    current = parentCall;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            // We have a valid chain if:
+            // 1. We found a root Include on SubCollection
+            // 2. We have path parts (ArrayOf + Reference)
+            // 3. We have a final target (Reference entity)
+            if (subCollectionInclude != null && pathParts.Count > 0 && finalTarget.HasValue)
+            {
+                chainPath = string.Join(".", pathParts);
+                sourceExpression = subCollectionInclude;
+                targetInfo = finalTarget;
+                parentEntityType = subCollectionTargetType;
                 return true;
             }
 

@@ -152,12 +152,11 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
         // (ej: IReadOnlyCollection<DayOfWeek> AvailableDays con backing field _availableDays)
         DetectIgnoredCollectionsWithBackingFields(model);
 
-        // Paso 6: Detectar backing fields para TODAS las propiedades ArrayOf que no lo tengan
-        // (incluye las configuradas por ArrayOfBuilder en OnModelCreating)
-        DetectBackingFieldsForAllArrayOf(model);
-
-        // Paso 7: Crear shadow properties para change tracking de todas las propiedades ArrayOf
+        // Paso 6: Crear shadow properties para change tracking de todas las propiedades ArrayOf
         CreateShadowPropertiesForArrayOf(model);
+
+        // NOTA: La detección de backing fields para ArrayOf y SubCollections
+        // se centraliza en BackingFieldConvention que se ejecuta DESPUÉS de esta convention.
 
         var debug = model.GetEntityTypes()
         .Select(et => new { 
@@ -334,39 +333,6 @@ public class ArrayOfConvention : IEntityTypeAddedConvention, IModelFinalizingCon
                 {
                     // ComplexType → ArrayOf Embedded
                     ApplyArrayOfEmbedded(entityType, propertyName, elementType);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Detecta backing fields para TODAS las propiedades ArrayOf que no lo tengan.
-    /// Esto incluye las configuradas por ArrayOfBuilder en OnModelCreating.
-    /// </summary>
-    private static void DetectBackingFieldsForAllArrayOf(IConventionModel model)
-    {
-        foreach (var entityType in model.GetEntityTypes())
-        {
-            var clrType = entityType.ClrType;
-            var mutableEntityType = (IMutableEntityType)entityType;
-
-            foreach (var propertyInfo in clrType.GetProperties())
-            {
-                var propertyName = propertyInfo.Name;
-
-                // Solo procesar propiedades ArrayOf
-                if (!entityType.IsArrayOf(propertyName))
-                    continue;
-
-                // Ya tiene backing field configurado
-                if (entityType.GetArrayOfBackingField(propertyName) != null)
-                    continue;
-
-                // Detectar backing field
-                var backingField = ConventionHelpers.FindBackingField(clrType, propertyName);
-                if (backingField != null)
-                {
-                    mutableEntityType.SetArrayOfBackingField(propertyName, backingField);
                 }
             }
         }
