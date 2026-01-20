@@ -993,16 +993,29 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         {
             var collection = CreateTypedCollection(elementType, propertyType);
 
-            if (relatedEntities == null)
+            if (relatedEntities == null || relatedEntities.Count == 0)
                 return collection;
 
             foreach (var item in arrayValue)
             {
                 if (item is DocumentReference docRef)
                 {
+                    // Try exact path match first
                     if (relatedEntities.TryGetValue(docRef.Path, out var entity))
                     {
                         AddToCollection(collection, entity);
+                        continue;
+                    }
+
+                    // Fallback: match by document ID (last segment of path)
+                    // This handles cases where paths differ (e.g., different projects/databases)
+                    var docId = docRef.Id;
+                    var matchingEntity = relatedEntities
+                        .FirstOrDefault(kv => kv.Key.EndsWith("/" + docId, StringComparison.Ordinal));
+
+                    if (matchingEntity.Value != null && elementType.IsAssignableFrom(matchingEntity.Value.GetType()))
+                    {
+                        AddToCollection(collection, matchingEntity.Value);
                     }
                 }
             }

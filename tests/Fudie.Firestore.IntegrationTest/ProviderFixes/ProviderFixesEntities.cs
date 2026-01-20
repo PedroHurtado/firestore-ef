@@ -8,9 +8,20 @@ namespace Fudie.Firestore.IntegrationTest.ProviderFixes;
 
 public interface IEntity;
 
-public abstract class Entity<TId>(TId id) : IEntity where TId : notnull
+public abstract class Entity<TId>(TId id) : IEntity, IEquatable<Entity<TId>> where TId : notnull
 {
     public TId Id { get; init; } = id;
+
+    public override bool Equals(object? obj) => Equals(obj as Entity<TId>);
+
+    public bool Equals(Entity<TId>? other)
+    {
+        if (other is null) return false;
+        if (ReferenceEquals(this, other)) return true;
+        return EqualityComparer<TId>.Default.Equals(Id, other.Id);
+    }
+
+    public override int GetHashCode() => EqualityComparer<TId>.Default.GetHashCode(Id);
 }
 
 public interface IDomainEvent;
