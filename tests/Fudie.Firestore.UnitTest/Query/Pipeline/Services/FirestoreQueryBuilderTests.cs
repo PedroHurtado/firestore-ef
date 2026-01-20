@@ -412,6 +412,7 @@ public class FirestoreQueryBuilderTests
         return new ResolvedFirestoreQuery(
             CollectionPath: collectionPath,
             EntityClrType: typeof(object),
+            PrimaryKeyPropertyName: "Id",
             DocumentId: null,
             FilterResults: Array.Empty<ResolvedFilterResult>(),
             OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
@@ -434,6 +435,7 @@ public class FirestoreQueryBuilderTests
         return new ResolvedFirestoreQuery(
             CollectionPath: collectionPath,
             EntityClrType: typeof(object),
+            PrimaryKeyPropertyName: "Id",
             DocumentId: null,
             FilterResults: Array.Empty<ResolvedFilterResult>(),
             OrderByClauses: Array.Empty<ResolvedOrderByClause>(),

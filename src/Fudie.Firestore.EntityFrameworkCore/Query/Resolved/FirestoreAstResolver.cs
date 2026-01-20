@@ -107,6 +107,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
             return new ResolvedFirestoreQuery(
                 CollectionPath: collectionPath,
                 EntityClrType: ast.EntityType.ClrType,
+                PrimaryKeyPropertyName: ast.PrimaryKeyPropertyName,
                 DocumentId: documentId,
                 FilterResults: filterResults,
                 OrderByClauses: orderByClauses,
@@ -328,6 +329,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
                 IsCollection: include.IsCollection,
                 TargetEntityType: targetClrType,
                 CollectionPath: collectionPath,
+                PrimaryKeyPropertyName: include.PrimaryKeyPropertyName,
                 DocumentId: documentId,
                 FilterResults: filterResults,
                 OrderByClauses: orderByClauses,
@@ -401,6 +403,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
                 ResultName: subcollection.ResultName,
                 TargetEntityType: targetClrType,
                 CollectionPath: collectionPath,
+                PrimaryKeyPropertyName: subcollection.PrimaryKeyPropertyName,
                 DocumentId: documentId,
                 FilterResults: filterResults,
                 OrderByClauses: orderByClauses,

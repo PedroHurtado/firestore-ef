@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
+using Fudie.Firestore.EntityFrameworkCore.Query.Projections;
 using Google.Cloud.Firestore;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
@@ -108,10 +109,6 @@ public class ShapedResult(List<Dictionary<string, object?>> items)
 /// <summary>
 /// Holds parsed information about a DocumentSnapshot for efficient indexing and lookup.
 /// </summary>
-/// <param name="Snapshot">The original Firestore DocumentSnapshot.</param>
-/// <param name="CollectionPath">The collection name (e.g., "MenuCategories").</param>
-/// <param name="DocumentId">The document ID (e.g., "cat1").</param>
-/// <param name="ParentDocumentPath">The parent document path (e.g., "Menus/abc123"), or null for root collections.</param>
 public record SnapshotInfo(
     DocumentSnapshot Snapshot,
     string CollectionPath,
@@ -119,96 +116,50 @@ public record SnapshotInfo(
     string? ParentDocumentPath);
 
 /// <summary>
-/// Transforms a flat list of DocumentSnapshots into a hierarchical dictionary structure
-/// based on the query's AST (ResolvedFirestoreQuery).
+/// Immutable context for shaping operations. Holds indexed snapshots and aggregations.
 /// </summary>
-public class SnapshotShaper : ISnapshotShaper
+internal record ShapingContext(
+    IReadOnlyDictionary<string, List<SnapshotInfo>> ByCollection,
+    IReadOnlyDictionary<string, List<SnapshotInfo>> ByParentPath,
+    IReadOnlyDictionary<string, object> Aggregations)
 {
-    private Dictionary<string, List<SnapshotInfo>> _byCollection = new();
-    private Dictionary<string, List<SnapshotInfo>> _byParentPath = new();
-    private Dictionary<string, object> _aggregations = new();
-
-    /// <inheritdoc />
-    public ShapedResult Shape(
-        ResolvedFirestoreQuery query,
+    public static ShapingContext Create(
         IReadOnlyList<DocumentSnapshot> snapshots,
-        Dictionary<string, object>? aggregations = null)
+        Dictionary<string, object>? aggregations)
     {
-        if (snapshots.Count == 0)
-            return new ShapedResult([]);
-
-        // Store aggregations for lookup
-        _aggregations = aggregations ?? new Dictionary<string, object>();
-
-        // Index all snapshots for efficient lookup
-        IndexSnapshots(snapshots);
-
-        // Find root documents matching the query
-        var roots = FindRoots(query);
-
-        if (roots.Count == 0)
-            return new ShapedResult([]);
-
-        // Get projection subcollections if any
-        var projectionSubcollections = query.Projection?.Subcollections ?? [];
-
-        // Check if Id should be included (only if no projection or Id is in projected fields)
-        var includeId = !query.HasProjection ||
-                        query.Projection!.Fields == null ||
-                        query.Projection.Fields.Any(f => f.FieldPath == "Id");
-
-        // Shape each root with its includes and projection subcollections
-        return new ShapedResult(roots.Select(root => ShapeNode(root, query.Includes, projectionSubcollections, includeId)).ToList());
-    }
-
-    /// <summary>
-    /// Indexes all snapshots by collection path and parent document path for efficient lookup.
-    /// </summary>
-    private void IndexSnapshots(IReadOnlyList<DocumentSnapshot> snapshots)
-    {
-        _byCollection.Clear();
-        _byParentPath.Clear();
+        var byCollection = new Dictionary<string, List<SnapshotInfo>>();
+        var byParentPath = new Dictionary<string, List<SnapshotInfo>>();
 
         foreach (var snapshot in snapshots)
         {
             var info = ParseSnapshotPath(snapshot);
 
             // Index by collection
-            if (!_byCollection.TryGetValue(info.CollectionPath, out var collectionList))
+            if (!byCollection.TryGetValue(info.CollectionPath, out var collectionList))
             {
                 collectionList = new List<SnapshotInfo>();
-                _byCollection[info.CollectionPath] = collectionList;
+                byCollection[info.CollectionPath] = collectionList;
             }
             collectionList.Add(info);
 
             // Index by parent path (for subcollections)
             if (info.ParentDocumentPath != null)
             {
-                if (!_byParentPath.TryGetValue(info.ParentDocumentPath, out var parentList))
+                if (!byParentPath.TryGetValue(info.ParentDocumentPath, out var parentList))
                 {
                     parentList = new List<SnapshotInfo>();
-                    _byParentPath[info.ParentDocumentPath] = parentList;
+                    byParentPath[info.ParentDocumentPath] = parentList;
                 }
                 parentList.Add(info);
             }
         }
+
+        return new ShapingContext(byCollection, byParentPath, aggregations ?? new Dictionary<string, object>());
     }
 
-    /// <summary>
-    /// Parses a DocumentSnapshot's reference path to extract collection, document ID, and parent path.
-    /// </summary>
-    /// <remarks>
-    /// Example paths:
-    /// - "projects/demo/databases/(default)/documents/Menus/abc123"
-    ///   → CollectionPath: "Menus", DocumentId: "abc123", ParentDocumentPath: null
-    /// - "projects/demo/databases/(default)/documents/Menus/abc123/MenuCategories/cat1"
-    ///   → CollectionPath: "MenuCategories", DocumentId: "cat1", ParentDocumentPath: "Menus/abc123"
-    /// </remarks>
     private static SnapshotInfo ParseSnapshotPath(DocumentSnapshot snapshot)
     {
         var fullPath = snapshot.Reference.Path;
-
-        // Find "/documents/" and get everything after it
         var documentsMarker = "/documents/";
         var documentsIndex = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
 
@@ -218,131 +169,150 @@ public class SnapshotShaper : ISnapshotShaper
         var relativePath = fullPath.Substring(documentsIndex + documentsMarker.Length);
         var segments = relativePath.Split('/');
 
-        // Segments are always pairs: collection/docId/collection/docId/...
-        // Last two segments are the current collection and document ID
         if (segments.Length < 2 || segments.Length % 2 != 0)
             throw new InvalidOperationException($"Invalid Firestore path format: {fullPath}");
 
-        var collectionPath = segments[segments.Length - 2];
-        var documentId = segments[segments.Length - 1];
+        var collectionPath = segments[^2];
+        var documentId = segments[^1];
 
-        // Parent path is everything before the last collection/docId pair
         string? parentDocumentPath = null;
         if (segments.Length > 2)
         {
-            // Join all segments except the last two
             parentDocumentPath = string.Join("/", segments.Take(segments.Length - 2));
         }
 
         return new SnapshotInfo(snapshot, collectionPath, documentId, parentDocumentPath);
     }
+}
 
-    /// <summary>
-    /// Finds the root documents that match the query's collection path and optional document ID.
-    /// </summary>
-    private List<SnapshotInfo> FindRoots(ResolvedFirestoreQuery query)
+/// <summary>
+/// Transforms a flat list of DocumentSnapshots into a hierarchical dictionary structure
+/// based on the query's AST (ResolvedFirestoreQuery).
+/// </summary>
+public class SnapshotShaper : ISnapshotShaper
+{
+    /// <inheritdoc />
+    public ShapedResult Shape(
+        ResolvedFirestoreQuery query,
+        IReadOnlyList<DocumentSnapshot> snapshots,
+        Dictionary<string, object>? aggregations = null)
     {
-        if (!_byCollection.TryGetValue(query.CollectionPath, out var candidates))
-            return new List<SnapshotInfo>();
+        if (snapshots.Count == 0)
+            return new ShapedResult([]);
 
-        // Filter by document ID if specified
+        var context = ShapingContext.Create(snapshots, aggregations);
+        var roots = FindRoots(context, query);
+
+        if (roots.Count == 0)
+            return new ShapedResult([]);
+
+        var projectionSubcollections = query.Projection?.Subcollections ?? [];
+        var pkName = query.PrimaryKeyPropertyName;
+        var includePk = ShouldIncludePk(query.Projection?.Fields, pkName);
+
+        return new ShapedResult(
+            roots.Select(root => ShapeNode(context, root, query.Includes, projectionSubcollections, includePk, pkName)).ToList());
+    }
+
+    private static bool ShouldIncludePk(IReadOnlyList<FirestoreProjectedField>? fields, string? pkName) =>
+        fields == null || (pkName != null && fields.Any(f => f.FieldPath == pkName));
+
+    private static List<SnapshotInfo> FindRoots(ShapingContext context, ResolvedFirestoreQuery query)
+    {
+        if (!context.ByCollection.TryGetValue(query.CollectionPath, out var candidates))
+            return [];
+
         if (query.DocumentId != null)
             return candidates.Where(c => c.DocumentId == query.DocumentId).ToList();
 
-        // For collection queries, return only root-level documents (no parent)
         return candidates.Where(c => c.ParentDocumentPath == null).ToList();
     }
 
-    /// <summary>
-    /// Shapes a single snapshot into a dictionary, resolving all its includes recursively.
-    /// </summary>
-    private Dictionary<string, object?> ShapeNode(
+    private static Dictionary<string, object?> ShapeNode(
+        ShapingContext context,
         SnapshotInfo info,
         IReadOnlyList<ResolvedInclude> includes,
         IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections = null,
-        bool includeId = true)
+        bool includePk = true,
+        string? pkName = null)
     {
         var dict = info.Snapshot.ToDictionary();
+        var nodePath = $"{info.CollectionPath}/{info.DocumentId}";
 
-        // Insert Id at the beginning only if requested
-        if (includeId)
+        if (includePk && pkName != null)
         {
-            var result = new Dictionary<string, object?> { ["Id"] = info.DocumentId };
+            var result = new Dictionary<string, object?> { [pkName] = info.DocumentId };
             foreach (var kvp in dict)
                 result[kvp.Key] = kvp.Value;
             dict = result;
         }
 
-        var nodePath = $"{info.CollectionPath}/{info.DocumentId}";
-
-        // Process includes (from .Include())
         foreach (var include in includes)
         {
             if (include.IsCollection)
             {
-                dict[include.NavigationName] = ResolveSubCollection(nodePath, include);
+                var childPkName = include.PrimaryKeyPropertyName;
+                var childIncludePk = ShouldIncludePk(null, childPkName); // No projection fields for includes
+                dict[include.NavigationName] = ResolveChildren(
+                    context, nodePath, include.CollectionPath, include.NestedIncludes, null, childIncludePk, childPkName);
             }
             else
             {
-                // Reference: navigate path and resolve DocumentReferences in place
-                ResolveReferenceInPlace(dict, include);
+                ResolveReferenceInPlace(context, dict, include);
             }
         }
 
-        // Process projection subcollections (from .Select(x => new { ..., SubCollection = x.Nav... }))
         if (projectionSubcollections != null)
         {
             foreach (var subcol in projectionSubcollections)
             {
-                dict[subcol.ResultName] = ResolveProjectionSubcollection(nodePath, subcol);
+                dict[subcol.ResultName] = ResolveProjectionSubcollection(context, nodePath, subcol);
             }
         }
 
         return dict;
     }
 
-    /// <summary>
-    /// Resolves a projection subcollection by finding all child documents under the parent path.
-    /// For aggregations, returns the stored aggregation value directly.
-    /// </summary>
-    private object? ResolveProjectionSubcollection(
+    private static object? ResolveProjectionSubcollection(
+        ShapingContext context,
         string parentPath,
         ResolvedSubcollectionProjection subcol)
     {
-        // Handle aggregation subcollections (Count, Sum, Average)
         if (subcol.IsAggregation)
         {
-            // Build full parent document path for lookup
-            // parentPath is like "Clientes/cli-001", need to find the full Firestore path
-            var fullParentPath = FindFullParentPath(parentPath);
+            var fullParentPath = FindFullParentPath(context, parentPath);
             if (fullParentPath == null)
                 return null;
 
             var key = $"{fullParentPath}:{subcol.ResultName}";
-            return _aggregations.TryGetValue(key, out var value) ? value : null;
+            return context.Aggregations.TryGetValue(key, out var value) ? value : null;
         }
 
-        if (!_byParentPath.TryGetValue(parentPath, out var children))
-            return new List<Dictionary<string, object?>>();
+        var pkName = subcol.PrimaryKeyPropertyName;
+        var includePk = ShouldIncludePk(subcol.Fields, pkName);
+        return ResolveChildren(context, parentPath, subcol.CollectionPath, subcol.Includes, subcol.NestedSubcollections, includePk, pkName);
+    }
 
-        // Filter by the subcollection's collection path
-        var matching = children.Where(c => c.CollectionPath == subcol.CollectionPath);
+    private static List<Dictionary<string, object?>> ResolveChildren(
+        ShapingContext context,
+        string parentPath,
+        string collectionPath,
+        IReadOnlyList<ResolvedInclude> includes,
+        IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections,
+        bool includePk,
+        string? pkName)
+    {
+        if (!context.ByParentPath.TryGetValue(parentPath, out var children))
+            return [];
 
-        // Check if Id should be included for this subcollection
-        var includeId = subcol.Fields == null || subcol.Fields.Any(f => f.FieldPath == "Id");
-
-        // Recursively shape each child with nested includes and nested subcollections
-        return matching
-            .Select(child => ShapeNode(child, subcol.Includes, subcol.NestedSubcollections, includeId))
+        return children
+            .Where(c => c.CollectionPath == collectionPath)
+            .Select(child => ShapeNode(context, child, includes, projectionSubcollections, includePk, pkName))
             .ToList();
     }
 
-    /// <summary>
-    /// Finds the full Firestore document path from a relative path like "Clientes/cli-001".
-    /// </summary>
-    private string? FindFullParentPath(string relativePath)
+    private static string? FindFullParentPath(ShapingContext context, string relativePath)
     {
-        // Search in indexed snapshots to find the full path
         var parts = relativePath.Split('/');
         if (parts.Length < 2)
             return null;
@@ -350,7 +320,7 @@ public class SnapshotShaper : ISnapshotShaper
         var collectionPath = parts[0];
         var documentId = parts[1];
 
-        if (_byCollection.TryGetValue(collectionPath, out var candidates))
+        if (context.ByCollection.TryGetValue(collectionPath, out var candidates))
         {
             var found = candidates.FirstOrDefault(c => c.DocumentId == documentId);
             if (found != null)
@@ -360,37 +330,17 @@ public class SnapshotShaper : ISnapshotShaper
         return null;
     }
 
-    /// <summary>
-    /// Resolves a subcollection include by finding all child documents under the parent path.
-    /// </summary>
-    private List<Dictionary<string, object?>> ResolveSubCollection(string parentPath, ResolvedInclude include)
-    {
-        if (!_byParentPath.TryGetValue(parentPath, out var children))
-            return new List<Dictionary<string, object?>>();
-
-        // Filter by the include's collection path
-        var matching = children.Where(c => c.CollectionPath == include.CollectionPath);
-
-        // Recursively shape each child with nested includes
-        return matching
-            .Select(child => ShapeNode(child, include.NestedIncludes))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Resolves a reference include by navigating the path and replacing DocumentReferences in place.
-    /// Handles paths like "Items.MenuItem" where Items is an embedded array.
-    /// </summary>
-    private void ResolveReferenceInPlace(Dictionary<string, object?> dict, ResolvedInclude include)
+    private static void ResolveReferenceInPlace(
+        ShapingContext context,
+        Dictionary<string, object?> dict,
+        ResolvedInclude include)
     {
         var pathParts = include.NavigationName.Split('.');
-        ResolveReferenceRecursive(dict, pathParts, 0, include);
+        ResolveReferenceRecursive(context, dict, pathParts, 0, include);
     }
 
-    /// <summary>
-    /// Recursively navigates the path, handling arrays, and resolves DocumentReferences at the final segment.
-    /// </summary>
-    private void ResolveReferenceRecursive(
+    private static void ResolveReferenceRecursive(
+        ShapingContext context,
         object? current,
         string[] pathParts,
         int partIndex,
@@ -402,7 +352,6 @@ public class SnapshotShaper : ISnapshotShaper
         var part = pathParts[partIndex];
         var isLastPart = partIndex == pathParts.Length - 1;
 
-        // Case 1: Current is a dictionary
         if (current is IDictionary<string, object?> dict)
         {
             if (!dict.TryGetValue(part, out var value) || value == null)
@@ -410,37 +359,32 @@ public class SnapshotShaper : ISnapshotShaper
 
             if (isLastPart)
             {
-                // Final segment: resolve the DocumentReference(s)
-                dict[part] = ResolveReferenceValue(value, include);
+                dict[part] = ResolveReferenceValue(context, value, include);
             }
             else
             {
-                // Navigate deeper
-                ResolveReferenceRecursive(value, pathParts, partIndex + 1, include);
+                ResolveReferenceRecursive(context, value, pathParts, partIndex + 1, include);
             }
         }
-        // Case 2: Current is an array - iterate and process each element
         else if (current is IEnumerable<object> array && current is not string)
         {
             foreach (var item in array)
             {
-                ResolveReferenceRecursive(item, pathParts, partIndex, include);
+                ResolveReferenceRecursive(context, item, pathParts, partIndex, include);
             }
         }
     }
 
-    /// <summary>
-    /// Resolves a DocumentReference value (single or array) to its shaped dictionary form.
-    /// </summary>
-    private object? ResolveReferenceValue(object? value, ResolvedInclude include)
+    private static object? ResolveReferenceValue(
+        ShapingContext context,
+        object? value,
+        ResolvedInclude include)
     {
-        // Single DocumentReference
         if (value is DocumentReference docRef)
         {
-            return FindAndShapeReference(docRef, include);
+            return FindAndShapeReference(context, docRef, include);
         }
 
-        // Array of DocumentReferences
         if (value is IEnumerable<object> list && value is not string)
         {
             var results = new List<Dictionary<string, object?>>();
@@ -448,7 +392,7 @@ public class SnapshotShaper : ISnapshotShaper
             {
                 if (item is DocumentReference itemRef)
                 {
-                    var shaped = FindAndShapeReference(itemRef, include);
+                    var shaped = FindAndShapeReference(context, itemRef, include);
                     if (shaped != null)
                         results.Add(shaped);
                 }
@@ -459,24 +403,22 @@ public class SnapshotShaper : ISnapshotShaper
         return null;
     }
 
-    /// <summary>
-    /// Finds a referenced document in the indexed snapshots and shapes it with nested includes.
-    /// </summary>
-    private Dictionary<string, object?>? FindAndShapeReference(DocumentReference docRef, ResolvedInclude include)
+    private static Dictionary<string, object?>? FindAndShapeReference(
+        ShapingContext context,
+        DocumentReference docRef,
+        ResolvedInclude include)
     {
-        // Extract document ID from the reference
         var refDocId = docRef.Id;
 
-        // Look up in the indexed snapshots by collection
-        if (!_byCollection.TryGetValue(include.CollectionPath, out var candidates))
+        if (!context.ByCollection.TryGetValue(include.CollectionPath, out var candidates))
             return null;
 
         var found = candidates.FirstOrDefault(c => c.DocumentId == refDocId);
         if (found == null)
             return null;
 
-        // Shape with nested includes
-        return ShapeNode(found, include.NestedIncludes);
+        var pkName = include.PrimaryKeyPropertyName;
+        var includePk = ShouldIncludePk(null, pkName); // No projection fields for references
+        return ShapeNode(context, found, include.NestedIncludes, null, includePk, pkName);
     }
-
 }

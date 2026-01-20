@@ -170,6 +170,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
         bool IsCollection,
         Type TargetEntityType,
         string CollectionPath,
+        string? PrimaryKeyPropertyName,
         string? DocumentId,
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
@@ -289,6 +290,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
         string ResultName,
         Type TargetEntityType,
         string CollectionPath,
+        string? PrimaryKeyPropertyName,
         string? DocumentId,
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,
@@ -374,6 +376,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
     public record ResolvedFirestoreQuery(
         string CollectionPath,
         Type EntityClrType,
+        string? PrimaryKeyPropertyName,
         string? DocumentId,
         IReadOnlyList<ResolvedFilterResult> FilterResults,
         IReadOnlyList<ResolvedOrderByClause> OrderByClauses,

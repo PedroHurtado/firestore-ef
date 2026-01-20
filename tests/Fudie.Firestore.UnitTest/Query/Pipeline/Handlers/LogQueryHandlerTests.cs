@@ -178,6 +178,7 @@ public class LogQueryHandlerTests
         return new ResolvedFirestoreQuery(
             CollectionPath: "test-collection",
             EntityClrType: typeof(object),
+            PrimaryKeyPropertyName: "Id",
             DocumentId: null,
             FilterResults: Array.Empty<ResolvedFilterResult>(),
             OrderByClauses: Array.Empty<ResolvedOrderByClause>(),
