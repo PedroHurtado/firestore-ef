@@ -33,23 +33,51 @@ public enum ValueKind
 /// <param name="Value">The raw value extracted from Firestore</param>
 /// <param name="TargetType">Target CLR type (from AST: FieldType)</param>
 /// <param name="Kind">How to materialize this value</param>
+/// <param name="ResultName">Property name for the Materializer (from AST: ResultName)</param>
 public record ShapedValue(
     object? Value,
     Type TargetType,
-    ValueKind Kind
+    ValueKind Kind,
+    string ResultName
 );
 
 /// <summary>
-/// An item with its typed values indexed by ResultName.
-/// Each value includes its type and how to materialize it.
+/// An item with its typed values indexed by FieldPath.
+/// Each value includes its type, how to materialize it, and the ResultName for the Materializer.
 /// </summary>
 public class ShapedItem
 {
     /// <summary>
-    /// Values indexed by ResultName.
-    /// Each value includes its target type and ValueKind.
+    /// Values indexed by FieldPath (unique key).
+    /// Each value includes its target type, ValueKind, and ResultName.
     /// </summary>
     public Dictionary<string, ShapedValue> Values { get; init; } = new();
+
+    /// <summary>
+    /// Converts this ShapedItem to a legacy dictionary format for backward compatibility.
+    /// Uses ResultName as the key (not FieldPath) for Materializer compatibility.
+    /// </summary>
+    [Obsolete("Use Values directly. Remove when Materializer is migrated.")]
+    public Dictionary<string, object?> ToLegacyDict()
+    {
+        var result = new Dictionary<string, object?>();
+        foreach (var kvp in Values)
+        {
+            // Use ResultName as key for Materializer compatibility
+            result[kvp.Value.ResultName] = ConvertToLegacyValue(kvp.Value);
+        }
+        return result;
+    }
+
+    private static object? ConvertToLegacyValue(ShapedValue shaped)
+    {
+        return shaped.Value switch
+        {
+            IList<ShapedItem> shapedItems => shapedItems.Select(si => si.ToLegacyDict()).ToList(),
+            ShapedItem nestedItem => nestedItem.ToLegacyDict(),
+            _ => shaped.Value
+        };
+    }
 }
 
 /// <summary>
@@ -130,19 +158,23 @@ public class ShapedResult
         }
     }
 
-    private static void FormatShapedValue(StringBuilder sb, string key, ShapedValue shaped, string prefix, int indent)
+    private static void FormatShapedValue(StringBuilder sb, string fieldPath, ShapedValue shaped, string prefix, int indent)
     {
         var typeName = GetShortTypeName(shaped.TargetType);
         var kindStr = shaped.Kind.ToString();
+        // Format: FieldPath: value (ResultName, Type, Kind) - only show ResultName if different
+        var metaParts = fieldPath != shaped.ResultName
+            ? $"{shaped.ResultName}, {typeName}, {kindStr}"
+            : $"{typeName}, {kindStr}";
 
         switch (shaped.Value)
         {
             case null:
-                sb.AppendLine($"{prefix}{key}: null ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: null ({metaParts})");
                 break;
 
             case IList<ShapedItem> shapedItems:
-                sb.AppendLine($"{prefix}{key}: [{shapedItems.Count}] ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: [{shapedItems.Count}] ({metaParts})");
                 for (var i = 0; i < shapedItems.Count; i++)
                 {
                     sb.AppendLine($"{prefix}  [{i}] ShapedItem");
@@ -151,7 +183,7 @@ public class ShapedResult
                 break;
 
             case IList<object> list:
-                sb.AppendLine($"{prefix}{key}: [{list.Count}] ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: [{list.Count}] ({metaParts})");
                 for (var i = 0; i < Math.Min(list.Count, 5); i++)
                 {
                     sb.AppendLine($"{prefix}  [{i}] {FormatSimpleValue(list[i])}");
@@ -160,21 +192,26 @@ public class ShapedResult
                     sb.AppendLine($"{prefix}  ... and {list.Count - 5} more");
                 break;
 
+            case ShapedItem nestedItem:
+                sb.AppendLine($"{prefix}{fieldPath}: ({metaParts})");
+                FormatShapedItem(sb, nestedItem, indent + 1);
+                break;
+
             case Dictionary<string, object?> dict:
-                sb.AppendLine($"{prefix}{key}: ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: ({metaParts})");
                 FormatDictionary(sb, dict, indent + 1);
                 break;
 
             case DocumentReference docRef:
-                sb.AppendLine($"{prefix}{key}: Ref({docRef.Id}) ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: Ref({docRef.Id}) ({metaParts})");
                 break;
 
             case string s:
-                sb.AppendLine($"{prefix}{key}: \"{s}\" ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: \"{s}\" ({metaParts})");
                 break;
 
             default:
-                sb.AppendLine($"{prefix}{key}: {shaped.Value} ({typeName}, {kindStr})");
+                sb.AppendLine($"{prefix}{fieldPath}: {shaped.Value} ({metaParts})");
                 break;
         }
     }
@@ -302,11 +339,22 @@ public record SnapshotInfo(
     string? ParentDocumentPath);
 
 /// <summary>
+/// Configuration options for shaping a node. Reduces parameter count in ShapeNode.
+/// </summary>
+public record ShapeOptions(
+    IReadOnlyList<ResolvedInclude> Includes,
+    IReadOnlyList<ResolvedSubcollectionProjection>? Subcollections = null,
+    IReadOnlyList<FirestoreProjectedField>? ProjectedFields = null,
+    bool IncludePk = true,
+    string? PkName = null);
+
+/// <summary>
 /// Immutable context for shaping operations. Holds indexed snapshots and aggregations.
 /// </summary>
 internal record ShapingContext(
     IReadOnlyDictionary<string, List<SnapshotInfo>> ByCollection,
     IReadOnlyDictionary<string, List<SnapshotInfo>> ByParentPath,
+    IReadOnlyDictionary<string, SnapshotInfo> ByFullPath,
     IReadOnlyDictionary<string, object> Aggregations)
 {
     public static ShapingContext Create(
@@ -315,6 +363,7 @@ internal record ShapingContext(
     {
         var byCollection = new Dictionary<string, List<SnapshotInfo>>();
         var byParentPath = new Dictionary<string, List<SnapshotInfo>>();
+        var byFullPath = new Dictionary<string, SnapshotInfo>();
 
         foreach (var snapshot in snapshots)
         {
@@ -338,9 +387,13 @@ internal record ShapingContext(
                 }
                 parentList.Add(info);
             }
+
+            // Index by full path for O(1) lookup
+            var fullPath = $"{info.CollectionPath}/{info.DocumentId}";
+            byFullPath[fullPath] = info;
         }
 
-        return new ShapingContext(byCollection, byParentPath, aggregations ?? new Dictionary<string, object>());
+        return new ShapingContext(byCollection, byParentPath, byFullPath, aggregations ?? new Dictionary<string, object>());
     }
 
     private static SnapshotInfo ParseSnapshotPath(DocumentSnapshot snapshot)
@@ -372,8 +425,9 @@ internal record ShapingContext(
 }
 
 /// <summary>
-/// Transforms a flat list of DocumentSnapshots into a hierarchical dictionary structure
+/// Transforms a flat list of DocumentSnapshots into a hierarchical structure
 /// based on the query's AST (ResolvedFirestoreQuery).
+/// Single-pass implementation: builds ShapedItem directly with metadata.
 /// </summary>
 public class SnapshotShaper : ISnapshotShaper
 {
@@ -384,172 +438,527 @@ public class SnapshotShaper : ISnapshotShaper
         Dictionary<string, object>? aggregations = null)
     {
         if (snapshots.Count == 0)
-            return new ShapedResult([]);
+            return new ShapedResult([], [], false);
 
         var context = ShapingContext.Create(snapshots, aggregations);
         var roots = FindRoots(context, query);
 
         if (roots.Count == 0)
-            return new ShapedResult([]);
+            return new ShapedResult([], [], false);
 
-        var projectionSubcollections = query.Projection?.Subcollections ?? [];
+        var options = BuildRootOptions(query);
+
+        // Single pass: ShapedItem is the source of truth
+        var typedItems = roots
+            .Select(root => ShapeNode(context, root, options))
+            .ToList();
+
+        // Legacy: Derive Dictionary for current Materializer
+#pragma warning disable CS0618
+        var legacyItems = typedItems.Select(t => t.ToLegacyDict()).ToList();
+#pragma warning restore CS0618
+
+        return new ShapedResult(legacyItems, typedItems, query.HasProjection);
+    }
+
+    private static ShapeOptions BuildRootOptions(ResolvedFirestoreQuery query)
+    {
         var pkName = query.PrimaryKeyPropertyName;
         var includePk = ShouldIncludePk(query.Projection?.Fields, pkName);
 
-        var shapedNodes = roots
-            .Select(root => ShapeNode(context, root, query.Includes, projectionSubcollections, includePk, pkName))
-            .ToList();
+        return new ShapeOptions(
+            Includes: query.Includes,
+            Subcollections: query.Projection?.Subcollections,
+            ProjectedFields: query.Projection?.Fields,
+            IncludePk: includePk,
+            PkName: pkName);
+    }
 
-        // For projections, flatten the dictionaries so paths like "Direccion.Ciudad" become top-level keys
-        if (query.HasProjection)
-        {
-            shapedNodes = shapedNodes.Select(FlattenForProjection).ToList();
-        }
+    private static bool ShouldIncludePk(IReadOnlyList<FirestoreProjectedField>? fields, string? pkName) =>
+        fields == null || (pkName != null && fields.Any(f => f.FieldPath == pkName));
 
-        // Build TypedItems from AST projection fields
-        var typedItems = BuildTypedItems(shapedNodes, query);
+    private static List<SnapshotInfo> FindRoots(ShapingContext context, ResolvedFirestoreQuery query)
+    {
+        if (!context.ByCollection.TryGetValue(query.CollectionPath, out var candidates))
+            return [];
 
-        return new ShapedResult(shapedNodes, typedItems, query.HasProjection);
+        if (query.DocumentId != null)
+            return candidates.Where(c => c.DocumentId == query.DocumentId).ToList();
+
+        return candidates.Where(c => c.ParentDocumentPath == null).ToList();
     }
 
     /// <summary>
-    /// Builds TypedItems with ShapedValue metadata from the AST projection fields.
-    /// This is the new SRP structure that the Materializer will use.
+    /// Gets the relative document path from the full Firestore path.
     /// </summary>
-    private static List<ShapedItem> BuildTypedItems(
-        List<Dictionary<string, object?>> items,
-        ResolvedFirestoreQuery query)
+    private static string GetRelativeDocumentPath(SnapshotInfo info)
     {
-        var projectedFields = query.Projection?.Fields ?? [];
-        var subcollections = query.Projection?.Subcollections ?? [];
-        var pkName = query.PrimaryKeyPropertyName;
+        var fullPath = info.Snapshot.Reference.Path;
+        var documentsMarker = "/documents/";
+        var documentsIndex = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
 
-        return items.Select(item => BuildTypedItem(item, projectedFields, subcollections, pkName)).ToList();
+        if (documentsIndex < 0)
+            return $"{info.CollectionPath}/{info.DocumentId}";
+
+        return fullPath.Substring(documentsIndex + documentsMarker.Length);
     }
 
-    private static ShapedItem BuildTypedItem(
-        Dictionary<string, object?> rawItem,
-        IReadOnlyList<FirestoreProjectedField> projectedFields,
-        IReadOnlyList<ResolvedSubcollectionProjection> subcollections,
-        string? pkName)
+    /// <summary>
+    /// Shapes a single node (document) into a ShapedItem with metadata.
+    /// Single-pass: extracts fields and builds ShapedValue inline.
+    /// </summary>
+    private static ShapedItem ShapeNode(
+        ShapingContext context,
+        SnapshotInfo info,
+        ShapeOptions options)
     {
+        var rawDict = info.Snapshot.ToDictionary();
+        var nodePath = GetRelativeDocumentPath(info);
         var shapedItem = new ShapedItem();
 
-        // If we have projected fields, use them (projection case)
-        if (projectedFields.Count > 0)
+        // 1. Add Primary Key
+        AddPrimaryKey(shapedItem, info.DocumentId, options);
+
+        // 2. Extract fields with metadata (passing context and includes for FK resolution)
+        ExtractFields(context, rawDict, options, shapedItem);
+
+        // 3. Resolve includes (collections and references) - for non-projection cases
+        ResolveIncludes(context, shapedItem, nodePath, options.Includes);
+
+        // 4. Resolve projection subcollections
+        ResolveSubcollections(context, shapedItem, nodePath, options.Subcollections);
+
+        return shapedItem;
+    }
+
+    private static void AddPrimaryKey(ShapedItem shapedItem, string documentId, ShapeOptions options)
+    {
+        if (options.IncludePk && options.PkName != null)
         {
-            foreach (var field in projectedFields)
+            // PK uses same name for FieldPath and ResultName
+            shapedItem.Values[options.PkName] = new ShapedValue(documentId, typeof(string), ValueKind.Scalar, options.PkName);
+        }
+    }
+
+    private static void ExtractFields(
+        ShapingContext context,
+        Dictionary<string, object> rawDict,
+        ShapeOptions options,
+        ShapedItem shapedItem)
+    {
+        if (options.ProjectedFields is { Count: > 0 })
+        {
+            // Projection case: use FieldPath as key, ResultName in ShapedValue
+            foreach (var field in options.ProjectedFields)
             {
-                if (rawItem.TryGetValue(field.FieldPath, out var value))
+                var value = GetValueByPathWithFkResolution(context, rawDict, field.FieldPath, options.Includes);
+                if (value != null || rawDict.ContainsKey(field.FieldPath.Split('.')[0]))
                 {
                     var kind = DetermineValueKind(field.FieldType, value);
-                    shapedItem.Values[field.ResultName] = new ShapedValue(value, field.FieldType, kind);
+
+                    // For ComplexType, preserve hierarchy as ShapedItem
+                    if (kind == ValueKind.ComplexType && value is Dictionary<string, object> nestedDict)
+                    {
+                        var nestedItem = ExtractDictAsShapedItem(nestedDict);
+                        shapedItem.Values[field.FieldPath] = new ShapedValue(nestedItem, field.FieldType, kind, field.ResultName);
+                    }
+                    else
+                    {
+                        shapedItem.Values[field.FieldPath] = new ShapedValue(value, field.FieldType, kind, field.ResultName);
+                    }
                 }
             }
         }
         else
         {
-            // No projection - copy all values from rawItem, inferring types
-            foreach (var kvp in rawItem)
+            // No projection: extract all preserving hierarchy
+            // FieldPath and ResultName are the same (raw field name)
+            foreach (var kvp in rawDict)
             {
-                var value = kvp.Value;
-                var inferredType = InferType(value);
-                var kind = DetermineValueKindFromValue(value);
-
-                // Convert nested ObjectLists to ShapedItems recursively
-                if (kind == ValueKind.ObjectList)
-                {
-                    var nestedItems = ConvertToShapedItems(value);
-                    if (nestedItems != null)
-                    {
-                        shapedItem.Values[kvp.Key] = new ShapedValue(nestedItems, inferredType, kind);
-                        continue;
-                    }
-                }
-
-                shapedItem.Values[kvp.Key] = new ShapedValue(value, inferredType, kind);
+                shapedItem.Values[kvp.Key] = ExtractValuePreservingHierarchy(kvp.Value, kvp.Key);
             }
         }
-
-        // Add subcollections with type info
-        foreach (var subcol in subcollections)
-        {
-            if (rawItem.TryGetValue(subcol.ResultName, out var value))
-            {
-                var kind = DetermineSubcollectionKind(subcol, value);
-                var targetType = GetSubcollectionTargetType(subcol);
-
-                // Convert raw subcollection items to ShapedItems if it's an ObjectList
-                if (kind == ValueKind.ObjectList && value is IList<Dictionary<string, object?>> listOfDicts)
-                {
-                    var nestedItems = listOfDicts
-                        .Select(d => BuildTypedItem(d, subcol.Fields ?? [], subcol.NestedSubcollections ?? [], subcol.PrimaryKeyPropertyName))
-                        .ToList();
-                    shapedItem.Values[subcol.ResultName] = new ShapedValue(nestedItems, targetType, kind);
-                }
-                else
-                {
-                    shapedItem.Values[subcol.ResultName] = new ShapedValue(value, targetType, kind);
-                }
-            }
-        }
-
-        // Add PK if not already present (only for projection case where PK might be missing)
-        if (projectedFields.Count > 0 && pkName != null && rawItem.TryGetValue(pkName, out var pkValue) && !shapedItem.Values.ContainsKey(pkName))
-        {
-            shapedItem.Values[pkName] = new ShapedValue(pkValue, typeof(string), ValueKind.Scalar);
-        }
-
-        return shapedItem;
     }
 
     /// <summary>
-    /// Converts a collection value to a list of ShapedItems.
-    /// Handles various collection types that might come from Firestore.
+    /// Gets a value by path, resolving FK references when encountered.
+    /// For path "Autor.Nombre", if Autor is a DocumentReference, it resolves the reference
+    /// and extracts Nombre from the resolved document.
     /// </summary>
-    private static List<ShapedItem>? ConvertToShapedItems(object? value)
+    private static object? GetValueByPathWithFkResolution(
+        ShapingContext context,
+        Dictionary<string, object> dict,
+        string path,
+        IReadOnlyList<ResolvedInclude> includes)
     {
-        if (value == null)
-            return null;
+        var parts = path.Split('.');
+        object? current = dict;
+        var currentIncludes = includes;
 
-        // Try IList<Dictionary<string, object?>> first
-        if (value is IList<Dictionary<string, object?>> listOfDictsNullable)
+        for (var i = 0; i < parts.Length; i++)
         {
-            return listOfDictsNullable
-                .Select(d => BuildTypedItem(d, [], [], null))
-                .ToList();
+            var part = parts[i];
+
+            if (current is Dictionary<string, object> d)
+            {
+                if (!d.TryGetValue(part, out current))
+                    return null;
+
+                // If we hit a DocumentReference and there are more parts, resolve it
+                if (current is DocumentReference docRef && i < parts.Length - 1)
+                {
+                    // Find the include for this navigation
+                    var include = currentIncludes.FirstOrDefault(inc => inc.NavigationName == part);
+                    if (include == null)
+                        return null;
+
+                    // Resolve the reference
+                    var key = $"{include.CollectionPath}/{docRef.Id}";
+                    if (!context.ByFullPath.TryGetValue(key, out var resolved))
+                        return null;
+
+                    // Continue navigation from the resolved document
+                    current = resolved.Snapshot.ToDictionary();
+                    currentIncludes = include.NestedIncludes;
+                }
+            }
+            else if (current is Dictionary<string, object?> dNullable)
+            {
+                if (!dNullable.TryGetValue(part, out current))
+                    return null;
+            }
+            else
+            {
+                return null;
+            }
         }
 
-        // Try IList<Dictionary<string, object>> (without nullable)
-        if (value is IList<Dictionary<string, object>> listOfDicts)
+        return current;
+    }
+
+    private static ShapedValue ExtractValuePreservingHierarchy(object? value, string resultName)
+    {
+        return value switch
         {
-            return listOfDicts
-                .Select(d => BuildTypedItem(d.ToDictionary(k => k.Key, k => (object?)k.Value), [], [], null))
-                .ToList();
+            Dictionary<string, object?> dict => new ShapedValue(
+                Value: ExtractDictAsShapedItemNullable(dict),
+                TargetType: typeof(object),
+                Kind: ValueKind.ComplexType,
+                ResultName: resultName),
+
+            IDictionary<string, object> dict => new ShapedValue(
+                Value: ExtractDictAsShapedItemGeneric(dict),
+                TargetType: typeof(object),
+                Kind: ValueKind.ComplexType,
+                ResultName: resultName),
+
+            IList<Dictionary<string, object?>> list => new ShapedValue(
+                Value: list.Select(ExtractDictAsShapedItemNullable).ToList(),
+                TargetType: typeof(IEnumerable<object>),
+                Kind: ValueKind.ObjectList,
+                ResultName: resultName),
+
+            IList<object> list when list.Count > 0 && list[0] is Dictionary<string, object?> => new ShapedValue(
+                Value: list.Cast<Dictionary<string, object?>>().Select(ExtractDictAsShapedItemNullable).ToList(),
+                TargetType: typeof(IEnumerable<object>),
+                Kind: ValueKind.ObjectList,
+                ResultName: resultName),
+
+            DocumentReference docRef => new ShapedValue(
+                Value: docRef,
+                TargetType: typeof(object),
+                Kind: ValueKind.Entity,
+                ResultName: resultName),
+
+            _ => new ShapedValue(
+                Value: value,
+                TargetType: InferType(value),
+                Kind: DetermineValueKindFromValue(value),
+                ResultName: resultName)
+        };
+    }
+
+    private static ShapedItem ExtractDictAsShapedItem(Dictionary<string, object> dict)
+    {
+        var item = new ShapedItem();
+        foreach (var kvp in dict)
+        {
+            // For nested dicts, key is both FieldPath and ResultName
+            item.Values[kvp.Key] = ExtractValuePreservingHierarchy(kvp.Value, kvp.Key);
+        }
+        return item;
+    }
+
+    private static ShapedItem ExtractDictAsShapedItemGeneric(IDictionary<string, object> dict)
+    {
+        var item = new ShapedItem();
+        foreach (var kvp in dict)
+        {
+            // For nested dicts, key is both FieldPath and ResultName
+            item.Values[kvp.Key] = ExtractValuePreservingHierarchy(kvp.Value, kvp.Key);
+        }
+        return item;
+    }
+
+    private static ShapedItem ExtractDictAsShapedItemNullable(Dictionary<string, object?> dict)
+    {
+        var item = new ShapedItem();
+        foreach (var kvp in dict)
+        {
+            // For nested dicts, key is both FieldPath and ResultName
+            item.Values[kvp.Key] = ExtractValuePreservingHierarchy(kvp.Value, kvp.Key);
+        }
+        return item;
+    }
+
+    private static void ResolveIncludes(
+        ShapingContext context,
+        ShapedItem shapedItem,
+        string nodePath,
+        IReadOnlyList<ResolvedInclude> includes)
+    {
+        foreach (var include in includes)
+        {
+            if (include.IsCollection)
+            {
+                var children = ResolveCollectionInclude(context, nodePath, include);
+                var targetType = typeof(IEnumerable<object>);
+                shapedItem.Values[include.NavigationName] = new ShapedValue(children, targetType, ValueKind.ObjectList, include.NavigationName);
+            }
+            else
+            {
+                ResolveReferenceInclude(context, shapedItem, include);
+            }
+        }
+    }
+
+    private static List<ShapedItem> ResolveCollectionInclude(
+        ShapingContext context,
+        string parentPath,
+        ResolvedInclude include)
+    {
+        var childOptions = new ShapeOptions(
+            Includes: include.NestedIncludes,
+            PkName: include.PrimaryKeyPropertyName,
+            IncludePk: true);
+
+        return ResolveChildren(context, parentPath, include.CollectionPath, childOptions);
+    }
+
+    private static void ResolveReferenceInclude(
+        ShapingContext context,
+        ShapedItem shapedItem,
+        ResolvedInclude include)
+    {
+        var pathParts = include.NavigationName.Split('.');
+
+        // Navigate recursively through the ShapedItem hierarchy
+        ResolveReferenceRecursive(context, shapedItem, pathParts, 0, include);
+    }
+
+    /// <summary>
+    /// Recursively navigates through ShapedItem hierarchy to resolve references.
+    /// For path "Secciones.EtiquetasDestacadas":
+    /// 1. Find "Secciones" in current ShapedItem → List of ShapedItem
+    /// 2. For each ShapedItem in list, find "EtiquetasDestacadas" → List of DocumentReference
+    /// 3. Resolve each DocumentReference to a ShapedItem
+    /// </summary>
+    private static void ResolveReferenceRecursive(
+        ShapingContext context,
+        object? current,
+        string[] pathParts,
+        int partIndex,
+        ResolvedInclude include)
+    {
+        if (current == null || partIndex >= pathParts.Length)
+            return;
+
+        var part = pathParts[partIndex];
+        var isLastPart = partIndex == pathParts.Length - 1;
+
+        switch (current)
+        {
+            case ShapedItem shapedItem:
+                if (!shapedItem.Values.TryGetValue(part, out var shapedValue))
+                    return;
+
+                if (isLastPart)
+                {
+                    // We've reached the final field - resolve the references
+                    var resolved = ResolveReferenceValue(context, shapedValue.Value, include);
+                    if (resolved != null)
+                    {
+                        var (value, kind) = resolved.Value;
+                        var targetType = kind == ValueKind.Entity ? typeof(object) : typeof(IEnumerable<object>);
+                        shapedItem.Values[part] = new ShapedValue(value, targetType, kind, part);
+                    }
+                }
+                else
+                {
+                    // Continue navigating deeper
+                    ResolveReferenceRecursive(context, shapedValue.Value, pathParts, partIndex + 1, include);
+                }
+                break;
+
+            case IList<ShapedItem> shapedItems:
+                // Iterate over each item and continue navigating
+                foreach (var item in shapedItems)
+                {
+                    ResolveReferenceRecursive(context, item, pathParts, partIndex, include);
+                }
+                break;
+
+            case IList<object> list:
+                // Handle raw object lists (might contain dictionaries or ShapedItems)
+                foreach (var item in list)
+                {
+                    ResolveReferenceRecursive(context, item, pathParts, partIndex, include);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Resolves DocumentReference(s) to ShapedItem(s).
+    /// Returns the resolved value and its ValueKind, or null if no resolution possible.
+    /// </summary>
+    private static (object value, ValueKind kind)? ResolveReferenceValue(
+        ShapingContext context,
+        object? value,
+        ResolvedInclude include)
+    {
+        if (value is DocumentReference docRef)
+        {
+            var resolved = FindAndShapeReference(context, docRef, include);
+            return resolved != null ? (resolved, ValueKind.Entity) : null;
         }
 
-        // Try IList<object> where items are dictionaries
-        if (value is IList<object> list)
+        if (value is IEnumerable<object> list && value is not string)
         {
             var results = new List<ShapedItem>();
             foreach (var item in list)
             {
-                if (item is Dictionary<string, object?> dictNullable)
-                    results.Add(BuildTypedItem(dictNullable, [], [], null));
-                else if (item is Dictionary<string, object> dict)
-                    results.Add(BuildTypedItem(dict.ToDictionary(k => k.Key, k => (object?)k.Value), [], [], null));
-                else
-                    return null; // Not a list of dictionaries
+                if (item is DocumentReference itemRef)
+                {
+                    var shaped = FindAndShapeReference(context, itemRef, include);
+                    if (shaped != null)
+                        results.Add(shaped);
+                }
             }
-            return results;
+            return results.Count > 0 ? (results, ValueKind.ObjectList) : null;
         }
 
         return null;
     }
 
-    /// <summary>
-    /// Infers CLR type from Firestore value when we don't have AST type info.
-    /// </summary>
+    private static ShapedItem? FindAndShapeReference(
+        ShapingContext context,
+        DocumentReference docRef,
+        ResolvedInclude include)
+    {
+        var key = $"{include.CollectionPath}/{docRef.Id}";
+
+        if (!context.ByFullPath.TryGetValue(key, out var found))
+            return null;
+
+        var childOptions = new ShapeOptions(
+            Includes: include.NestedIncludes,
+            PkName: include.PrimaryKeyPropertyName,
+            IncludePk: true);
+
+        return ShapeNode(context, found, childOptions);
+    }
+
+    private static void ResolveSubcollections(
+        ShapingContext context,
+        ShapedItem shapedItem,
+        string nodePath,
+        IReadOnlyList<ResolvedSubcollectionProjection>? subcollections)
+    {
+        if (subcollections == null) return;
+
+        foreach (var subcol in subcollections)
+        {
+            var value = ResolveProjectionSubcollection(context, nodePath, subcol);
+            if (value != null)
+            {
+                var kind = DetermineSubcollectionKind(subcol);
+                var targetType = GetSubcollectionTargetType(subcol);
+                shapedItem.Values[subcol.ResultName] = new ShapedValue(value, targetType, kind, subcol.ResultName);
+            }
+        }
+    }
+
+    private static object? ResolveProjectionSubcollection(
+        ShapingContext context,
+        string parentPath,
+        ResolvedSubcollectionProjection subcol)
+    {
+        if (subcol.IsAggregation)
+        {
+            var fullParentPath = FindFullParentPath(context, parentPath);
+            if (fullParentPath == null)
+                return null;
+
+            var key = $"{fullParentPath}:{subcol.ResultName}";
+            return context.Aggregations.TryGetValue(key, out var value) ? value : null;
+        }
+
+        var childOptions = new ShapeOptions(
+            Includes: subcol.Includes,
+            Subcollections: subcol.NestedSubcollections,
+            ProjectedFields: subcol.Fields,
+            PkName: subcol.PrimaryKeyPropertyName,
+            IncludePk: ShouldIncludePk(subcol.Fields, subcol.PrimaryKeyPropertyName));
+
+        var children = ResolveChildren(context, parentPath, subcol.CollectionPath, childOptions);
+
+        // For ScalarList, extract just the values
+        if (subcol.Fields?.Count == 1 && IsSimpleType(subcol.Fields[0].FieldType))
+        {
+            var fieldName = subcol.Fields[0].ResultName;
+            return children
+                .Select(c => c.Values.TryGetValue(fieldName, out var sv) ? sv.Value : null)
+                .Where(v => v != null)
+                .ToList();
+        }
+
+        return children;
+    }
+
+    private static List<ShapedItem> ResolveChildren(
+        ShapingContext context,
+        string parentPath,
+        string collectionPath,
+        ShapeOptions options)
+    {
+        if (!context.ByParentPath.TryGetValue(parentPath, out var children))
+            return [];
+
+        return children
+            .Where(c => c.CollectionPath == collectionPath)
+            .Select(child => ShapeNode(context, child, options))
+            .ToList();
+    }
+
+    private static string? FindFullParentPath(ShapingContext context, string relativePath)
+    {
+        var parts = relativePath.Split('/');
+        if (parts.Length < 2)
+            return null;
+
+        var collectionPath = parts[^2];
+        var documentId = parts[^1];
+        var key = $"{collectionPath}/{documentId}";
+
+        if (context.ByFullPath.TryGetValue(key, out var found))
+            return found.Snapshot.Reference.Path;
+
+        return null;
+    }
+
+    #region Type Inference Helpers
+
     private static Type InferType(object? value) => value switch
     {
         null => typeof(object),
@@ -558,16 +967,13 @@ public class SnapshotShaper : ISnapshotShaper
         double => typeof(double),
         bool => typeof(bool),
         Timestamp => typeof(DateTime),
-        DocumentReference => typeof(object), // Entity reference
-        Dictionary<string, object?> => typeof(object), // ComplexType or nested
-        IList<Dictionary<string, object?>> => typeof(IEnumerable<object>), // ObjectList
+        DocumentReference => typeof(object),
+        Dictionary<string, object?> => typeof(object),
+        IList<Dictionary<string, object?>> => typeof(IEnumerable<object>),
         IList<object> => typeof(IEnumerable<object>),
         _ => value.GetType()
     };
 
-    /// <summary>
-    /// Determines ValueKind from the actual value when we don't have AST type info.
-    /// </summary>
     private static ValueKind DetermineValueKindFromValue(object? value) => value switch
     {
         null => ValueKind.Scalar,
@@ -578,6 +984,7 @@ public class SnapshotShaper : ISnapshotShaper
         Timestamp => ValueKind.Scalar,
         DocumentReference => ValueKind.Entity,
         Dictionary<string, object?> => ValueKind.ComplexType,
+        IDictionary<string, object> => ValueKind.ComplexType,
         IList<Dictionary<string, object?>> => ValueKind.ObjectList,
         IList<object> list when list.Count > 0 && list[0] is Dictionary<string, object?> => ValueKind.ObjectList,
         IList<object> => ValueKind.ScalarList,
@@ -586,39 +993,32 @@ public class SnapshotShaper : ISnapshotShaper
 
     private static ValueKind DetermineValueKind(Type type, object? value)
     {
-        // Null is scalar
         if (value == null)
             return ValueKind.Scalar;
 
-        // Simple types
         if (IsSimpleType(type))
             return ValueKind.Scalar;
 
-        // Collections
         if (IsCollectionType(type))
         {
             var elementType = GetElementType(type);
             return IsSimpleType(elementType) ? ValueKind.ScalarList : ValueKind.ObjectList;
         }
 
-        // DocumentReference indicates Entity
         if (value is DocumentReference)
             return ValueKind.Entity;
 
-        // Dictionary indicates ComplexType
-        if (value is Dictionary<string, object?>)
+        if (value is Dictionary<string, object?> or Dictionary<string, object>)
             return ValueKind.ComplexType;
 
         return ValueKind.Scalar;
     }
 
-    private static ValueKind DetermineSubcollectionKind(ResolvedSubcollectionProjection subcol, object? value)
+    private static ValueKind DetermineSubcollectionKind(ResolvedSubcollectionProjection subcol)
     {
-        // Aggregation result is scalar
         if (subcol.IsAggregation)
             return ValueKind.Scalar;
 
-        // Check if it's a scalar list (single field of simple type)
         if (subcol.Fields?.Count == 1)
         {
             var singleField = subcol.Fields[0];
@@ -632,7 +1032,7 @@ public class SnapshotShaper : ISnapshotShaper
     private static Type GetSubcollectionTargetType(ResolvedSubcollectionProjection subcol)
     {
         if (subcol.IsAggregation)
-            return typeof(decimal); // Aggregations return decimal
+            return typeof(decimal);
 
         if (subcol.Fields?.Count == 1)
         {
@@ -674,307 +1074,5 @@ public class SnapshotShaper : ISnapshotShaper
         return typeof(object);
     }
 
-    /// <summary>
-    /// Flattens a hierarchical dictionary into a flat dictionary with dot-separated keys.
-    /// Used for projections where the Materializer needs to find values by path.
-    /// </summary>
-    /// <example>
-    /// Input: { "Direccion": { "Ciudad": "Bilbao", "Coordenadas": { "Altitud": 19 } } }
-    /// Output: { "Direccion.Ciudad": "Bilbao", "Direccion.Coordenadas.Altitud": 19 }
-    /// </example>
-    private static Dictionary<string, object?> FlattenForProjection(Dictionary<string, object?> dict)
-    {
-        var result = new Dictionary<string, object?>();
-        FlattenRecursive(dict, "", result);
-        return result;
-    }
-
-    private static void FlattenRecursive(Dictionary<string, object?> source, string prefix, Dictionary<string, object?> result)
-    {
-        foreach (var kvp in source)
-        {
-            var key = string.IsNullOrEmpty(prefix) ? kvp.Key : $"{prefix}.{kvp.Key}";
-
-            if (kvp.Value is Dictionary<string, object?> nested)
-            {
-                // Recurse into nested dictionary
-                FlattenRecursive(nested, key, result);
-            }
-            else
-            {
-                // Leaf value - add with full path as key
-                result[key] = kvp.Value;
-            }
-        }
-    }
-
-    private static bool ShouldIncludePk(IReadOnlyList<FirestoreProjectedField>? fields, string? pkName) =>
-        fields == null || (pkName != null && fields.Any(f => f.FieldPath == pkName));
-
-    /// <summary>
-    /// Gets the relative document path from the full Firestore path.
-    /// For "projects/xxx/databases/yyy/documents/Clientes/cli-xxx/Pedidos/ped-xxx"
-    /// returns "Clientes/cli-xxx/Pedidos/ped-xxx"
-    /// </summary>
-    private static string GetRelativeDocumentPath(SnapshotInfo info)
-    {
-        var fullPath = info.Snapshot.Reference.Path;
-        var documentsMarker = "/documents/";
-        var documentsIndex = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
-
-        if (documentsIndex < 0)
-            return $"{info.CollectionPath}/{info.DocumentId}";
-
-        return fullPath.Substring(documentsIndex + documentsMarker.Length);
-    }
-
-    private static List<SnapshotInfo> FindRoots(ShapingContext context, ResolvedFirestoreQuery query)
-    {
-        if (!context.ByCollection.TryGetValue(query.CollectionPath, out var candidates))
-            return [];
-
-        if (query.DocumentId != null)
-            return candidates.Where(c => c.DocumentId == query.DocumentId).ToList();
-
-        return candidates.Where(c => c.ParentDocumentPath == null).ToList();
-    }
-
-    private static Dictionary<string, object?> ShapeNode(
-        ShapingContext context,
-        SnapshotInfo info,
-        IReadOnlyList<ResolvedInclude> includes,
-        IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections = null,
-        bool includePk = true,
-        string? pkName = null,
-        IReadOnlyList<FirestoreProjectedField>? projectedFields = null)
-    {
-        var rawDict = info.Snapshot.ToDictionary();
-        // Use full parent path for nested subcollections (ThenInclude)
-        // For Clientes/cli-xxx/Pedidos/ped-xxx, nodePath must be "Clientes/cli-xxx/Pedidos/ped-xxx"
-        // so that children (LineaPedidos) can be found by their ParentDocumentPath
-        var nodePath = GetRelativeDocumentPath(info);
-
-        // Build output dictionary with field renaming for projections
-        var dict = new Dictionary<string, object?>();
-
-        if (includePk && pkName != null)
-        {
-            dict[pkName] = info.DocumentId;
-        }
-
-        // Apply field projection/renaming if specified
-        if (projectedFields is { Count: > 0 })
-        {
-            foreach (var field in projectedFields)
-            {
-                if (rawDict.TryGetValue(field.FieldPath, out var value))
-                {
-                    dict[field.ResultName] = value;
-                }
-            }
-
-            // Also copy reference fields needed for FK resolution
-            // e.g., if projectedFields has "Libro.Titulo", we need to copy "Libro" (the DocumentReference)
-            foreach (var include in includes)
-            {
-                if (!include.IsCollection && rawDict.TryGetValue(include.NavigationName, out var refValue))
-                {
-                    dict[include.NavigationName] = refValue;
-                }
-            }
-        }
-        else
-        {
-            // No projection - copy all fields
-            foreach (var kvp in rawDict)
-            {
-                dict[kvp.Key] = kvp.Value;
-            }
-        }
-
-        foreach (var include in includes)
-        {
-            if (include.IsCollection)
-            {
-                var childPkName = include.PrimaryKeyPropertyName;
-                var childIncludePk = ShouldIncludePk(null, childPkName); // No projection fields for includes
-                dict[include.NavigationName] = ResolveChildren(
-                    context, nodePath, include.CollectionPath, include.NestedIncludes, null, childIncludePk, childPkName);
-            }
-            else
-            {
-                ResolveReferenceInPlace(context, dict, include);
-            }
-        }
-
-        if (projectionSubcollections != null)
-        {
-            foreach (var subcol in projectionSubcollections)
-            {
-                dict[subcol.ResultName] = ResolveProjectionSubcollection(context, nodePath, subcol);
-            }
-        }
-
-        return dict;
-    }
-
-    private static object? ResolveProjectionSubcollection(
-        ShapingContext context,
-        string parentPath,
-        ResolvedSubcollectionProjection subcol)
-    {
-        if (subcol.IsAggregation)
-        {
-            var fullParentPath = FindFullParentPath(context, parentPath);
-            if (fullParentPath == null)
-                return null;
-
-            var key = $"{fullParentPath}:{subcol.ResultName}";
-            return context.Aggregations.TryGetValue(key, out var value) ? value : null;
-        }
-
-        var pkName = subcol.PrimaryKeyPropertyName;
-        var includePk = ShouldIncludePk(subcol.Fields, pkName);
-        return ResolveChildren(context, parentPath, subcol.CollectionPath, subcol.Includes, subcol.NestedSubcollections, includePk, pkName, subcol.Fields);
-    }
-
-    private static List<Dictionary<string, object?>> ResolveChildren(
-        ShapingContext context,
-        string parentPath,
-        string collectionPath,
-        IReadOnlyList<ResolvedInclude> includes,
-        IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections,
-        bool includePk,
-        string? pkName,
-        IReadOnlyList<FirestoreProjectedField>? projectedFields = null)
-    {
-        if (!context.ByParentPath.TryGetValue(parentPath, out var children))
-            return [];
-
-        var results = children
-            .Where(c => c.CollectionPath == collectionPath)
-            .Select(child => ShapeNode(context, child, includes, projectionSubcollections, includePk, pkName, projectedFields))
-            .ToList();
-
-        // Flatten subcollection items for projections (same as root level)
-        if (projectedFields is { Count: > 0 })
-        {
-            results = results.Select(FlattenForProjection).ToList();
-        }
-
-        return results;
-    }
-
-    private static string? FindFullParentPath(ShapingContext context, string relativePath)
-    {
-        var parts = relativePath.Split('/');
-        if (parts.Length < 2)
-            return null;
-
-        // Take the last 2 segments (collection/documentId)
-        // For "Clientes/cli-xxx/Pedidos/ped-xxx", we want "Pedidos" and "ped-xxx"
-        var collectionPath = parts[^2];
-        var documentId = parts[^1];
-
-        if (context.ByCollection.TryGetValue(collectionPath, out var candidates))
-        {
-            var found = candidates.FirstOrDefault(c => c.DocumentId == documentId);
-            if (found != null)
-                return found.Snapshot.Reference.Path;
-        }
-
-        return null;
-    }
-
-    private static void ResolveReferenceInPlace(
-        ShapingContext context,
-        Dictionary<string, object?> dict,
-        ResolvedInclude include)
-    {
-        var pathParts = include.NavigationName.Split('.');
-        ResolveReferenceRecursive(context, dict, pathParts, 0, include);
-    }
-
-    private static void ResolveReferenceRecursive(
-        ShapingContext context,
-        object? current,
-        string[] pathParts,
-        int partIndex,
-        ResolvedInclude include)
-    {
-        if (current == null || partIndex >= pathParts.Length)
-            return;
-
-        var part = pathParts[partIndex];
-        var isLastPart = partIndex == pathParts.Length - 1;
-
-        if (current is IDictionary<string, object?> dict)
-        {
-            if (!dict.TryGetValue(part, out var value) || value == null)
-                return;
-
-            if (isLastPart)
-            {
-                dict[part] = ResolveReferenceValue(context, value, include);
-            }
-            else
-            {
-                ResolveReferenceRecursive(context, value, pathParts, partIndex + 1, include);
-            }
-        }
-        else if (current is IEnumerable<object> array && current is not string)
-        {
-            foreach (var item in array)
-            {
-                ResolveReferenceRecursive(context, item, pathParts, partIndex, include);
-            }
-        }
-    }
-
-    private static object? ResolveReferenceValue(
-        ShapingContext context,
-        object? value,
-        ResolvedInclude include)
-    {
-        if (value is DocumentReference docRef)
-        {
-            return FindAndShapeReference(context, docRef, include);
-        }
-
-        if (value is IEnumerable<object> list && value is not string)
-        {
-            var results = new List<Dictionary<string, object?>>();
-            foreach (var item in list)
-            {
-                if (item is DocumentReference itemRef)
-                {
-                    var shaped = FindAndShapeReference(context, itemRef, include);
-                    if (shaped != null)
-                        results.Add(shaped);
-                }
-            }
-            return results.Count > 0 ? results : null;
-        }
-
-        return null;
-    }
-
-    private static Dictionary<string, object?>? FindAndShapeReference(
-        ShapingContext context,
-        DocumentReference docRef,
-        ResolvedInclude include)
-    {
-        var refDocId = docRef.Id;
-
-        if (!context.ByCollection.TryGetValue(include.CollectionPath, out var candidates))
-            return null;
-
-        var found = candidates.FirstOrDefault(c => c.DocumentId == refDocId);
-        if (found == null)
-            return null;
-
-        var pkName = include.PrimaryKeyPropertyName;
-        var includePk = ShouldIncludePk(null, pkName); // No projection fields for references
-        return ShapeNode(context, found, include.NestedIncludes, null, includePk, pkName);
-    }
+    #endregion
 }
