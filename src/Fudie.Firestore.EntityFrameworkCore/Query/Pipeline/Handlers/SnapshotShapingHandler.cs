@@ -69,13 +69,10 @@ public class SnapshotShapingHandler : IQueryPipelineHandler
             // Set breakpoint here to inspect shapedResult
 
             // Materialize shaped dictionaries into typed CLR instances
-            var projectedFields = resolved.Projection?.Fields;
-            var subcollections = resolved.Projection?.Subcollections;
-
             List<object> materializedItems;
             try
             {
-                materializedItems = _materializer.Materialize(shapedResult, context.ResultType, projectedFields, subcollections);
+                materializedItems = _materializer.Materialize(shapedResult, context.ResultType);
                 QueryExecutionLogger.Log(resolved, shapedResult, context.ResultType, materializedItems.Count);
             }
             catch (Exception ex)

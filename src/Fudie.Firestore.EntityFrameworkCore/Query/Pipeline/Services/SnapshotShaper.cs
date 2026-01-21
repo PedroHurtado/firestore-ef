@@ -52,49 +52,16 @@ public class ShapedItem
     /// Each value includes its target type, ValueKind, and ResultName.
     /// </summary>
     public Dictionary<string, ShapedValue> Values { get; init; } = new();
-
-    /// <summary>
-    /// Converts this ShapedItem to a legacy dictionary format for backward compatibility.
-    /// Uses ResultName as the key (not FieldPath) for Materializer compatibility.
-    /// </summary>
-    [Obsolete("Use Values directly. Remove when Materializer is migrated.")]
-    public Dictionary<string, object?> ToLegacyDict()
-    {
-        var result = new Dictionary<string, object?>();
-        foreach (var kvp in Values)
-        {
-            // Use ResultName as key for Materializer compatibility
-            result[kvp.Value.ResultName] = ConvertToLegacyValue(kvp.Value);
-        }
-        return result;
-    }
-
-    private static object? ConvertToLegacyValue(ShapedValue shaped)
-    {
-        return shaped.Value switch
-        {
-            IList<ShapedItem> shapedItems => shapedItems.Select(si => si.ToLegacyDict()).ToList(),
-            ShapedItem nestedItem => nestedItem.ToLegacyDict(),
-            _ => shaped.Value
-        };
-    }
 }
 
 /// <summary>
 /// Wrapper class for shaped query results that provides formatted ToString() for debugging.
-/// Contains both the legacy Items (for current Materializer) and the new TypedItems (for future SRP refactoring).
+/// Contains TypedItems with full metadata for the Materializer.
 /// </summary>
 public class ShapedResult
 {
     /// <summary>
-    /// Legacy format - raw dictionaries for the current Materializer.
-    /// Will be removed after SRP refactoring is complete.
-    /// </summary>
-    public List<Dictionary<string, object?>> Items { get; init; }
-
-    /// <summary>
-    /// New format - typed items with ValueKind metadata.
-    /// The Materializer will use this after SRP refactoring.
+    /// Typed items with ValueKind metadata for materialization.
     /// </summary>
     public List<ShapedItem> TypedItems { get; init; }
 
@@ -103,28 +70,15 @@ public class ShapedResult
     /// </summary>
     public bool HasProjection { get; init; }
 
-    public ShapedResult(List<Dictionary<string, object?>> items)
+    public ShapedResult(List<ShapedItem> typedItems, bool hasProjection)
     {
-        Items = items;
-        TypedItems = [];
-        HasProjection = false;
-    }
-
-    public ShapedResult(List<Dictionary<string, object?>> items, List<ShapedItem> typedItems, bool hasProjection)
-    {
-        Items = items;
         TypedItems = typedItems;
         HasProjection = hasProjection;
     }
 
     public override string ToString()
     {
-        // If we have TypedItems, show the new SRP structure
-        if (TypedItems.Count > 0)
-            return ToStringTyped();
-
-        // Otherwise show legacy format
-        return ToStringLegacy();
+        return ToStringTyped();
     }
 
     /// <summary>
@@ -233,24 +187,6 @@ public class ShapedResult
             return "Anonymous";
 
         return type.Name;
-    }
-
-    /// <summary>
-    /// Legacy format for debugging with current Items structure.
-    /// </summary>
-    private string ToStringLegacy()
-    {
-        if (Items.Count == 0)
-            return "[]";
-
-        var sb = new StringBuilder();
-        for (var i = 0; i < Items.Count; i++)
-        {
-            if (i > 0) sb.AppendLine();
-            sb.AppendLine($"[{i}]");
-            FormatDictionary(sb, Items[i], 1);
-        }
-        return sb.ToString();
     }
 
     private static void FormatDictionary(StringBuilder sb, Dictionary<string, object?> dict, int indent)
@@ -438,13 +374,13 @@ public class SnapshotShaper : ISnapshotShaper
         Dictionary<string, object>? aggregations = null)
     {
         if (snapshots.Count == 0)
-            return new ShapedResult([], [], false);
+            return new ShapedResult([], false);
 
         var context = ShapingContext.Create(snapshots, aggregations);
         var roots = FindRoots(context, query);
 
         if (roots.Count == 0)
-            return new ShapedResult([], [], false);
+            return new ShapedResult([], false);
 
         var options = BuildRootOptions(query);
 
@@ -453,12 +389,7 @@ public class SnapshotShaper : ISnapshotShaper
             .Select(root => ShapeNode(context, root, options))
             .ToList();
 
-        // Legacy: Derive Dictionary for current Materializer
-#pragma warning disable CS0618
-        var legacyItems = typedItems.Select(t => t.ToLegacyDict()).ToList();
-#pragma warning restore CS0618
-
-        return new ShapedResult(legacyItems, typedItems, query.HasProjection);
+        return new ShapedResult(typedItems, query.HasProjection);
     }
 
     private static ShapeOptions BuildRootOptions(ResolvedFirestoreQuery query)
@@ -877,15 +808,50 @@ public class SnapshotShaper : ISnapshotShaper
     {
         if (subcollections == null) return;
 
+        // Separate aggregations with dot notation (nested anonymous types) from regular subcollections
+        var nestedAggregations = new Dictionary<string, List<(ResolvedSubcollectionProjection subcol, object value)>>();
+
         foreach (var subcol in subcollections)
         {
             var value = ResolveProjectionSubcollection(context, nodePath, subcol);
-            if (value != null)
+            if (value == null) continue;
+
+            // Only group aggregations with dot notation in ResultName
+            if (subcol.IsAggregation && subcol.ResultName.Contains('.'))
             {
+                var dotIndex = subcol.ResultName.IndexOf('.');
+                var prefix = subcol.ResultName.Substring(0, dotIndex);
+
+                if (!nestedAggregations.TryGetValue(prefix, out var list))
+                {
+                    list = new List<(ResolvedSubcollectionProjection, object)>();
+                    nestedAggregations[prefix] = list;
+                }
+                list.Add((subcol, value));
+            }
+            else
+            {
+                // Regular subcollection or aggregation without nesting
                 var kind = DetermineSubcollectionKind(subcol);
                 var targetType = GetSubcollectionTargetType(subcol);
                 shapedItem.Values[subcol.ResultName] = new ShapedValue(value, targetType, kind, subcol.ResultName);
             }
+        }
+
+        // Group nested aggregations into ShapedItems (e.g., Resumen.TotalPedidos + Resumen.Cantidad → Resumen: ShapedItem)
+        foreach (var group in nestedAggregations)
+        {
+            var nestedItem = new ShapedItem();
+            foreach (var (subcol, value) in group.Value)
+            {
+                // Extract the property name after the prefix (e.g., "TotalPedidos" from "Resumen.TotalPedidos")
+                var propertyName = subcol.ResultName.Substring(group.Key.Length + 1);
+                var targetType = GetSubcollectionTargetType(subcol);
+                nestedItem.Values[propertyName] = new ShapedValue(value, targetType, ValueKind.Scalar, propertyName);
+            }
+
+            // Add the nested ShapedItem as a ComplexType
+            shapedItem.Values[group.Key] = new ShapedValue(nestedItem, typeof(object), ValueKind.ComplexType, group.Key);
         }
     }
 

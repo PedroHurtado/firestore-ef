@@ -319,7 +319,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
             var sb = new StringBuilder();
             var prefix = new string(' ', indent * 2);
 
-            sb.Append($"{prefix}.{ResultName}");
+            sb.Append($"{prefix}{ResultName}");
 
             if (IsAggregation)
             {
