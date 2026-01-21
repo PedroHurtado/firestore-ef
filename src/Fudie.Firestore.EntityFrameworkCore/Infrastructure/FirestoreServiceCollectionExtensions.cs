@@ -63,8 +63,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
                     .TryAddScoped<IFirestoreClientWrapper, FirestoreClientWrapper>()
                     .TryAddSingleton<IFirestoreIdGenerator, FirestoreIdGenerator>()
                     .TryAddSingleton<IFirestoreDocumentSerializer, FirestoreDocumentSerializer>()
-                    .TryAddScoped<IFirestoreDocumentDeserializer, FirestoreDocumentDeserializer>()
-                    .TryAddScoped<IProjectionMaterializer, ProjectionMaterializer>()
                     .TryAddSingleton<IFirestoreCollectionManager, FirestoreCollectionManager>()
                     .TryAddSingleton<IFirestoreValueConverter, FirestoreValueConverter>());
 
@@ -73,9 +71,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             // Pipeline Handlers (order matters - middleware pattern)
             // Handlers that modify context run first, then each calls next() and processes the result.
-            // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → Convert → SnapshotShaping → Execution
-            // Result flows back: Execution returns docs (+ includes) → SnapshotShaping shapes for debug →
-            //                    Convert converts to entities → Tracking tracks → Proxy wraps → return
+            // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → SnapshotShaping → Execution
+            // Result flows back: Execution returns snapshots → SnapshotShaping shapes + materializes →
+            //                    Tracking tracks → Proxy wraps → return
             // Note: Includes are loaded by ExecutionHandler directly, not by a separate handler
             serviceCollection.AddScoped<IQueryPipelineHandler, ErrorHandlingHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, ResolverHandler>();
@@ -84,7 +82,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
             serviceCollection.AddScoped<IQueryPipelineHandler>(sp =>
                 new ProxyHandler(sp.GetService<IProxyFactory>()));
             serviceCollection.AddScoped<IQueryPipelineHandler, TrackingHandler>();
-            serviceCollection.AddScoped<IQueryPipelineHandler, ConvertHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, SnapshotShapingHandler>();
             serviceCollection.AddScoped<IQueryPipelineHandler, ExecutionHandler>();
 

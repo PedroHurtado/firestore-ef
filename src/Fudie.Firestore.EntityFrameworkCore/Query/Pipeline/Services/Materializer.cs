@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Fudie.Firestore.EntityFrameworkCore.Query.Projections;
+using Fudie.Firestore.EntityFrameworkCore.Query.Resolved;
 using Fudie.Firestore.EntityFrameworkCore.Storage;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
@@ -19,16 +20,52 @@ public class Materializer : IMaterializer
 
     private readonly IFirestoreValueConverter _converter;
 
+    // Subcollection field mappings for nested materialization
+    private IReadOnlyDictionary<string, IReadOnlyList<FirestoreProjectedField>>? _subcollectionFieldMappings;
+
     public Materializer(IFirestoreValueConverter converter)
     {
         _converter = converter ?? throw new ArgumentNullException(nameof(converter));
     }
 
     /// <inheritdoc />
-    public List<object> Materialize(ShapedResult shaped, Type targetType, IReadOnlyList<FirestoreProjectedField>? projectedFields = null)
+    public List<object> Materialize(
+        ShapedResult shaped,
+        Type targetType,
+        IReadOnlyList<FirestoreProjectedField>? projectedFields = null,
+        IReadOnlyList<ResolvedSubcollectionProjection>? subcollections = null)
     {
         ArgumentNullException.ThrowIfNull(shaped);
         ArgumentNullException.ThrowIfNull(targetType);
+
+        // Build subcollection field mappings for nested materialization
+        _subcollectionFieldMappings = BuildSubcollectionFieldMappings(subcollections);
+
+        // Handle scalar projections (e.g., Select(e => e.Name) where targetType is string)
+        // In this case, the dictionary has a single value that needs to be extracted directly
+        if (IsSimpleType(targetType))
+        {
+            return MaterializeScalarProjection(shaped, targetType);
+        }
+
+        // Handle direct collection projections (e.g., Select(e => e.Cantidades) where targetType is List<int>)
+        // In this case, the dictionary has a single value that is the collection
+        if (IsCollectionType(targetType))
+        {
+            return MaterializeDirectCollection(shaped, targetType);
+        }
+
+        // Handle direct ComplexType projection (e.g., Select(p => p.Direccion) where targetType is Direccion)
+        // projectedFields has one field: FieldPath = "Direccion", FieldType = Direccion
+        // shapedResult has: { "Direccion.Calle": "...", "Direccion.Ciudad": "..." }
+        // We need to extract the nested dictionary for "Direccion" before materializing
+        if (projectedFields is { Count: 1 } &&
+            projectedFields[0].FieldPath == projectedFields[0].ResultName &&
+            projectedFields[0].FieldType == targetType &&
+            !IsSimpleType(targetType))
+        {
+            return MaterializeDirectComplexType(shaped, targetType, projectedFields[0].FieldPath);
+        }
 
         var strategy = GetOrCreateStrategy(targetType);
 
@@ -53,6 +90,110 @@ public class Materializer : IMaterializer
         }
 
         return results;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<FirestoreProjectedField>>? BuildSubcollectionFieldMappings(
+        IReadOnlyList<ResolvedSubcollectionProjection>? subcollections)
+    {
+        if (subcollections == null || subcollections.Count == 0)
+            return null;
+
+        var mappings = new Dictionary<string, IReadOnlyList<FirestoreProjectedField>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var subcol in subcollections)
+        {
+            if (subcol.Fields is { Count: > 0 })
+            {
+                mappings[subcol.ResultName] = subcol.Fields;
+            }
+        }
+
+        return mappings.Count > 0 ? mappings : null;
+    }
+
+    /// <summary>
+    /// Materializes direct ComplexType projections where the result type is a ComplexType.
+    /// The dictionary has prefixed keys like "Direccion.Calle" that need to be extracted.
+    /// </summary>
+    private List<object> MaterializeDirectComplexType(ShapedResult shaped, Type targetType, string prefix)
+    {
+        var results = new List<object>(shaped.Items.Count);
+        var strategy = GetOrCreateStrategy(targetType);
+
+        foreach (var dict in shaped.Items)
+        {
+            // Extract nested dictionary using the prefix (e.g., "Direccion")
+            var nestedDict = GetValueOrNestedDict(dict, prefix);
+
+            if (nestedDict is Dictionary<string, object?> nested)
+            {
+                var instance = ExecuteStrategy(nested, strategy);
+                results.Add(instance);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Materializes scalar projections where the result type is a simple type (string, int, etc.)
+    /// Each dictionary should have a single value to extract.
+    /// </summary>
+    private List<object> MaterializeScalarProjection(ShapedResult shaped, Type targetType)
+    {
+        var results = new List<object>(shaped.Items.Count);
+
+        foreach (var dict in shaped.Items)
+        {
+            // For scalar projections, extract the single value from the dictionary
+            var value = dict.Values.FirstOrDefault();
+            var converted = _converter.FromFirestore(value, targetType);
+            if (converted != null)
+            {
+                results.Add(converted);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Materializes direct collection projections where the result type is a collection (List, array, etc.)
+    /// Each dictionary should have a single value that is the collection.
+    /// </summary>
+    private List<object> MaterializeDirectCollection(ShapedResult shaped, Type targetType)
+    {
+        var results = new List<object>(shaped.Items.Count);
+
+        foreach (var dict in shaped.Items)
+        {
+            // For collection projections, extract the single value that should be the collection
+            var value = dict.Values.FirstOrDefault();
+
+            if (value is IList list)
+            {
+                var materialized = MaterializeCollection(list, targetType);
+                results.Add(materialized);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Determines if a type is a simple/primitive type that doesn't need materialization strategy.
+    /// </summary>
+    private static bool IsSimpleType(Type type)
+    {
+        return type.IsPrimitive ||
+               type == typeof(string) ||
+               type == typeof(decimal) ||
+               type == typeof(DateTime) ||
+               type == typeof(DateTimeOffset) ||
+               type == typeof(TimeSpan) ||
+               type == typeof(Guid) ||
+               type.IsEnum ||
+               (Nullable.GetUnderlyingType(type) is { } underlying && IsSimpleType(underlying));
     }
 
     private static MaterializationStrategy GetOrCreateStrategy(Type type)
@@ -162,8 +303,8 @@ public class Materializer : IMaterializer
                 ? mappedKey
                 : mapping.DictKey;
 
-            dict.TryGetValue(dictKey, out var value);
-            args[mapping.ParamIndex] = MaterializeValue(value, mapping.TargetType);
+            var value = GetValueOrNestedDict(dict, dictKey);
+            args[mapping.ParamIndex] = MaterializeValue(value, mapping.TargetType, mapping.DictKey);
         }
 
         // Create instance
@@ -177,8 +318,12 @@ public class Materializer : IMaterializer
                 ? mappedKey
                 : mapping.DictKey;
 
-            dict.TryGetValue(dictKey, out var value);
-            var materializedValue = MaterializeValue(value, mapping.TargetType);
+            var value = GetValueOrNestedDict(dict, dictKey);
+            var materializedValue = MaterializeValue(value, mapping.TargetType, mapping.DictKey);
+
+            // Skip setting null values for collection types - preserve field initializers (e.g., = [])
+            if (materializedValue == null && IsCollectionType(mapping.TargetType))
+                continue;
 
             if (mapping.Member is PropertyInfo prop)
             {
@@ -193,7 +338,34 @@ public class Materializer : IMaterializer
         return instance;
     }
 
-    private object? MaterializeValue(object? value, Type targetType)
+    /// <summary>
+    /// Gets a value from the dictionary, or builds a nested dictionary from prefixed keys.
+    /// For example, if dictKey is "Resumen" and dict has "Resumen.TotalPedidos" and "Resumen.Cantidad",
+    /// returns a new dictionary with { "TotalPedidos": ..., "Cantidad": ... }
+    /// </summary>
+    private static object? GetValueOrNestedDict(Dictionary<string, object?> dict, string dictKey)
+    {
+        // First try exact match
+        if (dict.TryGetValue(dictKey, out var value))
+            return value;
+
+        // Look for prefixed keys (e.g., "Resumen.TotalPedidos" for key "Resumen")
+        var prefix = dictKey + ".";
+        var nestedDict = new Dictionary<string, object?>();
+
+        foreach (var kvp in dict)
+        {
+            if (kvp.Key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                var nestedKey = kvp.Key.Substring(prefix.Length);
+                nestedDict[nestedKey] = kvp.Value;
+            }
+        }
+
+        return nestedDict.Count > 0 ? nestedDict : null;
+    }
+
+    private object? MaterializeValue(object? value, Type targetType, string? propertyName = null)
     {
         if (value == null)
             return GetDefaultValue(targetType);
@@ -201,6 +373,14 @@ public class Materializer : IMaterializer
         // Nested entity/ComplexType (dictionary)
         if (value is Dictionary<string, object?> nestedDict)
         {
+            // If targetType is simple but value is a single-key dictionary,
+            // extract the value (e.g., { "Total": 299.99 } -> 299.99 for decimal)
+            if (IsSimpleType(targetType) && nestedDict.Count == 1)
+            {
+                var singleValue = nestedDict.Values.First();
+                return _converter.FromFirestore(singleValue, targetType);
+            }
+
             var strategy = GetOrCreateStrategy(targetType);
             return ExecuteStrategy(nestedDict, strategy);
         }
@@ -208,7 +388,7 @@ public class Materializer : IMaterializer
         // Collection (entities/ComplexTypes or simple values)
         if (value is IList list && IsCollectionType(targetType))
         {
-            return MaterializeCollection(list, targetType);
+            return MaterializeCollection(list, targetType, propertyName);
         }
 
         // Simple value - use converter
@@ -245,18 +425,42 @@ public class Materializer : IMaterializer
                !elementType.IsEnum;
     }
 
-    private object MaterializeCollection(IList items, Type collectionType)
+    private object MaterializeCollection(IList items, Type collectionType, string? propertyName = null)
     {
         var elementType = GetCollectionElementType(collectionType);
         if (elementType == null)
             throw new InvalidOperationException($"Cannot determine element type for collection type '{collectionType.FullName}'.");
+
+        // Check if this subcollection has field mappings
+        Dictionary<string, string>? subcollectionFieldMapping = null;
+        if (propertyName != null &&
+            _subcollectionFieldMappings != null &&
+            _subcollectionFieldMappings.TryGetValue(propertyName, out var subcollectionFields))
+        {
+            subcollectionFieldMapping = subcollectionFields.ToDictionary(
+                f => ToPascalCase(f.ResultName),
+                f => f.FieldPath,
+                StringComparer.OrdinalIgnoreCase);
+        }
 
         // Create the appropriate collection type
         var collection = CreateCollection(collectionType, elementType);
 
         foreach (var item in items)
         {
-            var materializedItem = MaterializeValue(item, elementType);
+            object? materializedItem;
+
+            // If item is a dictionary and we have subcollection field mapping, use it
+            if (item is Dictionary<string, object?> dictItem && subcollectionFieldMapping != null)
+            {
+                var strategy = GetOrCreateStrategy(elementType);
+                materializedItem = ExecuteStrategy(dictItem, strategy, subcollectionFieldMapping);
+            }
+            else
+            {
+                materializedItem = MaterializeValue(item, elementType);
+            }
+
             AddToCollection(collection, materializedItem);
         }
 

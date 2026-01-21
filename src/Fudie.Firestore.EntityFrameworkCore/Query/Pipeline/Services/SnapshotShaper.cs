@@ -260,6 +260,23 @@ public class SnapshotShaper : ISnapshotShaper
     private static bool ShouldIncludePk(IReadOnlyList<FirestoreProjectedField>? fields, string? pkName) =>
         fields == null || (pkName != null && fields.Any(f => f.FieldPath == pkName));
 
+    /// <summary>
+    /// Gets the relative document path from the full Firestore path.
+    /// For "projects/xxx/databases/yyy/documents/Clientes/cli-xxx/Pedidos/ped-xxx"
+    /// returns "Clientes/cli-xxx/Pedidos/ped-xxx"
+    /// </summary>
+    private static string GetRelativeDocumentPath(SnapshotInfo info)
+    {
+        var fullPath = info.Snapshot.Reference.Path;
+        var documentsMarker = "/documents/";
+        var documentsIndex = fullPath.IndexOf(documentsMarker, StringComparison.Ordinal);
+
+        if (documentsIndex < 0)
+            return $"{info.CollectionPath}/{info.DocumentId}";
+
+        return fullPath.Substring(documentsIndex + documentsMarker.Length);
+    }
+
     private static List<SnapshotInfo> FindRoots(ShapingContext context, ResolvedFirestoreQuery query)
     {
         if (!context.ByCollection.TryGetValue(query.CollectionPath, out var candidates))
@@ -277,17 +294,51 @@ public class SnapshotShaper : ISnapshotShaper
         IReadOnlyList<ResolvedInclude> includes,
         IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections = null,
         bool includePk = true,
-        string? pkName = null)
+        string? pkName = null,
+        IReadOnlyList<FirestoreProjectedField>? projectedFields = null)
     {
-        var dict = info.Snapshot.ToDictionary();
-        var nodePath = $"{info.CollectionPath}/{info.DocumentId}";
+        var rawDict = info.Snapshot.ToDictionary();
+        // Use full parent path for nested subcollections (ThenInclude)
+        // For Clientes/cli-xxx/Pedidos/ped-xxx, nodePath must be "Clientes/cli-xxx/Pedidos/ped-xxx"
+        // so that children (LineaPedidos) can be found by their ParentDocumentPath
+        var nodePath = GetRelativeDocumentPath(info);
+
+        // Build output dictionary with field renaming for projections
+        var dict = new Dictionary<string, object?>();
 
         if (includePk && pkName != null)
         {
-            var result = new Dictionary<string, object?> { [pkName] = info.DocumentId };
-            foreach (var kvp in dict)
-                result[kvp.Key] = kvp.Value;
-            dict = result;
+            dict[pkName] = info.DocumentId;
+        }
+
+        // Apply field projection/renaming if specified
+        if (projectedFields is { Count: > 0 })
+        {
+            foreach (var field in projectedFields)
+            {
+                if (rawDict.TryGetValue(field.FieldPath, out var value))
+                {
+                    dict[field.ResultName] = value;
+                }
+            }
+
+            // Also copy reference fields needed for FK resolution
+            // e.g., if projectedFields has "Libro.Titulo", we need to copy "Libro" (the DocumentReference)
+            foreach (var include in includes)
+            {
+                if (!include.IsCollection && rawDict.TryGetValue(include.NavigationName, out var refValue))
+                {
+                    dict[include.NavigationName] = refValue;
+                }
+            }
+        }
+        else
+        {
+            // No projection - copy all fields
+            foreach (var kvp in rawDict)
+            {
+                dict[kvp.Key] = kvp.Value;
+            }
         }
 
         foreach (var include in includes)
@@ -333,7 +384,7 @@ public class SnapshotShaper : ISnapshotShaper
 
         var pkName = subcol.PrimaryKeyPropertyName;
         var includePk = ShouldIncludePk(subcol.Fields, pkName);
-        return ResolveChildren(context, parentPath, subcol.CollectionPath, subcol.Includes, subcol.NestedSubcollections, includePk, pkName);
+        return ResolveChildren(context, parentPath, subcol.CollectionPath, subcol.Includes, subcol.NestedSubcollections, includePk, pkName, subcol.Fields);
     }
 
     private static List<Dictionary<string, object?>> ResolveChildren(
@@ -343,15 +394,24 @@ public class SnapshotShaper : ISnapshotShaper
         IReadOnlyList<ResolvedInclude> includes,
         IReadOnlyList<ResolvedSubcollectionProjection>? projectionSubcollections,
         bool includePk,
-        string? pkName)
+        string? pkName,
+        IReadOnlyList<FirestoreProjectedField>? projectedFields = null)
     {
         if (!context.ByParentPath.TryGetValue(parentPath, out var children))
             return [];
 
-        return children
+        var results = children
             .Where(c => c.CollectionPath == collectionPath)
-            .Select(child => ShapeNode(context, child, includes, projectionSubcollections, includePk, pkName))
+            .Select(child => ShapeNode(context, child, includes, projectionSubcollections, includePk, pkName, projectedFields))
             .ToList();
+
+        // Flatten subcollection items for projections (same as root level)
+        if (projectedFields is { Count: > 0 })
+        {
+            results = results.Select(FlattenForProjection).ToList();
+        }
+
+        return results;
     }
 
     private static string? FindFullParentPath(ShapingContext context, string relativePath)
@@ -360,8 +420,10 @@ public class SnapshotShaper : ISnapshotShaper
         if (parts.Length < 2)
             return null;
 
-        var collectionPath = parts[0];
-        var documentId = parts[1];
+        // Take the last 2 segments (collection/documentId)
+        // For "Clientes/cli-xxx/Pedidos/ped-xxx", we want "Pedidos" and "ped-xxx"
+        var collectionPath = parts[^2];
+        var documentId = parts[^1];
 
         if (context.ByCollection.TryGetValue(collectionPath, out var candidates))
         {

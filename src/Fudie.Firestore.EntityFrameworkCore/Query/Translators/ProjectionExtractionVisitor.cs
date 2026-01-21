@@ -517,9 +517,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
 
         private string BuildFieldPath(MemberExpression memberExpr)
         {
-            var parts = new List<string>();
+            // First pass: collect all member names in order (from root to leaf)
+            var allMembers = new List<string>();
             Expression? current = memberExpr;
-            string? navigationPrefix = null;
             Type? pendingInnerType = null;
             int outerDepth = 0;
 
@@ -541,44 +541,40 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     continue;
                 }
 
-                if (_entityType != null)
+                allMembers.Insert(0, memberName);
+                current = member.Expression;
+            }
+
+            // Second pass: classify each member as navigation or field (from root to leaf)
+            var resultParts = new List<string>();
+            var currentEntityType = _entityType;
+
+            foreach (var memberName in allMembers)
+            {
+                if (currentEntityType != null)
                 {
-                    var navigation = _entityType.FindNavigation(memberName);
+                    var navigation = currentEntityType.FindNavigation(memberName);
                     if (navigation != null)
                     {
-                        var collectionName = _collectionManager.GetCollectionName(navigation.TargetEntityType.ClrType);
-                        navigationPrefix = HasDuplicateReferenceToCollection(collectionName)
-                            ? memberName
-                            : collectionName;
-                        current = member.Expression;
+                        // It's a navigation - add to path and update context
+                        resultParts.Add(memberName);
+                        currentEntityType = navigation.TargetEntityType;
                         continue;
                     }
                 }
 
-                parts.Insert(0, memberName);
-                current = member.Expression;
+                // It's a regular field
+                resultParts.Add(memberName);
             }
 
-            // Resolver Inner al final cuando conocemos outerDepth
+            // Handle Inner navigation for LeftJoin
             if (pendingInnerType != null)
             {
-                navigationPrefix = ResolveInnerNavigation(pendingInnerType, outerDepth);
+                var innerNavigation = ResolveInnerNavigation(pendingInnerType, outerDepth);
+                resultParts.Insert(0, innerNavigation);
             }
 
-            if (navigationPrefix != null)
-            {
-                parts.Insert(0, navigationPrefix);
-            }
-
-            return string.Join(".", parts);
-        }
-
-        /// <summary>
-        /// Checks if there are multiple reference navigations pointing to the same collection.
-        /// </summary>
-        private bool HasDuplicateReferenceToCollection(string collectionName)
-        {
-            return _pendingIncludes.Count(i => !i.IsCollection && i.CollectionName == collectionName) > 1;
+            return string.Join(".", resultParts);
         }
 
         /// <summary>
@@ -1077,7 +1073,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             var nestedEntityType = navigation?.TargetEntityType;
 
             // Extract projected fields from the nested select
-            var nestedVisitor = new ProjectionExtractionVisitor(_collectionManager, nestedEntityType, _pendingIncludes);
+            // Use subcollection's Includes for FK navigations within the subcollection
+            var nestedIncludes = subcollection.Includes.Count > 0 ? subcollection.Includes : _pendingIncludes;
+            var nestedVisitor = new ProjectionExtractionVisitor(_collectionManager, nestedEntityType, nestedIncludes);
             var nestedDefinition = nestedVisitor.Extract(selectorLambda);
 
             if (nestedDefinition?.Fields != null)
@@ -1240,18 +1238,45 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 .Where(i => !i.IsCollection && i.TargetClrType == innerType)
                 .ToList();
 
-            if (candidates.Count <= 1)
+            if (candidates.Count == 0)
             {
+                // Fallback when no candidates found - use collection name
                 return _collectionManager.GetCollectionName(innerType);
             }
 
-            var index = candidates.Count - 1 - outerDepth;
-            if (index >= 0 && index < candidates.Count)
+            // Select the appropriate candidate based on outerDepth
+            var candidate = candidates.Count == 1
+                ? candidates[0]
+                : candidates[Math.Clamp(candidates.Count - 1 - outerDepth, 0, candidates.Count - 1)];
+
+            // Build hierarchical path by walking up the ParentClrType chain
+            return BuildHierarchicalNavigationPath(candidate);
+        }
+
+        /// <summary>
+        /// Builds the full hierarchical navigation path by walking up the ParentClrType chain.
+        /// e.g., PaisOrigen (ParentClrType=AutorConPais) → Autor.PaisOrigen
+        /// </summary>
+        private string BuildHierarchicalNavigationPath(IncludeInfo include)
+        {
+            var pathParts = new List<string> { include.NavigationName };
+            var currentParentType = include.ParentClrType;
+
+            // Walk up the chain of parent types
+            while (currentParentType != null)
             {
-                return candidates[index].NavigationName;
+                // Find the include that targets this parent type
+                var parentInclude = _pendingIncludes
+                    .FirstOrDefault(i => !i.IsCollection && i.TargetClrType == currentParentType);
+
+                if (parentInclude == null)
+                    break;
+
+                pathParts.Insert(0, parentInclude.NavigationName);
+                currentParentType = parentInclude.ParentClrType;
             }
 
-            return _collectionManager.GetCollectionName(innerType);
+            return string.Join(".", pathParts);
         }
     }
 }

@@ -281,7 +281,8 @@ public class FirestoreQueryBuilder : IQueryBuilder
     }
 
     /// <summary>
-    /// Builds a map of Reference collection paths to navigation names.
+    /// Builds a map of Reference navigation names.
+    /// Key is NavigationName to match FieldPath from ProjectionExtractionVisitor.
     /// </summary>
     private static Dictionary<string, string> BuildReferenceNavigationMap(IReadOnlyList<ResolvedInclude>? includes)
     {
@@ -289,19 +290,12 @@ public class FirestoreQueryBuilder : IQueryBuilder
         if (includes == null)
             return map;
 
-        // Detectar colecciones con múltiples referencias
-        var collectionCounts = includes
-            .Where(i => i.IsReference)
-            .GroupBy(i => i.CollectionPath)
-            .ToDictionary(g => g.Key, g => g.Count());
-
         foreach (var include in includes)
         {
             if (include.IsReference)
             {
-                var hasDuplicates = collectionCounts[include.CollectionPath] > 1;
-                var key = hasDuplicates ? include.NavigationName : include.CollectionPath;
-                map[key] = include.NavigationName;
+                // Always use NavigationName as key to match FieldPath
+                map[include.NavigationName] = include.NavigationName;
             }
         }
 
@@ -310,26 +304,26 @@ public class FirestoreQueryBuilder : IQueryBuilder
 
     /// <summary>
     /// Checks if a field path belongs to a Reference navigation and returns the navigation name.
-    /// Handles both partial projections (e.g., "Autors.Nombre" → "Autor") and
-    /// full entity projections (e.g., "Autors" → "Autor").
+    /// Handles both partial projections (e.g., "Autor.Nombre" → "Autor") and
+    /// full entity projections (e.g., "Autor" → "Autor").
     /// </summary>
     private static string? GetReferenceFieldName(string fieldPath, Dictionary<string, string> referenceNavigations)
     {
-        // Check for full entity projection (e.g., "Autors" → "Autor")
+        // Check for full entity projection (e.g., "Autor" → "Autor")
         // This happens when projecting the complete FK entity: Select(l => l.Autor)
         if (referenceNavigations.TryGetValue(fieldPath, out var fullEntityNavigation))
         {
             return fullEntityNavigation;
         }
 
-        // Check for partial projection (e.g., "Autors.Nombre" → "Autor")
+        // Check for partial projection (e.g., "Autor.Nombre" → "Autor")
         var dotIndex = fieldPath.IndexOf('.');
         if (dotIndex <= 0)
             return null;
 
-        var collectionPrefix = fieldPath[..dotIndex];
+        var navigationPrefix = fieldPath[..dotIndex];
 
-        if (referenceNavigations.TryGetValue(collectionPrefix, out var navigationName))
+        if (referenceNavigations.TryGetValue(navigationPrefix, out var navigationName))
         {
             return navigationName;
         }

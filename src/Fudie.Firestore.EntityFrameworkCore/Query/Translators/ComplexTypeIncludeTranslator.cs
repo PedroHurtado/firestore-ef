@@ -127,12 +127,29 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             // Get collection name for the target type
             var collectionName = _collectionManager.GetCollectionName(targetClrType);
 
+            // Get primary key property name for the target type
+            var primaryKeyPropertyName = GetPrimaryKeyPropertyName(targetClrType);
+
             // References in ComplexTypes are always single (not collection)
             return new IncludeInfo(
                 navigationName: fullNavigationPath,
                 isCollection: false,
                 collectionName: collectionName,
-                targetClrType: targetClrType);
+                targetClrType: targetClrType,
+                primaryKeyPropertyName: primaryKeyPropertyName);
+        }
+
+        /// <summary>
+        /// Gets the primary key property name for an entity type.
+        /// </summary>
+        private string? GetPrimaryKeyPropertyName(Type entityClrType)
+        {
+            var entityType = _firestoreContext.Model.FindEntityType(entityClrType);
+            if (entityType == null)
+                return null;
+
+            var pkProperties = entityType.FindPrimaryKey()?.Properties;
+            return pkProperties is { Count: > 0 } ? pkProperties[0].Name : null;
         }
 
         /// <summary>
