@@ -311,23 +311,6 @@ public class FirestoreServiceCollectionExtensionsTest
     }
 
     [Fact]
-    public void AddEntityFrameworkFirestore_ShouldRegisterConvertHandler()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-
-        // Act
-        services.AddEntityFrameworkFirestore();
-
-        // Assert
-        var descriptor = services.FirstOrDefault(d =>
-            d.ServiceType == typeof(IQueryPipelineHandler) &&
-            d.ImplementationType == typeof(ConvertHandler));
-        Assert.NotNull(descriptor);
-        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
-    }
-
-    [Fact]
     public void AddEntityFrameworkFirestore_ShouldRegisterTrackingHandler()
     {
         // Arrange
@@ -359,11 +342,11 @@ public class FirestoreServiceCollectionExtensionsTest
             .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
             .ToList();
 
-        // Should have 8 handlers total (IncludeHandler removed - includes handled by ExecutionHandler)
-        Assert.Equal(8, handlerDescriptors.Count);
+        // Should have 7 handlers total (IncludeHandler and ConvertHandler removed)
+        Assert.Equal(7, handlerDescriptors.Count);
 
         // ProxyHandler is registered with factory (4th handler - position 3, 0-indexed)
-        // Order: ErrorHandling(0) → Resolver(1) → Log(2) → Proxy(3) → Tracking(4) → Convert(5) → SnapshotShaping(6) → Execution(7)
+        // Order: ErrorHandling(0) → Resolver(1) → Log(2) → Proxy(3) → Tracking(4) → SnapshotShaping(5) → Execution(6)
         var proxyDescriptor = handlerDescriptors[3];
         Assert.NotNull(proxyDescriptor.ImplementationFactory);
         Assert.Equal(ServiceLifetime.Scoped, proxyDescriptor.Lifetime);
@@ -379,17 +362,17 @@ public class FirestoreServiceCollectionExtensionsTest
         services.AddEntityFrameworkFirestore();
 
         // Assert - handlers must be registered in middleware order
-        // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → Convert → SnapshotShaping → Execution
+        // Order: ErrorHandling → Resolver → Log → Proxy → Tracking → SnapshotShaping → Execution
         // Each handler calls next() and receives the result from subsequent handlers
         // Result flows: Execution returns docs (+ includes) → SnapshotShaping shapes for debug →
-        //               Convert→entities → Tracking → Proxy → return
+        //               Tracking → Proxy → return
         // Note: Includes are loaded by ExecutionHandler directly, not by a separate handler
         var handlerRegistrations = services
             .Where(d => d.ServiceType == typeof(IQueryPipelineHandler))
             .ToList();
 
-        // 8 handlers total (IncludeHandler removed - includes handled by ExecutionHandler)
-        Assert.Equal(8, handlerRegistrations.Count);
+        // 7 handlers total (IncludeHandler and ConvertHandler removed)
+        Assert.Equal(7, handlerRegistrations.Count);
 
         // Verify specific handlers by position (0-indexed)
         Assert.Equal(typeof(ErrorHandlingHandler), handlerRegistrations[0].ImplementationType);
@@ -399,9 +382,8 @@ public class FirestoreServiceCollectionExtensionsTest
         Assert.Null(handlerRegistrations[3].ImplementationType);
         Assert.NotNull(handlerRegistrations[3].ImplementationFactory);
         Assert.Equal(typeof(TrackingHandler), handlerRegistrations[4].ImplementationType);
-        Assert.Equal(typeof(ConvertHandler), handlerRegistrations[5].ImplementationType);
-        Assert.Equal(typeof(SnapshotShapingHandler), handlerRegistrations[6].ImplementationType);
-        Assert.Equal(typeof(ExecutionHandler), handlerRegistrations[7].ImplementationType);
+        Assert.Equal(typeof(SnapshotShapingHandler), handlerRegistrations[5].ImplementationType);
+        Assert.Equal(typeof(ExecutionHandler), handlerRegistrations[6].ImplementationType);
     }
 
     #endregion

@@ -67,7 +67,7 @@ public class ITypeConverterTests
     [Fact]
     public void ITypeConverter_Used_For_Aggregation_Results()
     {
-        // Documents that ITypeConverter is used by ConvertHandler
+        // Documents that ITypeConverter is used by SnapshotShapingHandler
         // to convert aggregation results from Firestore types to CLR types.
         // Example: Firestore returns long for Count, but LINQ expects int.
 
@@ -79,7 +79,7 @@ public class ITypeConverterTests
     public void ITypeConverter_Used_For_MinMax_Field_Values()
     {
         // Documents that Min/Max aggregations return Streaming results.
-        // The ConvertHandler extracts the field value and uses ITypeConverter
+        // The SnapshotShapingHandler extracts the field value and uses ITypeConverter
         // to convert it to the expected CLR type.
 
         var method = typeof(ITypeConverter).GetMethod("Convert");

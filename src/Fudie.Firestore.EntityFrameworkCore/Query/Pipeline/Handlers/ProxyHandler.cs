@@ -5,8 +5,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Pipeline;
 
 /// <summary>
 /// Handler that configures proxy creation for entity queries.
-/// Runs BEFORE ConvertHandler to set up proxy factory in metadata.
-/// ConvertHandler then uses the proxy factory to create proxy instances during deserialization.
+/// Runs BEFORE SnapshotShapingHandler to set up proxy factory in metadata.
+/// SnapshotShapingHandler then uses the proxy factory to create proxy instances during materialization.
 /// Only applies to Entity queries when proxy factory is available.
 /// </summary>
 public class ProxyHandler : QueryPipelineHandlerBase
@@ -40,7 +40,7 @@ public class ProxyHandler : QueryPipelineHandlerBase
             return await next(context, cancellationToken);
         }
 
-        // Add proxy factory to metadata so ConvertHandler can use it
+        // Add proxy factory to metadata so SnapshotShapingHandler can use it
         var newContext = context.WithMetadata(PipelineMetadataKeys.ProxyFactory, _proxyFactory);
 
         return await next(newContext, cancellationToken);

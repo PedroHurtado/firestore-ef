@@ -87,7 +87,7 @@ public class ProxyHandlerTests
     public void ProxyHandler_Adds_ProxyFactory_To_Metadata_When_Available()
     {
         // When IProxyFactory is available:
-        // Handler should add it to context metadata for ConvertHandler to use
+        // Handler should add it to context metadata for SnapshotShapingHandler to use
         typeof(PipelineMetadataKeys).Should().NotBeNull(
             "ProxyHandler must add IProxyFactory to metadata");
 
@@ -110,14 +110,14 @@ public class ProxyHandlerTests
     #region Handler Order Tests
 
     [Fact]
-    public void ProxyHandler_Runs_Before_ConvertHandler()
+    public void ProxyHandler_Runs_Before_SnapshotShapingHandler()
     {
-        // ProxyHandler must run BEFORE ConvertHandler because:
+        // ProxyHandler must run BEFORE SnapshotShapingHandler because:
         // 1. ProxyHandler adds IProxyFactory to metadata
-        // 2. ConvertHandler reads metadata and creates proxy instances
-        // 3. ConvertHandler deserializes INTO the proxy instance
+        // 2. SnapshotShapingHandler reads metadata and creates proxy instances
+        // 3. SnapshotShapingHandler materializes INTO the proxy instance
         typeof(ProxyHandler).Should().NotBeNull(
-            "ProxyHandler must run before ConvertHandler");
+            "ProxyHandler must run before SnapshotShapingHandler");
     }
 
     #endregion
