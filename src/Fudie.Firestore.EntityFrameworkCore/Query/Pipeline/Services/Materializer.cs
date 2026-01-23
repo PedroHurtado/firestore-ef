@@ -404,7 +404,7 @@ public class Materializer : IMaterializer
             }
 
             var backingFieldName = GetBackingFieldName(prop.Name);
-            var backingField = type.GetField(backingFieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+            var backingField = type.GetField(backingFieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (backingField != null)
             {
                 memberSetters.Add(new MemberMapping(prop.Name, backingField, backingField.FieldType));
