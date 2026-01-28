@@ -1,10 +1,12 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Fudie.Firestore.EntityFrameworkCore.Extensions;
 using Fudie.Firestore.EntityFrameworkCore.Infrastructure;
 using Fudie.Firestore.EntityFrameworkCore.Metadata.Conventions;
@@ -40,6 +42,12 @@ public class PartialUpdateBuilder
         PropertyNamingPolicy = null,
         Converters = { new JsonStringEnumConverter() }
     };
+
+    /// <summary>
+    /// Cache for JsonSerializerOptions with ignored properties.
+    /// Key is the set of ignored property names (sorted and joined).
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, JsonSerializerOptions> OptionsCache = new();
 
     public PartialUpdateBuilder(
         IModel model,
@@ -530,9 +538,58 @@ public class PartialUpdateBuilder
             elements.Add(item);
         }
 
+        // Get ignored properties for this array (configured via Ignore() in OnModelCreating)
+        var ignoredProperties = entityType.GetArrayOfIgnoredProperties(propertyName);
+        var options = GetOrCreateOptions(ignoredProperties);
+
         // Serialize to JSON and parse back for comparison
-        var json = JsonSerializer.Serialize(elements, JsonOptions);
+        var json = JsonSerializer.Serialize(elements, options);
         return DeserializeJsonArray(json);
+    }
+
+    /// <summary>
+    /// Gets or creates JsonSerializerOptions with the specified ignored properties.
+    /// Options are cached for performance.
+    /// </summary>
+    private static JsonSerializerOptions GetOrCreateOptions(HashSet<string>? ignoredProperties)
+    {
+        if (ignoredProperties == null || ignoredProperties.Count == 0)
+            return JsonOptions;
+
+        // Create a cache key from sorted property names
+        var sortedProps = ignoredProperties.OrderBy(p => p);
+        var cacheKey = string.Join(",", sortedProps);
+
+        return OptionsCache.GetOrAdd(cacheKey, _ => CreateOptionsWithIgnoredProperties(ignoredProperties));
+    }
+
+    /// <summary>
+    /// Creates JsonSerializerOptions that exclude the specified properties.
+    /// </summary>
+    private static JsonSerializerOptions CreateOptionsWithIgnoredProperties(HashSet<string> ignoredProperties)
+    {
+        var resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(typeInfo =>
+        {
+            if (typeInfo.Kind != JsonTypeInfoKind.Object)
+                return;
+
+            for (int i = typeInfo.Properties.Count - 1; i >= 0; i--)
+            {
+                if (ignoredProperties.Contains(typeInfo.Properties[i].Name))
+                {
+                    typeInfo.Properties.RemoveAt(i);
+                }
+            }
+        });
+
+        return new JsonSerializerOptions
+        {
+            WriteIndented = false,
+            PropertyNamingPolicy = null,
+            TypeInfoResolver = resolver,
+            Converters = { new JsonStringEnumConverter() }
+        };
     }
 
     private bool JsonElementsEqual(JsonElement a, JsonElement b)
@@ -549,10 +606,11 @@ public class PartialUpdateBuilder
         var result = new List<object>();
 
         var elementClrType = entityType.GetArrayOfElementClrType(propertyName);
+        var ignoredProperties = entityType.GetArrayOfIgnoredProperties(propertyName);
 
         foreach (var element in elements)
         {
-            var value = ConvertJsonElementToFirestore(element, arrayType, elementClrType);
+            var value = ConvertJsonElementToFirestore(element, arrayType, elementClrType, ignoredProperties);
             if (value != null)
             {
                 result.Add(value);
@@ -565,7 +623,8 @@ public class PartialUpdateBuilder
     private object? ConvertJsonElementToFirestore(
         JsonElement element,
         string arrayType,
-        Type? elementClrType)
+        Type? elementClrType,
+        HashSet<string>? ignoredProperties)
     {
         switch (arrayType)
         {
@@ -607,10 +666,10 @@ public class PartialUpdateBuilder
 
             case ArrayOfAnnotations.ArrayType.Embedded:
             default:
-                // Convert embedded object to Dictionary
+                // Convert embedded object to Dictionary (excluding ignored properties)
                 if (element.ValueKind == JsonValueKind.Object)
                 {
-                    return JsonElementToDict(element);
+                    return JsonElementToDict(element, ignoredProperties);
                 }
                 return null;
         }
@@ -629,13 +688,17 @@ public class PartialUpdateBuilder
         return null;
     }
 
-    private Dictionary<string, object> JsonElementToDict(JsonElement element)
+    private Dictionary<string, object> JsonElementToDict(JsonElement element, HashSet<string>? ignoredProperties = null)
     {
         var dict = new Dictionary<string, object>();
 
         foreach (var prop in element.EnumerateObject())
         {
-            var value = JsonElementToValue(prop.Value);
+            // Skip ignored properties (configured via Ignore() in OnModelCreating)
+            if (ignoredProperties != null && ignoredProperties.Contains(prop.Name))
+                continue;
+
+            var value = JsonElementToValue(prop.Value, ignoredProperties);
             if (value != null)
             {
                 dict[prop.Name] = value;
@@ -645,7 +708,7 @@ public class PartialUpdateBuilder
         return dict;
     }
 
-    private object? JsonElementToValue(JsonElement element)
+    private object? JsonElementToValue(JsonElement element, HashSet<string>? ignoredProperties = null)
     {
         return element.ValueKind switch
         {
@@ -654,8 +717,8 @@ public class PartialUpdateBuilder
             JsonValueKind.Number when element.TryGetDouble(out var d) => d,
             JsonValueKind.True => true,
             JsonValueKind.False => false,
-            JsonValueKind.Array => element.EnumerateArray().Select(JsonElementToValue).Where(v => v != null).ToList(),
-            JsonValueKind.Object => JsonElementToDict(element),
+            JsonValueKind.Array => element.EnumerateArray().Select(e => JsonElementToValue(e, ignoredProperties)).Where(v => v != null).ToList(),
+            JsonValueKind.Object => JsonElementToDict(element, ignoredProperties),
             _ => null
         };
     }
