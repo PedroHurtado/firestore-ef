@@ -91,6 +91,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is double d && actualTargetType == typeof(decimal))
             return (decimal)d;
 
+        // long → decimal (Firestore returns 0 as Int64, not Double)
+        if (value is long ld && actualTargetType == typeof(decimal))
+            return (decimal)ld;
+
         // string → enum
         if (value is string s && actualTargetType.IsEnum)
             return Enum.Parse(actualTargetType, s, ignoreCase: true);
