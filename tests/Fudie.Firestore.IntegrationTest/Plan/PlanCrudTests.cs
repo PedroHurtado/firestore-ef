@@ -376,6 +376,10 @@ public class PlanCrudTests
         using (var updateContext = CreateWriteContext())
         {
             var planToUpdate = await updateContext.Plans.FirstOrDefaultAsync(p => p.Id == planId);
+
+            var entry = updateContext.ChangeTracker.Entries<Helpers.Plan.Plan>().First();
+            var shadowProp = entry.Properties.First(p => p.Metadata.Name == "__Features_Json");
+
             planToUpdate!._features.Add(new Feature("STORAGE", "Almacenamiento", null, FeatureType.Limit, 50, "GB"));
             planToUpdate._features.Add(new Feature("API", "API", null, FeatureType.Boolean));
             await updateContext.SaveChangesAsync();

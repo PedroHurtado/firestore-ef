@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -20,15 +24,19 @@ public static class ArrayOfChangeTracker
     /// JSON serialization options that match the Firestore provider's serialization conventions.
     /// Uses JsonStringEnumConverter to serialize enums as strings (e.g., "Monday" instead of 1),
     /// consistent with IFirestoreValueConverter.ToFirestore() behavior.
-    /// IgnoreReadOnlyProperties is enabled to skip computed properties (getters without setters).
     /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = false,
         PropertyNamingPolicy = null,
-        IgnoreReadOnlyProperties = true,
         Converters = { new JsonStringEnumConverter() }
     };
+
+    /// <summary>
+    /// Cache for JsonSerializerOptions with ignored properties.
+    /// Key is the set of ignored property names (sorted and joined).
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, JsonSerializerOptions> OptionsCache = new();
 
     /// <summary>
     /// Synchronizes ArrayOf shadow properties and marks entities as Modified if changes are detected.
@@ -57,7 +65,8 @@ public static class ArrayOfChangeTracker
                 continue;
 
             var shadowProp = entry.Property(property.Name);
-            var currentJson = SerializeArrayProperty(entry.Entity, trackerFor);
+            var ignoredProps = entityType.GetArrayOfIgnoredProperties(trackerFor);
+            var currentJson = SerializeArrayProperty(entry.Entity, trackerFor, ignoredProps);
             var originalJson = shadowProp.OriginalValue as string;
 
             if (!string.Equals(originalJson, currentJson, StringComparison.Ordinal))
@@ -87,7 +96,8 @@ public static class ArrayOfChangeTracker
             if (trackerFor == null)
                 continue;
 
-            var json = SerializeArrayProperty(entry.Entity, trackerFor);
+            var ignoredProps = entityType.GetArrayOfIgnoredProperties(trackerFor);
+            var json = SerializeArrayProperty(entry.Entity, trackerFor, ignoredProps);
             var shadowProp = entry.Property(property.Name);
 
             shadowProp.CurrentValue = json;
@@ -110,7 +120,8 @@ public static class ArrayOfChangeTracker
             if (trackerFor == null)
                 continue;
 
-            var json = SerializeArrayProperty(entity, trackerFor);
+            var ignoredProps = entityType.GetArrayOfIgnoredProperties(trackerFor);
+            var json = SerializeArrayProperty(entity, trackerFor, ignoredProps);
 
             // Set both current and original value via InternalEntityEntry
             internalEntry[property] = json;
@@ -121,7 +132,10 @@ public static class ArrayOfChangeTracker
     /// <summary>
     /// Serializes an array property to JSON for comparison.
     /// </summary>
-    private static string? SerializeArrayProperty(object entity, string propertyName)
+    /// <param name="entity">The entity containing the array property.</param>
+    /// <param name="propertyName">The name of the array property.</param>
+    /// <param name="ignoredProperties">Properties to exclude from serialization (configured via Ignore() in OnModelCreating).</param>
+    private static string? SerializeArrayProperty(object entity, string propertyName, HashSet<string>? ignoredProperties)
     {
         var propertyInfo = entity.GetType().GetProperty(
             propertyName,
@@ -134,6 +148,52 @@ public static class ArrayOfChangeTracker
         if (value == null)
             return null;
 
-        return JsonSerializer.Serialize(value, JsonOptions);
+        var options = GetOrCreateOptions(ignoredProperties);
+        return JsonSerializer.Serialize(value, options);
+    }
+
+    /// <summary>
+    /// Gets or creates JsonSerializerOptions with the specified ignored properties.
+    /// Options are cached for performance.
+    /// </summary>
+    private static JsonSerializerOptions GetOrCreateOptions(HashSet<string>? ignoredProperties)
+    {
+        if (ignoredProperties == null || ignoredProperties.Count == 0)
+            return JsonOptions;
+
+        // Create a cache key from sorted property names
+        var sortedProps = ignoredProperties.OrderBy(p => p);
+        var cacheKey = string.Join(",", sortedProps);
+
+        return OptionsCache.GetOrAdd(cacheKey, _ => CreateOptionsWithIgnoredProperties(ignoredProperties));
+    }
+
+    /// <summary>
+    /// Creates JsonSerializerOptions that exclude the specified properties.
+    /// </summary>
+    private static JsonSerializerOptions CreateOptionsWithIgnoredProperties(HashSet<string> ignoredProperties)
+    {
+        var resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(typeInfo =>
+        {
+            if (typeInfo.Kind != JsonTypeInfoKind.Object)
+                return;
+
+            for (int i = typeInfo.Properties.Count - 1; i >= 0; i--)
+            {
+                if (ignoredProperties.Contains(typeInfo.Properties[i].Name))
+                {
+                    typeInfo.Properties.RemoveAt(i);
+                }
+            }
+        });
+
+        return new JsonSerializerOptions
+        {
+            WriteIndented = false,
+            PropertyNamingPolicy = null,
+            TypeInfoResolver = resolver,
+            Converters = { new JsonStringEnumConverter() }
+        };
     }
 }

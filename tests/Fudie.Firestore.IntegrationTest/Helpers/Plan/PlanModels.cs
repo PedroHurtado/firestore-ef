@@ -200,7 +200,7 @@ public class Plan : PlanAggregateRoot<Guid>
     public BillingPeriod BillingPeriod { get; set; }
     public bool IsActive { get; set; }
 
-    public HashSet<Feature> _features = [];
+    public List<Feature> _features = [];
     public IReadOnlyCollection<Feature> Features => _features.ToList().AsReadOnly();
 
     public HashSet<PaymentProviderConfig> _providerConfigurations = [];
