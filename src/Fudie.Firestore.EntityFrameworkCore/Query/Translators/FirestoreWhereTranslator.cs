@@ -479,6 +479,17 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 return TranslateObjectEquals(methodCall);
             }
 
+            // Handle instance method e.Property.Equals(value) when resolved to object.Equals(object)
+            // This pattern occurs with generics where TId.Equals(TId) resolves to object.Equals(object) due to boxing
+            // Example: e.Id.Equals((object)id) in generic methods like GetRequiredAsync<T, TId>()
+            if (methodCall.Method.Name == "Equals" &&
+                methodCall.Method.DeclaringType == typeof(object) &&
+                methodCall.Object != null &&
+                methodCall.Arguments.Count == 1)
+            {
+                return TranslateInstanceObjectEquals(methodCall);
+            }
+
             // Handle StartsWith - translated to range query: field >= "prefix" AND field < "prefix\uffff"
             if (methodCall.Method.Name == "StartsWith" && methodCall.Method.DeclaringType == typeof(string))
             {
@@ -600,6 +611,42 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             else
             {
                 return null;
+            }
+
+            if (propertyName == null)
+                return null;
+
+            return new List<FirestoreWhereClause>
+            {
+                new FirestoreWhereClause(propertyName, FirestoreOperator.EqualTo, valueExpression)
+            };
+        }
+
+        /// <summary>
+        /// Translates instance method e.Property.Equals(value) to an equality filter.
+        /// This pattern occurs when using generics where the compiler resolves .Equals(id)
+        /// to object.Equals(object) due to boxing (e.g., in generic methods like GetRequiredAsync&lt;T, TId&gt;()).
+        /// </summary>
+        private List<FirestoreWhereClause>? TranslateInstanceObjectEquals(MethodCallExpression methodCall)
+        {
+            // methodCall.Object = e.Property (the property being compared)
+            // methodCall.Arguments[0] = value (the value to compare against)
+            var propertyExpression = methodCall.Object;
+            var valueExpression = methodCall.Arguments[0];
+
+            string? propertyName = null;
+
+            // Extract property name from the object (e.Property)
+            if (propertyExpression is MemberExpression memberExpr)
+            {
+                propertyName = BuildPropertyPath(memberExpr);
+            }
+            // Handle case where property has a cast: ((object)e.Property).Equals(value)
+            else if (propertyExpression is UnaryExpression unaryExpr &&
+                     (unaryExpr.NodeType == ExpressionType.Convert || unaryExpr.NodeType == ExpressionType.ConvertChecked) &&
+                     unaryExpr.Operand is MemberExpression innerMember)
+            {
+                propertyName = BuildPropertyPath(innerMember);
             }
 
             if (propertyName == null)
