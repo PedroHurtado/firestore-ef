@@ -667,10 +667,10 @@ public class PrimitiveArrayChangeTrackingTests
     {
         // Arrange
         var id = FirestoreTestFixture.GenerateId("ct-datetime");
-        var date1 = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var date2 = new DateTime(2024, 6, 15, 0, 0, 0, DateTimeKind.Utc);
-        var date3 = new DateTime(2024, 12, 31, 0, 0, 0, DateTimeKind.Utc);
-        var newDate = new DateTime(2025, 7, 4, 0, 0, 0, DateTimeKind.Utc);
+        var date1 = new DateTime(2024, 1, 1, 0, 0, 0);
+        var date2 = new DateTime(2024, 6, 15, 0, 0, 0);
+        var date3 = new DateTime(2024, 12, 31, 0, 0, 0);
+        var newDate = new DateTime(2025, 7, 4, 0, 0, 0);
 
         using (var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>())
         {
@@ -709,9 +709,9 @@ public class PrimitiveArrayChangeTrackingTests
     {
         // Arrange
         var id = FirestoreTestFixture.GenerateId("ct-datetime");
-        var date1 = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var date2 = new DateTime(2024, 6, 15, 0, 0, 0, DateTimeKind.Utc);
-        var date3 = new DateTime(2024, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+        var date1 = new DateTime(2024, 1, 1, 0, 0, 0);
+        var date2 = new DateTime(2024, 6, 15, 0, 0, 0);
+        var date3 = new DateTime(2024, 12, 31, 0, 0, 0);
 
         using (var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>())
         {

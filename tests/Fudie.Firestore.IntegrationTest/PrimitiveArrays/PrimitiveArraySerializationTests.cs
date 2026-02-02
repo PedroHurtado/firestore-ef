@@ -598,9 +598,9 @@ public class PrimitiveArraySerializationTests
 
         var dates = new[]
         {
-            new DateTime(2024, 1, 15, 10, 30, 0, DateTimeKind.Utc),
-            new DateTime(2024, 6, 20, 14, 0, 0, DateTimeKind.Utc),
-            new DateTime(2024, 12, 31, 23, 59, 59, DateTimeKind.Utc)
+            new DateTime(2024, 1, 15, 10, 30, 0),
+            new DateTime(2024, 6, 20, 14, 0, 0),
+            new DateTime(2024, 12, 31, 23, 59, 59)
         };
 
         var entity = new PrimitiveArrayEntity
@@ -630,14 +630,14 @@ public class PrimitiveArraySerializationTests
     {
         // Arrange
         var uniqueName = $"datecontains-{Guid.NewGuid():N}";
-        var targetDate = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+        var targetDate = new DateTime(2024, 6, 15, 12, 0, 0);
         using var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>();
 
         var entities = new[]
         {
-            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-A", EventDates = [new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), targetDate] },
-            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-B", EventDates = [new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc)] },
-            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-C", EventDates = [targetDate, new DateTime(2024, 12, 1, 0, 0, 0, DateTimeKind.Utc)] }
+            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-A", EventDates = [new DateTime(2024, 1, 1, 0, 0, 0), targetDate] },
+            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-B", EventDates = [new DateTime(2024, 3, 1, 0, 0, 0)] },
+            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-C", EventDates = [targetDate, new DateTime(2024, 12, 1, 0, 0, 0)] }
         };
 
         context.PrimitiveArrays.AddRange(entities);
@@ -660,15 +660,15 @@ public class PrimitiveArraySerializationTests
     {
         // Arrange
         var uniqueName = $"datecontainsany-{Guid.NewGuid():N}";
-        var date1 = new DateTime(2024, 1, 15, 12, 0, 0, DateTimeKind.Utc);
-        var date2 = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Utc);
-        var date3 = new DateTime(2024, 12, 15, 12, 0, 0, DateTimeKind.Utc);
+        var date1 = new DateTime(2024, 1, 15, 12, 0, 0);
+        var date2 = new DateTime(2024, 6, 15, 12, 0, 0);
+        var date3 = new DateTime(2024, 12, 15, 12, 0, 0);
         using var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>();
 
         var entities = new[]
         {
-            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-A", EventDates = [date1, new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc)] },
-            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-B", EventDates = [new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc)] },
+            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-A", EventDates = [date1, new DateTime(2024, 2, 1, 0, 0, 0)] },
+            new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-B", EventDates = [new DateTime(2024, 3, 1, 0, 0, 0)] },
             new PrimitiveArrayEntity { Id = FirestoreTestFixture.GenerateId("prim"), Name = $"{uniqueName}-C", EventDates = [date2, date3] }
         };
 
@@ -963,8 +963,8 @@ public class PrimitiveArraySerializationTests
         var guids = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var dates = new[]
         {
-            new DateTime(2024, 1, 15, 10, 30, 0, DateTimeKind.Utc),
-            new DateTime(2024, 6, 20, 14, 0, 0, DateTimeKind.Utc)
+            new DateTime(2024, 1, 15, 10, 30, 0),
+            new DateTime(2024, 6, 20, 14, 0, 0)
         };
 
         using (var context = _fixture.CreateContext<PrimitiveArrayTestDbContext>())

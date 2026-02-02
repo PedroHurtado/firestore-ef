@@ -143,8 +143,105 @@ El código en el proveedor de Firestore que detecta cambios en subcolecciones (`
    - Verificar que ChangeTracker la marca como `Modified`
    - Verificar que SaveChanges actualiza el documento
 
+4. **Test: Eliminar entidad de subcolección**
+   - Crear padre con hijos
+   - Leer padre con Include
+   - Eliminar hijo de la colección
+   - Verificar que ChangeTracker la marca como `Deleted`
+   - Verificar que SaveChanges elimina el documento
+
+---
+
+## Bug Relacionado: Entidad Eliminada Marcada como Modified
+
+### Problema
+
+Cuando se elimina una entidad de una subcolección (ej: `menu.Categories.Remove(category)`), EF Core la marca como `Modified` con el FK (`MenuId`) establecido a `null`, en lugar de marcarla como `Deleted`.
+
+### Escenario
+
+```csharp
+// Leer menú con categorías
+var menu = await context.Menus
+    .Include(m => m.Categories)
+    .FirstAsync(m => m.Id == menuId);
+
+// Eliminar una categoría
+var categoryToRemove = menu.Categories.First();
+menu.Categories.Remove(categoryToRemove);
+
+// ChangeTracker muestra:
+// MenuCategory { State = Modified, MenuId = null }  // DEBERÍA SER Deleted
+```
+
+### Causa
+
+EF Core detecta que el FK (`MenuId`) cambió de un valor a `null`, lo que interpreta como una modificación. Pero en el contexto de SubCollections de Firestore, esto indica que la entidad fue removida de la colección del padre.
+
+### Solución Implementada
+
+Se creó `SubCollectionChangeTracker.FixSubCollectionDeleteState()` que se ejecuta en el interceptor `ArrayOfSaveChangesInterceptor` antes de `SaveChanges()`:
+
+```csharp
+public static void FixSubCollectionDeleteState(DbContext context)
+{
+    foreach (var entry in context.ChangeTracker.Entries())
+    {
+        if (entry.State != EntityState.Modified)
+            continue;
+
+        var parentNavigation = FindParentNavigationForSubCollection(entry.Metadata, model);
+        if (parentNavigation == null)
+            continue;
+
+        var fkPropertyName = ConventionHelpers.GetForeignKeyPropertyName(
+            parentNavigation.DeclaringEntityType.ClrType);
+
+        var fkProperty = entry.Property(fkPropertyName);
+        var originalValue = fkProperty.OriginalValue;
+        var currentValue = fkProperty.CurrentValue;
+
+        // Si FK pasó de un valor a null → la entidad fue removida
+        if (originalValue != null && !IsDefaultValue(originalValue) && currentValue == null)
+        {
+            entry.State = EntityState.Deleted;
+        }
+    }
+}
+```
+
+### Archivos Modificados
+
+- `SubCollectionChangeTracker.cs` - Nueva clase para corregir estados
+- `ArrayOfSaveChangesInterceptor.cs` - Llama a `FixSubCollectionDeleteState()`
+- `FirestoreDatabase.cs` - `FindParentByOriginalForeignKey()` para encontrar padre de entidades eliminadas
+
+---
+
+## Solución Completa del Bug 005
+
+### Archivos Modificados
+
+1. **FirestoreEntityTypeBuilderExtensions.cs**
+   - Añadido `ValueGeneratedNever` automático para PKs de SubCollections
+   - Evita que EF Core asuma que entidades con Id ya existen
+
+2. **SubCollectionElementBuilder.cs**
+   - Añadido método `Entity()` para exponer `EntityTypeBuilder<T>`
+   - Permite usar `Ignore()`, `Property()`, etc. en SubCollections
+
+3. **SubCollectionChangeTracker.cs** (nuevo)
+   - Corrige estado de entidades eliminadas: `Modified` → `Deleted`
+
+4. **ArrayOfSaveChangesInterceptor.cs**
+   - Llama a `SubCollectionChangeTracker.FixSubCollectionDeleteState()`
+
+5. **FirestoreDatabase.cs**
+   - `FindParentByOriginalForeignKey()` para localizar padre vía FK original
+
 ---
 
 **Fecha**: 2026-02-02
 **Proyecto afectado**: Customer (webapi)
 **Provider**: Fudie.Firestore.EntityFrameworkCore
+**Estado**: ✅ RESUELTO

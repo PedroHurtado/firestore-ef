@@ -996,17 +996,17 @@ public class SelectReferenceTests
         result.Should().NotBeNull();
         result!.Titulo.Should().Be("Conferencia de Tecnologia");
 
-        // Verify DateTime in Root (converted to UTC)
-        result.FechaEvento.Should().BeCloseTo(fechaEvento.ToUniversalTime(), TimeSpan.FromSeconds(1));
+        // Verify DateTime in Root (returned as local time)
+        result.FechaEvento.Should().BeCloseTo(fechaEvento, TimeSpan.FromSeconds(1));
 
-        // Verify DateTime in ComplexType (converted to UTC)
-        result.FechaCreacionMetadatos.Should().BeCloseTo(fechaMetadatos.ToUniversalTime(), TimeSpan.FromSeconds(1));
+        // Verify DateTime in ComplexType (returned as local time)
+        result.FechaCreacionMetadatos.Should().BeCloseTo(fechaMetadatos, TimeSpan.FromSeconds(1));
 
-        // Verify DateTime in SubCollection (converted to UTC)
+        // Verify DateTime in SubCollection (returned as local time)
         result.Sesiones.Should().HaveCount(1);
         var sesion = result.Sesiones.First();
         sesion.Nombre.Should().Be("Keynote");
-        sesion.FechaHoraSesion.Should().BeCloseTo(fechaSesion.ToUniversalTime(), TimeSpan.FromSeconds(1));
+        sesion.FechaHoraSesion.Should().BeCloseTo(fechaSesion, TimeSpan.FromSeconds(1));
     }
 
     #endregion

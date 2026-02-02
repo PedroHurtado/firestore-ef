@@ -314,9 +314,9 @@ public class NestedArraySerializationTests
         var id = FirestoreTestFixture.GenerateId("nested");
         using var context = _fixture.CreateContext<NestedArrayTestDbContext>();
 
-        var date1 = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var date2 = new DateTime(2024, 6, 15, 0, 0, 0, DateTimeKind.Utc);
-        var date3 = new DateTime(2024, 12, 31, 0, 0, 0, DateTimeKind.Utc);
+        var date1 = new DateTime(2024, 1, 1, 0, 0, 0);
+        var date2 = new DateTime(2024, 6, 15, 0, 0, 0);
+        var date3 = new DateTime(2024, 12, 31, 0, 0, 0);
 
         var entity = new NestedArrayEntity
         {

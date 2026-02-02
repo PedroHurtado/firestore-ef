@@ -928,4 +928,51 @@ public class ProviderFixesPersistenceTests
             "Debe quedar solo una categoría después de eliminar 'Entrantes'");
         menuVerificado.Categories.First().Name.Should().Be("Principales");
     }
+
+    [Fact]
+    public async Task UpdateMenu_ShouldPersistChanges()
+    {
+        // Arrange - Crear un Menu y guardarlo
+        using var writeContext = CreateContext();
+        var menuId = Guid.NewGuid();
+
+        var menu = Menu.Create(
+            tenantId: _tenantId,
+            name: "Menú Temporal",
+            displayOrder: 1,
+            id: menuId
+        );
+
+        writeContext.Menus.Add(menu);
+        await writeContext.SaveChangesAsync();
+
+        // Act - Leer el menu y actualizarlo
+        using var updateContext = CreateContext();
+        var menuLeido = await updateContext.Menus
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuLeido.Should().NotBeNull();
+
+        // Actualizar propiedades usando reflection (simulando domain method)
+        var effectiveFrom = new DateTime(2025, 6, 1);
+        var effectiveUntil = new DateTime(2025, 8, 31);
+
+        typeof(Menu).GetProperty("EffectiveFrom")!
+            .SetValue(menuLeido, effectiveFrom);
+        typeof(Menu).GetProperty("EffectiveUntil")!
+            .SetValue(menuLeido, effectiveUntil);
+        typeof(Menu).GetProperty("Name")!
+            .SetValue(menuLeido, "Menú Verano");
+
+        await updateContext.SaveChangesAsync();
+
+        // Assert - Verificar que los cambios se guardaron
+        using var verifyContext = CreateContext();
+        var menuVerificado = await verifyContext.Menus
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuVerificado!.Name.Should().Be("Menú Verano");
+        menuVerificado.EffectiveFrom.Should().Be(effectiveFrom);
+        menuVerificado.EffectiveUntil.Should().Be(effectiveUntil);
+    }
 }

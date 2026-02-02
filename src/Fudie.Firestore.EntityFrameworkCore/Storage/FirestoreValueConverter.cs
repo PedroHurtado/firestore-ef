@@ -112,8 +112,9 @@ public class FirestoreValueConverter : IFirestoreValueConverter
             return (int)l;
 
         // Timestamp → DateTime (Firestore SDK specific type)
+        // ToDateTime() returns UTC, we convert to local time to match user expectations
         if (value is Timestamp timestamp && actualTargetType == typeof(DateTime))
-            return timestamp.ToDateTime();
+            return timestamp.ToDateTime().ToLocalTime();
 
         // long → TimeSpan (stored as ticks)
         if (value is long ticks && actualTargetType == typeof(TimeSpan))
