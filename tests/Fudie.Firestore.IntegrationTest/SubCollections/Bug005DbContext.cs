@@ -54,16 +54,10 @@ public class Bug005DbContext : DbContext
 
             entity.SubCollection(m => m.Categories, category =>
             {
-                category.Entity(builder =>
-                {
-                    builder.Property(c => c.Id).ValueGeneratedNever();                   
-                });
-
                 category.ArrayOf(c => c.Items, item =>
                 {
                     item.Reference(i => i.MenuItem);
                 });
-
             });
         });
 

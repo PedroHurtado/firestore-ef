@@ -6,9 +6,10 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace Fudie.Firestore.EntityFrameworkCore.ChangeTracking;
 
 /// <summary>
-/// Interceptor that synchronizes ArrayOf shadow properties before SaveChanges.
-/// This ensures that changes to ArrayOf properties are detected and the entity
-/// is marked as Modified before EF Core processes the changes.
+/// Interceptor that synchronizes ArrayOf shadow properties and fixes SubCollection states before SaveChanges.
+/// This ensures that:
+/// 1. Changes to ArrayOf properties are detected and the entity is marked as Modified
+/// 2. SubCollection entities removed from parent collections are correctly marked as Deleted
 /// </summary>
 public class ArrayOfSaveChangesInterceptor : SaveChangesInterceptor
 {
@@ -19,6 +20,7 @@ public class ArrayOfSaveChangesInterceptor : SaveChangesInterceptor
         if (eventData.Context != null)
         {
             ArrayOfChangeTracker.SyncArrayOfChanges(eventData.Context);
+            SubCollectionChangeTracker.FixSubCollectionDeleteState(eventData.Context);
         }
 
         return base.SavingChanges(eventData, result);
@@ -32,6 +34,7 @@ public class ArrayOfSaveChangesInterceptor : SaveChangesInterceptor
         if (eventData.Context != null)
         {
             ArrayOfChangeTracker.SyncArrayOfChanges(eventData.Context);
+            SubCollectionChangeTracker.FixSubCollectionDeleteState(eventData.Context);
         }
 
         return base.SavingChangesAsync(eventData, result, cancellationToken);

@@ -30,12 +30,9 @@ public class ProviderFixesPersistenceDbContext(DbContextOptions<ProviderFixesPer
             entity.ComplexProperty(m => m.DepositPolicy);
 
             // SubCollection: Categories under Menu
+            // Nota: ValueGeneratedNever se aplica automáticamente a las claves de SubCollections
             entity.SubCollection(m => m.Categories, category =>
             {
-                category.Entity(builder =>
-                {
-                   builder.Property(p=>p.Id).ValueGeneratedNever();
-                });
                 // ArrayOf embedded: CategoryItem contains Reference to MenuItem
                 category.ArrayOf(c => c.Items, item =>
                 {

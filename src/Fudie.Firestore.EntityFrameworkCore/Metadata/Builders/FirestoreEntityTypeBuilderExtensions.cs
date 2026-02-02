@@ -75,6 +75,18 @@ public static class FirestoreEntityTypeBuilderExtensions
         var targetEntityType = mutableModel.FindEntityType(typeof(TRelatedEntity))
             ?? mutableModel.AddEntityType(typeof(TRelatedEntity));
 
+        // Configurar ValueGeneratedNever para la clave primaria de SubCollections
+        // Esto evita que EF Core asuma que entidades con Id establecido ya existen en la BD
+        // Fix para Bug 005: nuevas entidades añadidas a SubCollections se marcaban como Modified
+        var primaryKey = targetEntityType.FindPrimaryKey();
+        if (primaryKey != null)
+        {
+            foreach (var keyProperty in primaryKey.Properties)
+            {
+                keyProperty.ValueGenerated = Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never;
+            }
+        }
+
         // Configurar la relación HasMany para crear la navegación
         builder.HasMany(navigationExpression)
             .WithOne()

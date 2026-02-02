@@ -806,4 +806,126 @@ public class ProviderFixesPersistenceTests
         categoriaEntry!.State.Should().Be(EntityState.Added,
             "Una entidad nueva añadida a una SubCollection debe tener estado Added, no Modified");
     }
+
+    [Fact]
+    public async Task AddAndRemoveCategoryFromMenu_ShouldBeTrackedCorrectly()
+    {
+        // Arrange - Crear un Menu vacío y guardarlo
+        using var writeContext = CreateContext();
+        var menuId = Guid.NewGuid();
+
+        var menu = Menu.Create(
+            tenantId: _tenantId,
+            name: "Menú de Prueba",
+            displayOrder: 1,
+            id: menuId
+        );
+
+        writeContext.Menus.Add(menu);
+        await writeContext.SaveChangesAsync();
+
+        // Act - Leer, añadir categoría, guardar, luego eliminarla
+        using var context1 = CreateContext();
+        var menuLeido = await context1.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        var nuevaCategoria = MenuCategory.Create(
+            name: "Nueva Categoría",
+            displayOrder: 1,
+            id: Guid.NewGuid()
+        );
+        menuLeido!.WithCategory(nuevaCategoria);
+        await context1.SaveChangesAsync();
+
+        // Ahora leer de nuevo y eliminar la categoría
+        using var context2 = CreateContext();
+        var menuConCategoria = await context2.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuConCategoria!.Categories.Should().HaveCount(1);
+
+        var categoriaAEliminar = menuConCategoria.Categories.First();
+
+        // Eliminar usando el campo privado
+        var categoriesField = typeof(Menu).GetField("_categories",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var categories = (HashSet<MenuCategory>)categoriesField!.GetValue(menuConCategoria)!;
+        categories.Remove(categoriaAEliminar);
+
+        // Act - SaveChanges debe corregir el estado y eliminar correctamente
+        await context2.SaveChangesAsync();
+
+        // Assert - Verificar que la categoría fue eliminada releyendo
+        using var verifyContext = CreateContext();
+        var menuVerificado = await verifyContext.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuVerificado!.Categories.Should().BeEmpty(
+            "La categoría debe haber sido eliminada de la SubCollection");
+    }
+
+    [Fact]
+    public async Task RemoveCategoryFromExistingMenu_ShouldBeTrackedAsDeleted()
+    {
+        // Arrange - Crear un Menu con dos categorías y guardarlo
+        using var writeContext = CreateContext();
+        var menuId = Guid.NewGuid();
+
+        var categoria1 = MenuCategory.Create(
+            name: "Entrantes",
+            displayOrder: 1,
+            id: Guid.NewGuid()
+        );
+
+        var categoria2 = MenuCategory.Create(
+            name: "Principales",
+            displayOrder: 2,
+            id: Guid.NewGuid()
+        );
+
+        var menu = Menu.Create(
+            tenantId: _tenantId,
+            name: "Menú de Prueba",
+            displayOrder: 1,
+            id: menuId
+        )
+        .WithCategories(categoria1, categoria2);
+
+        writeContext.Menus.Add(menu);
+        await writeContext.SaveChangesAsync();
+
+        // Act - Leer el menu en un contexto separado y eliminar una categoría
+        using var readContext = CreateContext();
+        var menuLeido = await readContext.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuLeido.Should().NotBeNull();
+        menuLeido!.Categories.Should().HaveCount(2);
+
+        // Obtener la categoría a eliminar
+        var categoriaAEliminar = menuLeido.Categories.First(c => c.Name == "Entrantes");
+
+        // Eliminar usando el campo privado (simulando domain method)
+        var categoriesField = typeof(Menu).GetField("_categories",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var categories = (HashSet<MenuCategory>)categoriesField!.GetValue(menuLeido)!;
+        categories.Remove(categoriaAEliminar);
+
+        // Act - SaveChanges debe corregir el estado y eliminar correctamente
+        await readContext.SaveChangesAsync();
+
+        // Assert - Verificar que solo queda una categoría releyendo
+        using var verifyContext = CreateContext();
+        var menuVerificado = await verifyContext.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuVerificado!.Categories.Should().HaveCount(1,
+            "Debe quedar solo una categoría después de eliminar 'Entrantes'");
+        menuVerificado.Categories.First().Name.Should().Be("Principales");
+    }
 }

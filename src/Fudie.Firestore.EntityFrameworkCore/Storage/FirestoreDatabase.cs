@@ -264,6 +264,58 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     return trackedEntry.GetInfrastructure();
             }
 
+            // 3. Para DELETEs: buscar por FK original (el hijo ya no está en la colección del padre)
+            if (childEntry.EntityState == EntityState.Deleted)
+            {
+                return FindParentByOriginalForeignKey(childEntry, parentNavigation, allEntries);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Encuentra el padre usando el valor original de la FK shadow property.
+        /// Se usa cuando el hijo fue eliminado de la colección del padre y la FK actual es null.
+        /// </summary>
+        private IUpdateEntry? FindParentByOriginalForeignKey(
+            IUpdateEntry childEntry,
+            INavigation parentNavigation,
+            IList<IUpdateEntry> allEntries)
+        {
+            var childEntityEntry = childEntry.ToEntityEntry();
+            var parentEntityType = parentNavigation.DeclaringEntityType;
+            var parentPrimaryKey = parentEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+
+            if (parentPrimaryKey == null)
+                return null;
+
+            // Obtener la FK shadow property (ej: "MenuId")
+            var fkPropertyName = Metadata.Conventions.ConventionHelpers.GetForeignKeyPropertyName(parentEntityType.ClrType);
+            var fkProperty = childEntry.EntityType.FindProperty(fkPropertyName);
+
+            if (fkProperty == null)
+                return null;
+
+            // Obtener el valor ORIGINAL de la FK (antes de que se pusiera a null)
+            var originalFkValue = childEntityEntry.Property(fkPropertyName).OriginalValue;
+
+            if (originalFkValue == null)
+                return null;
+
+            // Buscar el padre cuyo PK coincida con la FK original
+            var dbContext = childEntityEntry.Context;
+            foreach (var trackedEntry in dbContext.ChangeTracker.Entries())
+            {
+                if (!trackedEntry.Metadata.ClrType.IsAssignableTo(parentEntityType.ClrType))
+                    continue;
+
+                var parentId = trackedEntry.Property(parentPrimaryKey.Name).CurrentValue;
+                if (parentId != null && parentId.Equals(originalFkValue))
+                {
+                    return trackedEntry.GetInfrastructure();
+                }
+            }
+
             return null;
         }
 
