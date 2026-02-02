@@ -757,4 +757,53 @@ public class ProviderFixesPersistenceTests
         tartaItem.MenuItem.Allergens.Should().HaveCount(3);
         tartaItem.MenuItem.Allergens.Select(a => a.Name).Should().Contain(new[] { "Lácteos", "Huevos", "Gluten" });
     }
+
+    // ========================================================================
+    // SUBCOLLECTION CHANGE TRACKING TEST
+    // ========================================================================
+
+    [Fact]
+    public async Task AddCategoryToExistingMenu_ShouldBeTrackedAsAdded()
+    {
+        // Arrange - Crear y guardar un Menu vacío (sin categories)
+        using var writeContext = CreateContext();
+        var menuId = Guid.NewGuid();
+
+        var menu = Menu.Create(
+            tenantId: _tenantId,
+            name: "Menú de Prueba",
+            displayOrder: 1,
+            id: menuId
+        );
+
+        writeContext.Menus.Add(menu);
+        await writeContext.SaveChangesAsync();
+
+        // Act - Leer el menu en un contexto separado y añadir una categoría
+        using var readContext = CreateContext();
+        var menuLeido = await readContext.Menus
+            .Include(m => m.Categories)
+            .FirstOrDefaultAsync(m => m.Id == menuId);
+
+        menuLeido.Should().NotBeNull();
+        menuLeido!.Categories.Should().BeEmpty();
+
+        // Añadir nueva categoría
+        var nuevaCategoria = MenuCategory.Create(
+            name: "Nueva Categoría",
+            displayOrder: 1,
+            id: Guid.NewGuid()
+        );
+        menuLeido.WithCategory(nuevaCategoria);
+
+        // Assert - Verificar estado en ChangeTracker
+        readContext.ChangeTracker.DetectChanges();
+
+        var entries = readContext.ChangeTracker.Entries().ToList();
+        var categoriaEntry = entries.FirstOrDefault(e => e.Entity == nuevaCategoria);
+
+        categoriaEntry.Should().NotBeNull("La nueva categoría debe estar en el ChangeTracker");
+        categoriaEntry!.State.Should().Be(EntityState.Added,
+            "Una entidad nueva añadida a una SubCollection debe tener estado Added, no Modified");
+    }
 }

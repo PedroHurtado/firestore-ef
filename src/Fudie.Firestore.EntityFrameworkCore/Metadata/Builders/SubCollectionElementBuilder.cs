@@ -25,6 +25,34 @@ public class SubCollectionElementBuilder<TElement>
     }
 
     /// <summary>
+    /// Proporciona acceso al EntityTypeBuilder subyacente para configuraciones avanzadas.
+    /// Permite usar Ignore(), Property(), ComplexProperty(), y cualquier otra configuración de EF Core.
+    /// </summary>
+    /// <param name="configure">Acción que recibe el EntityTypeBuilder para configurar la entidad</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    /// <example>
+    /// <code>
+    /// entity.SubCollection(e => e.Categories, category =>
+    /// {
+    ///     category.Entity(builder =>
+    ///     {
+    ///         builder.Ignore(c => c.ComputedProperty);
+    ///         builder.Property(c => c.Name).IsRequired();
+    ///     });
+    /// });
+    /// </code>
+    /// </example>
+    public SubCollectionElementBuilder<TElement> Entity(
+        Action<Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TElement>> configure)
+    {
+#pragma warning disable EF1001 // Internal EF Core API usage
+        var entityTypeBuilder = new Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TElement>(_elementEntityType);
+#pragma warning restore EF1001
+        configure(entityTypeBuilder);
+        return this;
+    }
+
+    /// <summary>
     /// Configura una propiedad del elemento como una referencia a otra entidad.
     /// Se almacenará como DocumentReference en Firestore.
     /// </summary>

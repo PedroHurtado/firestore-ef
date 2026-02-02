@@ -32,6 +32,10 @@ public class ProviderFixesPersistenceDbContext(DbContextOptions<ProviderFixesPer
             // SubCollection: Categories under Menu
             entity.SubCollection(m => m.Categories, category =>
             {
+                category.Entity(builder =>
+                {
+                   builder.Property(p=>p.Id).ValueGeneratedNever();
+                });
                 // ArrayOf embedded: CategoryItem contains Reference to MenuItem
                 category.ArrayOf(c => c.Items, item =>
                 {
