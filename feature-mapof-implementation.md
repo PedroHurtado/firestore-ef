@@ -61,8 +61,20 @@ DbContext (Write) → Firestore Document
 
 | Archivo | Propósito | Estado |
 |---------|-----------|--------|
-| `MapOfSerializationTests.cs` | Escribir con DbContext, leer con SDK de Firestore | ⏳ Pendiente |
+| `MapOfSerializationTests.cs` | Escribir con DbContext, leer con SDK de Firestore | ✅ Creado (11 tests) |
 | `MapOfChangeTrackingTests.cs` | Verificar detección de cambios (add/update/delete keys) | ⏳ Pendiente |
+
+**Tests de serialización incluyen**:
+- Claves enum, string, int
+- Dictionary mutable
+- Map vacío (no se almacena)
+- Decimal a double
+- Auto-detección por Convention
+- **Casos complejos**:
+  - Propiedades ignoradas en elementos (`Ignore()`)
+  - ArrayOf anidado dentro de elementos (`ArrayOf()`)
+  - References a entidades dentro de elementos (`Reference()`)
+  - ArrayOf References dentro de elementos
 
 ---
 
@@ -194,9 +206,11 @@ entityTypeBuilder.Ignore("WeeklyHours");
 ```
 weeklyHours: {
   "Monday": { isClosed: false, timeSlots: [...] },
-  "Tuesday": { isClosed: true, timeSlots: [] }
+  "Tuesday": { isClosed: true }  // timeSlots vacío no se almacena
 }
 ```
+
+**Nota**: Arrays vacíos no se almacenan en Firestore (ahorra espacio en documento). Esto aplica tanto a arrays de primer nivel como a arrays anidados dentro de elementos de MapOf.
 
 ---
 
@@ -243,13 +257,30 @@ updates["weeklyHours.Tuesday"] = new Dictionary<string, object> { ... };
 
 ---
 
-### Fase 6: Tests de Integración ⏳ PENDIENTE
+### Fase 6: Tests de Integración ✅ PARCIALMENTE COMPLETADA
 
 **Objetivo**: Verificar escritura end-to-end.
 
-**Archivos a crear**:
-- `tests/Fudie.Firestore.IntegrationTest/MapOf/MapOfSerializationTests.cs`
-- `tests/Fudie.Firestore.IntegrationTest/MapOf/MapOfChangeTrackingTests.cs`
+**Archivos creados**:
+- `tests/Fudie.Firestore.IntegrationTest/MapOf/MapOfSerializationTests.cs` ✅ (11 tests)
+- `tests/Fudie.Firestore.IntegrationTest/Helpers/MapOf/MapOfTestEntities.cs` ✅
+- `tests/Fudie.Firestore.IntegrationTest/Helpers/MapOf/MapOfTestDbContexts.cs` ✅
+
+**Archivos pendientes**:
+- `tests/Fudie.Firestore.IntegrationTest/MapOf/MapOfChangeTrackingTests.cs` ⏳
+
+**Casos cubiertos en serialización** (11 tests):
+1. MapOf con clave enum
+2. MapOf con clave string
+3. MapOf con clave int
+4. Dictionary mutable
+5. MapOf vacío (no se almacena)
+6. Decimal a double
+7. Auto-detección por Convention
+8. **Ignore()** - Propiedades calculadas ignoradas en elementos
+9. **ArrayOf anidado** - Arrays dentro de elementos del Map
+10. **Reference** - Referencias a entidades dentro de elementos
+11. **ArrayOf References** - Lista de referencias dentro de elementos
 
 **Patrón de test**:
 ```csharp
@@ -365,7 +396,8 @@ IReadOnlyDictionary<TKey, TElement>
 - [x] Fase 3: Serialización
 - [ ] Fase 4: Change Tracking
 - [ ] Fase 5: Partial Updates
-- [ ] Fase 6: Tests de Integración
+- [x] Fase 6: Tests de Integración (serialización - 11 tests)
+  - [ ] Tests de Change Tracking (pendiente de Fase 4)
 - [ ] Fase futura: Materialización (fuera de alcance actual)
 
 ---

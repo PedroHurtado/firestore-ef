@@ -23,7 +23,9 @@ public enum ValueKind
     /// <summary>List of simple values: List&lt;decimal&gt;, List&lt;string&gt;</summary>
     ScalarList,
     /// <summary>List of objects: List&lt;Pedido&gt;, List&lt;anonymous&gt;</summary>
-    ObjectList
+    ObjectList,
+    /// <summary>Dictionary/Map of values: IReadOnlyDictionary&lt;TKey, TElement&gt;</summary>
+    Map
 }
 
 /// <summary>

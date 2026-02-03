@@ -87,7 +87,10 @@ public class Materializer : IMaterializer
             }
             else
             {
-                args[param.ParamIndex] = GetDefaultValue(param.TargetType);
+                // Property not found - for collections create empty (Firestore doesn't store empty arrays)
+                args[param.ParamIndex] = IsCollectionType(param.TargetType)
+                    ? FinalizeCollection(CreateCollection(param.TargetType, GetCollectionElementType(param.TargetType) ?? typeof(object)), param.TargetType)
+                    : GetDefaultValue(param.TargetType);
             }
         }
 
@@ -131,7 +134,22 @@ public class Materializer : IMaterializer
     private object? MaterializeValueWithTargetType(ShapedValue shaped, Type targetType)
     {
         if (shaped.Value == null)
+        {
+            // For collection types, return empty collection (Firestore doesn't store empty arrays)
+            if (IsCollectionType(targetType))
+            {
+                var elementType = GetCollectionElementType(targetType) ?? typeof(object);
+                var emptyCollection = CreateCollection(targetType, elementType);
+                return FinalizeCollection(emptyCollection, targetType);
+            }
             return GetDefaultValue(targetType);
+        }
+
+        // Check if target type is a dictionary - if so, materialize as Map
+        if (IsDictionaryType(targetType))
+        {
+            return MaterializeMapWithTarget(shaped, targetType);
+        }
 
         return shaped.Kind switch
         {
@@ -140,6 +158,7 @@ public class Materializer : IMaterializer
             ValueKind.Entity => MaterializeEntityWithTarget(shaped, targetType),
             ValueKind.ObjectList => MaterializeObjectListWithTarget(shaped, targetType),
             ValueKind.ScalarList => MaterializeScalarListWithTarget(shaped, targetType),
+            ValueKind.Map => MaterializeMapWithTarget(shaped, targetType),
             _ => _converter.FromFirestore(shaped.Value, targetType)
         };
     }
@@ -231,6 +250,83 @@ public class Materializer : IMaterializer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Materializes a Firestore Map into a CLR dictionary (IReadOnlyDictionary, Dictionary, etc.).
+    /// The map values can be complex types, scalar values, or nested arrays.
+    /// </summary>
+    private object? MaterializeMapWithTarget(ShapedValue shaped, Type targetType)
+    {
+        // Get key and value types from target dictionary type
+        var (keyType, valueType) = GetDictionaryKeyValueTypes(targetType);
+        if (keyType == null || valueType == null)
+            return null;
+
+        // Get the raw dictionary data
+        IDictionary<string, object?>? rawDict = shaped.Value switch
+        {
+            ShapedItem shapedItem => shapedItem.Values.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Value),
+            Dictionary<string, object?> dict => dict,
+            IDictionary<string, object> dict => dict.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (object?)kvp.Value),
+            _ => null
+        };
+
+        if (rawDict == null)
+            return null;
+
+        // Create the target dictionary
+        var concreteDict = CreateDictionary(targetType, keyType, valueType);
+
+        foreach (var kvp in rawDict)
+        {
+            // Convert key from string to target key type (e.g., string → DayOfWeek enum)
+            var convertedKey = _converter.FromFirestore(kvp.Key, keyType);
+            if (convertedKey == null)
+                continue;
+
+            // Materialize value based on type
+            object? convertedValue;
+            if (kvp.Value is ShapedValue sv)
+            {
+                convertedValue = MaterializeValueWithTargetType(sv, valueType);
+            }
+            else if (kvp.Value is ShapedItem nestedItem)
+            {
+                convertedValue = MaterializeItem(nestedItem, valueType);
+            }
+            else if (kvp.Value is Dictionary<string, object?> nestedDict)
+            {
+                var nestedShapedItem = ConvertDictToShapedItem(nestedDict);
+                convertedValue = MaterializeItem(nestedShapedItem, valueType);
+            }
+            else if (IsSimpleType(valueType))
+            {
+                convertedValue = _converter.FromFirestore(kvp.Value, valueType);
+            }
+            else
+            {
+                // Complex type from raw dictionary
+                if (kvp.Value is IDictionary<string, object> objDict)
+                {
+                    var dictWithNullable = objDict.ToDictionary(k => k.Key, k => (object?)k.Value);
+                    var nestedShapedItem = ConvertDictToShapedItem(dictWithNullable);
+                    convertedValue = MaterializeItem(nestedShapedItem, valueType);
+                }
+                else
+                {
+                    convertedValue = _converter.FromFirestore(kvp.Value, valueType);
+                }
+            }
+
+            AddToDictionary(concreteDict, convertedKey, convertedValue);
+        }
+
+        return FinalizeDictionary(concreteDict, targetType);
     }
 
     /// <summary>
@@ -554,7 +650,65 @@ public class Materializer : IMaterializer
 
     private static object? GetDefaultValue(Type type)
     {
-        return type.IsValueType ? Activator.CreateInstance(type) : null;
+        if (type.IsValueType)
+            return Activator.CreateInstance(type);
+
+        return null;
+    }
+
+    #endregion
+
+    #region Dictionary Helpers
+
+    private static bool IsDictionaryType(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+
+        var genericDef = type.GetGenericTypeDefinition();
+        return genericDef == typeof(Dictionary<,>) ||
+               genericDef == typeof(IDictionary<,>) ||
+               genericDef == typeof(IReadOnlyDictionary<,>);
+    }
+
+    private static (Type? keyType, Type? valueType) GetDictionaryKeyValueTypes(Type dictionaryType)
+    {
+        if (!dictionaryType.IsGenericType)
+            return (null, null);
+
+        var genericArgs = dictionaryType.GetGenericArguments();
+        if (genericArgs.Length != 2)
+            return (null, null);
+
+        return (genericArgs[0], genericArgs[1]);
+    }
+
+    private static object CreateDictionary(Type targetType, Type keyType, Type valueType)
+    {
+        // Always create a concrete Dictionary<,> - we'll convert if needed for read-only interfaces
+        var dictType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
+        return Activator.CreateInstance(dictType)!;
+    }
+
+    private static void AddToDictionary(object dictionary, object key, object? value)
+    {
+        // Dictionary<,> implements IDictionary, use it directly
+        if (dictionary is IDictionary dict)
+        {
+            dict[key] = value;
+            return;
+        }
+
+        // Fallback for non-IDictionary implementations
+        var addMethod = dictionary.GetType().GetMethod("Add")!;
+        addMethod.Invoke(dictionary, [key, value]);
+    }
+
+    private static object FinalizeDictionary(object dictionary, Type targetType)
+    {
+        // Dictionary<,> is compatible with both IDictionary<,> and IReadOnlyDictionary<,>
+        // since Dictionary<,> implements both interfaces
+        return dictionary;
     }
 
     #endregion

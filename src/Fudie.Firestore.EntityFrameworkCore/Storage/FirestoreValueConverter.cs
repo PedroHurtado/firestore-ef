@@ -46,6 +46,14 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is TimeSpan ts)
             return ts.Ticks;
 
+        // TimeOnly → string ("HH:mm:ss") - .NET 6+ type
+        if (value is TimeOnly to)
+            return to.ToString("HH:mm:ss");
+
+        // DateOnly → string ("yyyy-MM-dd") - .NET 6+ type
+        if (value is DateOnly dateOnly)
+            return dateOnly.ToString("yyyy-MM-dd");
+
         // Guid → string (Firestore stores document IDs as strings)
         if (value is Guid g)
             return g.ToString();
@@ -119,6 +127,14 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         // long → TimeSpan (stored as ticks)
         if (value is long ticks && actualTargetType == typeof(TimeSpan))
             return TimeSpan.FromTicks(ticks);
+
+        // string → TimeOnly (stored as ISO format) - .NET 6+ type
+        if (value is string timeStr && actualTargetType == typeof(TimeOnly))
+            return TimeOnly.Parse(timeStr);
+
+        // string → DateOnly (stored as ISO format) - .NET 6+ type
+        if (value is string dateStr && actualTargetType == typeof(DateOnly))
+            return DateOnly.Parse(dateStr);
 
         // GeoPoint → custom GeoLocation type (positional record with Latitude, Longitude)
         if (value is GeoPoint geoPoint && IsGeoLocationType(actualTargetType))

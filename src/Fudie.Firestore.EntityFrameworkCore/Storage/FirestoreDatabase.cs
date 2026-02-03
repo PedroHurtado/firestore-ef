@@ -878,6 +878,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         {
             var result = new Dictionary<string, object>();
             var ignoredProperties = entityType.GetMapOfIgnoredProperties(propertyName);
+            var nestedIgnoredProperties = GetNestedIgnoredProperties(entityType, propertyName);
 
             // Usar reflection para iterar sobre las entradas del diccionario
             var valueType = value.GetType();
@@ -914,7 +915,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                             // Serializar el valor
                             if (val != null)
                             {
-                                var serializedValue = SerializeMapOfElement(val, ignoredProperties);
+                                var serializedValue = SerializeMapOfElement(val, ignoredProperties, nestedIgnoredProperties);
                                 result[stringKey] = serializedValue;
                             }
                         }
@@ -936,6 +937,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         {
             var result = new Dictionary<string, object>();
             var ignoredProperties = entityType.GetMapOfIgnoredProperties(propertyName);
+            var nestedIgnoredProperties = GetNestedIgnoredProperties(entityType, propertyName);
 
             foreach (System.Collections.DictionaryEntry entry in dictValue)
             {
@@ -948,7 +950,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 // Serializar el valor
                 if (entry.Value != null)
                 {
-                    var serializedValue = SerializeMapOfElement(entry.Value, ignoredProperties);
+                    var serializedValue = SerializeMapOfElement(entry.Value, ignoredProperties, nestedIgnoredProperties);
                     result[stringKey] = serializedValue;
                 }
             }
@@ -968,9 +970,43 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         /// <summary>
+        /// Obtiene las propiedades ignoradas para arrays anidados dentro de un MapOf.
+        /// Busca anotaciones con path como "WeeklyHours.TimeSlots" y extrae el nombre de la propiedad anidada.
+        /// </summary>
+        private Dictionary<string, HashSet<string>>? GetNestedIgnoredProperties(
+            IEntityType entityType,
+            string parentPropertyName)
+        {
+            Dictionary<string, HashSet<string>>? result = null;
+            var prefix = $"{ArrayOfAnnotations.IgnoredProperties}:{parentPropertyName}.";
+
+            foreach (var annotation in entityType.GetAnnotations())
+            {
+                if (annotation.Name.StartsWith(prefix) && annotation.Value is HashSet<string> ignoredSet)
+                {
+                    // Extract the nested property name (e.g., "TimeSlots" from "WeeklyHours.TimeSlots")
+                    var nestedPropertyName = annotation.Name.Substring(prefix.Length);
+
+                    // Handle multi-level nesting (e.g., "TimeSlots.SubItems" → just "TimeSlots")
+                    var dotIndex = nestedPropertyName.IndexOf('.');
+                    if (dotIndex > 0)
+                        nestedPropertyName = nestedPropertyName.Substring(0, dotIndex);
+
+                    result ??= new Dictionary<string, HashSet<string>>();
+                    result[nestedPropertyName] = ignoredSet;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Serializa un elemento de MapOf (el valor del diccionario).
         /// </summary>
-        private object SerializeMapOfElement(object element, HashSet<string>? ignoredProperties)
+        private object SerializeMapOfElement(
+            object element,
+            HashSet<string>? ignoredProperties,
+            Dictionary<string, HashSet<string>>? nestedIgnoredProperties = null)
         {
             var elementType = element.GetType();
 
@@ -986,7 +1022,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             // ✅ Caso 2: Es un ComplexType → Dictionary<string, object>
             if (elementType.IsClass && elementType != typeof(string))
             {
-                return SerializeComplexTypeFromObject(element, ignoredProperties);
+                return SerializeComplexTypeFromObject(element, ignoredProperties, nestedIgnoredProperties);
             }
 
             // ✅ Caso 3: Tipo primitivo - aplicar conversión
@@ -1135,11 +1171,17 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         }
 
         private Dictionary<string, object> SerializeComplexTypeFromObject(object complexObject)
-            => SerializeComplexTypeFromObject(complexObject, ignoredProperties: null);
+            => SerializeComplexTypeFromObject(complexObject, ignoredProperties: null, nestedIgnoredProperties: null);
 
         private Dictionary<string, object> SerializeComplexTypeFromObject(
             object complexObject,
             HashSet<string>? ignoredProperties)
+            => SerializeComplexTypeFromObject(complexObject, ignoredProperties, nestedIgnoredProperties: null);
+
+        private Dictionary<string, object> SerializeComplexTypeFromObject(
+            object complexObject,
+            HashSet<string>? ignoredProperties,
+            Dictionary<string, HashSet<string>>? nestedIgnoredProperties)
         {
             var dict = new Dictionary<string, object>();
             var type = complexObject.GetType();
@@ -1160,7 +1202,11 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 // ✅ Manejar listas anidadas recursivamente
                 if (value is IEnumerable enumerable && value is not string)
                 {
-                    var serializedList = SerializeNestedList(enumerable, prop.PropertyType);
+                    // Look up ignored properties for this nested array
+                    HashSet<string>? nestedListIgnored = null;
+                    nestedIgnoredProperties?.TryGetValue(prop.Name, out nestedListIgnored);
+
+                    var serializedList = SerializeNestedList(enumerable, prop.PropertyType, nestedListIgnored);
                     if (serializedList != null)
                         dict[prop.Name] = serializedList;
                 }
@@ -1176,7 +1222,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     }
                     else
                     {
-                        dict[prop.Name] = SerializeComplexTypeFromObject(value, ignoredProperties);
+                        dict[prop.Name] = SerializeComplexTypeFromObject(value, ignoredProperties, nestedIgnoredProperties);
                     }
                 }
                 else
@@ -1195,7 +1241,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
         /// Serializa una lista anidada dentro de un ComplexType.
         /// Detecta automáticamente si es List de ComplexTypes, GeoPoints o References.
         /// </summary>
-        private object? SerializeNestedList(IEnumerable enumerable, Type propertyType)
+        private object? SerializeNestedList(
+            IEnumerable enumerable,
+            Type propertyType,
+            HashSet<string>? ignoredProperties = null)
         {
             // Obtener el tipo de elemento de la lista
             var elementType = GetEnumerableElementType(propertyType);
@@ -1214,7 +1263,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     if (docRef != null)
                         refList.Add(docRef);
                 }
-                return refList;
+                // ✅ No almacenar listas vacías en Firestore
+                return refList.Count > 0 ? refList : null;
             }
 
             // ✅ Caso 2: Tiene propiedades Latitude/Longitude → List<GeoPoint>
@@ -1226,7 +1276,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     if (item != null)
                         geoList.Add(ConvertToFirestoreGeoPoint(item));
                 }
-                return geoList;
+                // ✅ No almacenar listas vacías en Firestore
+                return geoList.Count > 0 ? geoList : null;
             }
 
             // ✅ Caso 3: Es un ComplexType → List<Dictionary<string, object>>
@@ -1236,9 +1287,10 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                 foreach (var item in enumerable)
                 {
                     if (item != null)
-                        mapList.Add(SerializeComplexTypeFromObject(item));
+                        mapList.Add(SerializeComplexTypeFromObject(item, ignoredProperties));
                 }
-                return mapList;
+                // ✅ No almacenar listas vacías en Firestore
+                return mapList.Count > 0 ? mapList : null;
             }
 
             // Caso 4: Tipos primitivos - devolver tal cual
