@@ -89,7 +89,7 @@ public class Materializer : IMaterializer
             {
                 // Property not found - for collections create empty (Firestore doesn't store empty arrays)
                 args[param.ParamIndex] = IsCollectionType(param.TargetType)
-                    ? FinalizeCollection(CreateCollection(param.TargetType, GetCollectionElementType(param.TargetType) ?? typeof(object)), param.TargetType)
+                    ? CreateEmptyCollection(param.TargetType)
                     : GetDefaultValue(param.TargetType);
             }
         }
@@ -138,9 +138,7 @@ public class Materializer : IMaterializer
             // For collection types, return empty collection (Firestore doesn't store empty arrays)
             if (IsCollectionType(targetType))
             {
-                var elementType = GetCollectionElementType(targetType) ?? typeof(object);
-                var emptyCollection = CreateCollection(targetType, elementType);
-                return FinalizeCollection(emptyCollection, targetType);
+                return CreateEmptyCollection(targetType);
             }
             return GetDefaultValue(targetType);
         }
@@ -155,7 +153,7 @@ public class Materializer : IMaterializer
         {
             ValueKind.Scalar => _converter.FromFirestore(shaped.Value, targetType),
             ValueKind.ComplexType => MaterializeComplexTypeWithTarget(shaped, targetType),
-            ValueKind.Entity => MaterializeEntityWithTarget(shaped, targetType),
+            ValueKind.Entity => MaterializeComplexTypeWithTarget(shaped, targetType),
             ValueKind.ObjectList => MaterializeObjectListWithTarget(shaped, targetType),
             ValueKind.ScalarList => MaterializeScalarListWithTarget(shaped, targetType),
             ValueKind.Map => MaterializeMapWithTarget(shaped, targetType),
@@ -172,18 +170,7 @@ public class Materializer : IMaterializer
 
         if (shaped.Value is Dictionary<string, object?> dict)
         {
-            var item = ConvertDictToShapedItem(dict);
-            return MaterializeItem(item, targetType);
-        }
-
-        return null;
-    }
-
-    private object? MaterializeEntityWithTarget(ShapedValue shaped, Type targetType)
-    {
-        if (shaped.Value is ShapedItem nestedItem)
-        {
-            return MaterializeItem(nestedItem, targetType);
+            return MaterializeFromDict(dict, targetType);
         }
 
         return null;
@@ -194,59 +181,27 @@ public class Materializer : IMaterializer
         if (shaped.Value is not IList list)
             return _converter.FromFirestore(shaped.Value, targetType);
 
-        var elementType = GetCollectionElementType(targetType) ?? typeof(object);
-        var collection = CreateCollection(targetType, elementType);
-
-        foreach (var item in list)
-        {
-            var converted = _converter.FromFirestore(item, elementType);
-            AddToCollection(collection, converted);
-        }
-
-        return FinalizeCollection(collection, targetType);
+        return MaterializeCollection(list, targetType, (item, elementType) => _converter.FromFirestore(item, elementType));
     }
 
     private object? MaterializeObjectListWithTarget(ShapedValue shaped, Type targetType)
     {
-        var elementType = GetCollectionElementType(targetType) ?? typeof(object);
-
         if (shaped.Value is IList<ShapedItem> shapedItems)
         {
-            var collection = CreateCollection(targetType, elementType);
-
-            foreach (var item in shapedItems)
-            {
-                var materialized = MaterializeItem(item, elementType);
-                AddToCollection(collection, materialized);
-            }
-
-            return FinalizeCollection(collection, targetType);
+            return MaterializeCollection(shapedItems, targetType, (item, elementType) => MaterializeItem((ShapedItem)item, elementType));
         }
 
         if (shaped.Value is IList list)
         {
-            var collection = CreateCollection(targetType, elementType);
-
-            foreach (var item in list)
+            return MaterializeCollection(list, targetType, (item, elementType) =>
             {
-                object? materialized;
-                if (item is ShapedItem si)
+                return item switch
                 {
-                    materialized = MaterializeItem(si, elementType);
-                }
-                else if (item is Dictionary<string, object?> dict)
-                {
-                    var shapedItem = ConvertDictToShapedItem(dict);
-                    materialized = MaterializeItem(shapedItem, elementType);
-                }
-                else
-                {
-                    materialized = _converter.FromFirestore(item, elementType);
-                }
-                AddToCollection(collection, materialized);
-            }
-
-            return FinalizeCollection(collection, targetType);
+                    ShapedItem si => MaterializeItem(si, elementType),
+                    Dictionary<string, object?> dict => MaterializeFromDict(dict, elementType),
+                    _ => _converter.FromFirestore(item, elementType)
+                };
+            });
         }
 
         return null;
@@ -270,9 +225,7 @@ public class Materializer : IMaterializer
                 kvp => kvp.Key,
                 kvp => kvp.Value.Value),
             Dictionary<string, object?> dict => dict,
-            IDictionary<string, object> dict => dict.ToDictionary(
-                kvp => kvp.Key,
-                kvp => (object?)kvp.Value),
+            IDictionary<string, object> dict => ToDictionaryNullable(dict),
             _ => null
         };
 
@@ -301,8 +254,7 @@ public class Materializer : IMaterializer
             }
             else if (kvp.Value is Dictionary<string, object?> nestedDict)
             {
-                var nestedShapedItem = ConvertDictToShapedItem(nestedDict);
-                convertedValue = MaterializeItem(nestedShapedItem, valueType);
+                convertedValue = MaterializeFromDict(nestedDict, valueType);
             }
             else if (IsSimpleType(valueType))
             {
@@ -313,9 +265,8 @@ public class Materializer : IMaterializer
                 // Complex type from raw dictionary
                 if (kvp.Value is IDictionary<string, object> objDict)
                 {
-                    var dictWithNullable = objDict.ToDictionary(k => k.Key, k => (object?)k.Value);
-                    var nestedShapedItem = ConvertDictToShapedItem(dictWithNullable);
-                    convertedValue = MaterializeItem(nestedShapedItem, valueType);
+                    var dictWithNullable = ToDictionaryNullable(objDict);
+                    convertedValue = MaterializeFromDict(dictWithNullable, valueType);
                 }
                 else
                 {
@@ -349,20 +300,14 @@ public class Materializer : IMaterializer
         return null;
     }
 
-    private object? MaterializeValue(ShapedValue shaped)
+    /// <summary>
+    /// Materializes a raw dictionary to a typed CLR instance.
+    /// Converts dict → ShapedItem → MaterializeItem in one step.
+    /// </summary>
+    private object MaterializeFromDict(Dictionary<string, object?> dict, Type targetType)
     {
-        if (shaped.Value == null)
-            return GetDefaultValue(shaped.TargetType);
-
-        return shaped.Kind switch
-        {
-            ValueKind.Scalar => _converter.FromFirestore(shaped.Value, shaped.TargetType),
-            ValueKind.ComplexType => MaterializeComplexTypeWithTarget(shaped, shaped.TargetType),
-            ValueKind.Entity => MaterializeEntityWithTarget(shaped, shaped.TargetType),
-            ValueKind.ObjectList => MaterializeObjectListWithTarget(shaped, shaped.TargetType),
-            ValueKind.ScalarList => _converter.FromFirestore(shaped.Value, shaped.TargetType),
-            _ => _converter.FromFirestore(shaped.Value, shaped.TargetType)
-        };
+        var shapedItem = ConvertDictToShapedItem(dict);
+        return MaterializeItem(shapedItem, targetType);
     }
 
     /// <summary>
@@ -446,16 +391,7 @@ public class Materializer : IMaterializer
 
     private object MaterializeCollectionValue(IList items, Type collectionType)
     {
-        var elementType = GetCollectionElementType(collectionType) ?? typeof(object);
-        var collection = CreateCollection(collectionType, elementType);
-
-        foreach (var item in items)
-        {
-            var materialized = _converter.FromFirestore(item, elementType);
-            AddToCollection(collection, materialized);
-        }
-
-        return FinalizeCollection(collection, collectionType);
+        return MaterializeCollection(items, collectionType, (item, elementType) => _converter.FromFirestore(item, elementType));
     }
 
     #region Strategy Discovery
@@ -550,6 +486,36 @@ public class Materializer : IMaterializer
     #endregion
 
     #region Collection Helpers
+
+    private static Type ResolveElementType(Type collectionType)
+    {
+        return GetCollectionElementType(collectionType) ?? typeof(object);
+    }
+
+    private static object CreateEmptyCollection(Type collectionType)
+    {
+        var elementType = ResolveElementType(collectionType);
+        var collection = CreateCollection(collectionType, elementType);
+        return FinalizeCollection(collection, collectionType);
+    }
+
+    /// <summary>
+    /// Generic collection materialization helper that encapsulates the common pattern:
+    /// ResolveElementType → CreateCollection → Iterate → ItemMaterializer → AddToCollection → FinalizeCollection
+    /// </summary>
+    private object MaterializeCollection(IEnumerable items, Type targetType, Func<object, Type, object?> itemMaterializer)
+    {
+        var elementType = ResolveElementType(targetType);
+        var collection = CreateCollection(targetType, elementType);
+
+        foreach (var item in items)
+        {
+            var materialized = itemMaterializer(item, elementType);
+            AddToCollection(collection, materialized);
+        }
+
+        return FinalizeCollection(collection, targetType);
+    }
 
     private static bool IsSimpleType(Type type)
     {
@@ -659,6 +625,11 @@ public class Materializer : IMaterializer
     #endregion
 
     #region Dictionary Helpers
+
+    private static Dictionary<string, object?> ToDictionaryNullable(IDictionary<string, object> source)
+    {
+        return source.ToDictionary(k => k.Key, k => (object?)k.Value);
+    }
 
     private static bool IsDictionaryType(Type type)
     {
