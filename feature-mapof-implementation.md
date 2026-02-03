@@ -166,12 +166,19 @@ entityTypeBuilder.Ignore("WeeklyHours");
 
 ---
 
-### Fase 3: Serialización ⏳ PENDIENTE
+### Fase 3: Serialización ✅ COMPLETADA
 
 **Objetivo**: Serializar Maps a Firestore en operaciones de INSERT.
 
-**Archivos a modificar**:
-- `FirestoreDatabase.cs` → Añadir `SerializeMapOfProperties()`
+**Archivos modificados**:
+- `FirestoreDatabase.cs` → Añadido `SerializeMapOfProperties()` y métodos helper
+
+**Métodos implementados**:
+- `SerializeMapOfProperties()` - Detecta propiedades MapOf y las serializa
+- `SerializeMapOfValue()` - Serializa IReadOnlyDictionary usando reflection
+- `SerializeMapOfDictionary()` - Serializa IDictionary directamente
+- `ConvertMapKeyToString()` - Convierte claves a string (enum→ToString(), int→ToString())
+- `SerializeMapOfElement()` - Serializa valores como ComplexType, Reference o primitivo
 
 **Lógica de serialización**:
 ```csharp
@@ -355,7 +362,7 @@ IReadOnlyDictionary<TKey, TElement>
 
 - [x] Fase 1: Builders y Metadata
 - [x] Fase 2: Convention y Shadow Properties
-- [ ] Fase 3: Serialización
+- [x] Fase 3: Serialización
 - [ ] Fase 4: Change Tracking
 - [ ] Fase 5: Partial Updates
 - [ ] Fase 6: Tests de Integración

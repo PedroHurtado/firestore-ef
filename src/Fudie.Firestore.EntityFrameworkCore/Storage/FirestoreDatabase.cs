@@ -518,6 +518,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             // ✅ Serializar propiedades ArrayOf (List<ValueObject>, List<GeoPoint>)
             SerializeArrayOfProperties(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
+            // ✅ Serializar propiedades MapOf (IReadOnlyDictionary<TKey, TElement>)
+            SerializeMapOfProperties(entry.EntityType, entry.ToEntityEntry().Entity, dict);
+
             // ✅ Serializar referencias de entidades individuales
             SerializeEntityReferences(entry.EntityType, entry.ToEntityEntry().Entity, dict);
 
@@ -815,6 +818,179 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
                     dict[prop.Name] = ConvertCollection(enumerable);
                 }
             }
+        }
+
+        // ✅ Serializar propiedades marcadas con MapOf (IReadOnlyDictionary<TKey, TElement>)
+        private void SerializeMapOfProperties(
+            IEntityType entityType,
+            object entity,
+            Dictionary<string, object> dict)
+        {
+            var clrType = entityType.ClrType;
+
+            foreach (var prop in clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                // Verificar si esta propiedad está marcada como MapOf
+                if (!entityType.IsMapOf(prop.Name))
+                    continue;
+
+                var value = prop.GetValue(entity);
+                if (value == null)
+                    continue;
+
+                // Debe implementar IDictionary o IReadOnlyDictionary
+                if (value is not System.Collections.IDictionary dictValue)
+                {
+                    // Intentar obtener como IReadOnlyDictionary usando reflection
+                    var enumerableMethod = value.GetType().GetMethod("GetEnumerator");
+                    if (enumerableMethod == null)
+                        continue;
+
+                    // Serializar usando el enumerador
+                    var serialized = SerializeMapOfValue(value, entityType, prop.Name);
+                    if (serialized != null && serialized.Count > 0)
+                    {
+                        dict[prop.Name] = serialized;
+                    }
+                    continue;
+                }
+
+                // ✅ No serializar diccionarios vacíos (ahorra espacio en Firestore)
+                if (dictValue.Count == 0)
+                    continue;
+
+                // Serializar el diccionario como Map de Firestore
+                var serializedMap = SerializeMapOfDictionary(dictValue, entityType, prop.Name);
+                if (serializedMap.Count > 0)
+                {
+                    dict[prop.Name] = serializedMap;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Serializa un IReadOnlyDictionary usando reflection para obtener las entradas.
+        /// </summary>
+        private Dictionary<string, object> SerializeMapOfValue(
+            object value,
+            IEntityType entityType,
+            string propertyName)
+        {
+            var result = new Dictionary<string, object>();
+            var ignoredProperties = entityType.GetMapOfIgnoredProperties(propertyName);
+
+            // Usar reflection para iterar sobre las entradas del diccionario
+            var valueType = value.GetType();
+
+            // Buscar la interfaz IEnumerable<KeyValuePair<TKey, TValue>>
+            foreach (var iface in valueType.GetInterfaces())
+            {
+                if (iface.IsGenericType &&
+                    iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    var elementType = iface.GetGenericArguments()[0];
+                    if (elementType.IsGenericType &&
+                        elementType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+                    {
+                        // Encontramos IEnumerable<KeyValuePair<TKey, TValue>>
+                        foreach (var kvp in (System.Collections.IEnumerable)value)
+                        {
+                            var kvpType = kvp.GetType();
+                            var keyProp = kvpType.GetProperty("Key");
+                            var valueProp = kvpType.GetProperty("Value");
+
+                            if (keyProp == null || valueProp == null)
+                                continue;
+
+                            var key = keyProp.GetValue(kvp);
+                            var val = valueProp.GetValue(kvp);
+
+                            if (key == null)
+                                continue;
+
+                            // Convertir la clave a string
+                            var stringKey = ConvertMapKeyToString(key);
+
+                            // Serializar el valor
+                            if (val != null)
+                            {
+                                var serializedValue = SerializeMapOfElement(val, ignoredProperties);
+                                result[stringKey] = serializedValue;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Serializa un IDictionary directamente.
+        /// </summary>
+        private Dictionary<string, object> SerializeMapOfDictionary(
+            System.Collections.IDictionary dictValue,
+            IEntityType entityType,
+            string propertyName)
+        {
+            var result = new Dictionary<string, object>();
+            var ignoredProperties = entityType.GetMapOfIgnoredProperties(propertyName);
+
+            foreach (System.Collections.DictionaryEntry entry in dictValue)
+            {
+                if (entry.Key == null)
+                    continue;
+
+                // Convertir la clave a string
+                var stringKey = ConvertMapKeyToString(entry.Key);
+
+                // Serializar el valor
+                if (entry.Value != null)
+                {
+                    var serializedValue = SerializeMapOfElement(entry.Value, ignoredProperties);
+                    result[stringKey] = serializedValue;
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Convierte una clave de Map a string para Firestore.
+        /// Firestore solo permite claves string en Maps.
+        /// </summary>
+        private string ConvertMapKeyToString(object key)
+        {
+            // Usar el valueConverter para manejar enums, etc.
+            var converted = _valueConverter.ToFirestore(key);
+            return converted?.ToString() ?? key.ToString() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Serializa un elemento de MapOf (el valor del diccionario).
+        /// </summary>
+        private object SerializeMapOfElement(object element, HashSet<string>? ignoredProperties)
+        {
+            var elementType = element.GetType();
+
+            // ✅ Caso 1: Es una entidad registrada → DocumentReference
+            var entityType = _model.FindEntityType(elementType);
+            if (entityType != null)
+            {
+                var docRef = CreateDocumentReference(element, entityType);
+                if (docRef != null)
+                    return docRef;
+            }
+
+            // ✅ Caso 2: Es un ComplexType → Dictionary<string, object>
+            if (elementType.IsClass && elementType != typeof(string))
+            {
+                return SerializeComplexTypeFromObject(element, ignoredProperties);
+            }
+
+            // ✅ Caso 3: Tipo primitivo - aplicar conversión
+            return _valueConverter.ToFirestore(element) ?? element;
         }
 
         // ✅ Serializar referencias de entidades individuales - DETECCIÓN AUTOMÁTICA
