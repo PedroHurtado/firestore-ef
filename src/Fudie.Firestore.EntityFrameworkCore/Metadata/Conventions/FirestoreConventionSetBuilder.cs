@@ -22,12 +22,15 @@ public class FirestoreConventionSetBuilder : ProviderConventionSetBuilder
 
         // Agregar conventions que se ejecutan cuando se agrega una entidad
         var arrayOfConvention = new ArrayOfConvention();
+        var mapOfConvention = new MapOfConvention();
         conventionSet.EntityTypeAddedConventions.Add(new PrimaryKeyConvention());
         conventionSet.EntityTypeAddedConventions.Add(new CollectionNamingConvention());
         conventionSet.EntityTypeAddedConventions.Add(arrayOfConvention);
+        conventionSet.EntityTypeAddedConventions.Add(mapOfConvention);
 
         // Agregar conventions que se ejecutan al finalizar el modelo
         conventionSet.ModelFinalizingConventions.Add(arrayOfConvention);
+        conventionSet.ModelFinalizingConventions.Add(mapOfConvention);
 
         // BackingFieldConvention debe ejecutarse DESPUÉS de ArrayOfConvention
         // para detectar backing fields de TODAS las colecciones (ArrayOf + SubCollections)

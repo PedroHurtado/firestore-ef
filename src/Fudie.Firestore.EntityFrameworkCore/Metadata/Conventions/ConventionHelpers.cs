@@ -111,6 +111,102 @@ public static class ConventionHelpers
 
     #endregion
 
+    #region Detección de Diccionarios
+
+    /// <summary>
+    /// Verifica si un tipo es un diccionario genérico.
+    /// Soporta: Dictionary&lt;TKey, TValue&gt;, IDictionary&lt;TKey, TValue&gt;,
+    /// IReadOnlyDictionary&lt;TKey, TValue&gt;, etc.
+    /// </summary>
+    public static bool IsGenericDictionary(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+
+        // Debe tener exactamente 2 argumentos genéricos (TKey, TValue)
+        if (type.GetGenericArguments().Length != 2)
+            return false;
+
+        var genericDef = type.GetGenericTypeDefinition();
+
+        // Verificar si ES una de las interfaces de diccionario
+        if (genericDef == typeof(IDictionary<,>) ||
+            genericDef == typeof(IReadOnlyDictionary<,>) ||
+            genericDef == typeof(Dictionary<,>))
+            return true;
+
+        // Verificar si IMPLEMENTA IReadOnlyDictionary<TKey, TValue> o IDictionary<TKey, TValue>
+        return type.GetInterfaces()
+            .Any(i => i.IsGenericType &&
+                     (i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>) ||
+                      i.GetGenericTypeDefinition() == typeof(IDictionary<,>)));
+    }
+
+    /// <summary>
+    /// Obtiene el tipo de la clave de un diccionario genérico.
+    /// </summary>
+    public static Type? GetDictionaryKeyType(Type type)
+    {
+        if (!type.IsGenericType)
+            return null;
+
+        if (type.GetGenericArguments().Length != 2)
+            return null;
+
+        return type.GetGenericArguments()[0];
+    }
+
+    /// <summary>
+    /// Obtiene el tipo del valor de un diccionario genérico.
+    /// </summary>
+    public static Type? GetDictionaryValueType(Type type)
+    {
+        if (!type.IsGenericType)
+            return null;
+
+        if (type.GetGenericArguments().Length != 2)
+            return null;
+
+        return type.GetGenericArguments()[1];
+    }
+
+    /// <summary>
+    /// Busca backing fields de diccionarios que no fueron detectados por EF Core.
+    /// Retorna tuplas (propertyName, fieldInfo, keyType, valueType) para cada backing field encontrado.
+    /// </summary>
+    public static IEnumerable<(string PropertyName, FieldInfo FieldInfo, Type KeyType, Type ValueType)> FindDictionaryBackingFields(Type clrType)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        foreach (var field in clrType.GetFields(flags))
+        {
+            var fieldType = field.FieldType;
+
+            // Solo procesar diccionarios genéricos
+            if (!IsGenericDictionary(fieldType))
+                continue;
+
+            var keyType = GetDictionaryKeyType(fieldType);
+            var valueType = GetDictionaryValueType(fieldType);
+            if (keyType == null || valueType == null)
+                continue;
+
+            // Inferir nombre de propiedad desde el nombre del field
+            var propertyName = InferPropertyNameFromField(field.Name);
+            if (propertyName == null)
+                continue;
+
+            // Verificar que existe una propiedad pública con ese nombre
+            var property = clrType.GetProperty(propertyName);
+            if (property == null)
+                continue;
+
+            yield return (propertyName, field, keyType, valueType);
+        }
+    }
+
+    #endregion
+
     #region Detección de Colecciones
 
     /// <summary>
