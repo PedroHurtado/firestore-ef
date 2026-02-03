@@ -78,6 +78,11 @@ public class RestauranteConHorarios
     {
         _horariosSemanal[dia] = horario;
     }
+
+    public void RemoveHorario(DiaSemana dia)
+    {
+        _horariosSemanal.Remove(dia);
+    }
 }
 
 /// <summary>

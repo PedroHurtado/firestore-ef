@@ -75,6 +75,7 @@ public class PartialUpdateBuilder
         ProcessSimpleProperties(entityEntry, result.Updates);
         ProcessComplexProperties(entityEntry, result.Updates);
         ProcessArrayOfProperties(entityEntry, result);
+        ProcessMapOfProperties(entityEntry, result.Updates);
 
         // Add _updatedAt with current UTC time (backend timestamp)
         result.Updates["_updatedAt"] = DateTime.UtcNow;
@@ -96,9 +97,10 @@ public class PartialUpdateBuilder
         ProcessSimpleProperties(entityEntry, updates);
         ProcessComplexProperties(entityEntry, updates);
 
-        // Legacy: process arrays into single dictionary (may not use ArrayRemove/ArrayUnion properly)
+        // Legacy: process arrays and maps into single dictionary (may not use ArrayRemove/ArrayUnion properly)
         var result = new PartialUpdateResult { Updates = updates };
         ProcessArrayOfProperties(entityEntry, result);
+        ProcessMapOfProperties(entityEntry, updates);
 
         updates["_updatedAt"] = DateTime.UtcNow;
 
@@ -117,8 +119,10 @@ public class PartialUpdateBuilder
         {
             if (property.IsModified && !property.Metadata.IsPrimaryKey())
             {
-                // Skip shadow properties for ArrayOf tracking
+                // Skip shadow properties for ArrayOf and MapOf tracking
                 if (property.Metadata.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor) != null)
+                    continue;
+                if (property.Metadata.FindAnnotation(MapOfAnnotations.JsonTrackerFor) != null)
                     continue;
 
                 // Skip FKs
@@ -141,6 +145,18 @@ public class PartialUpdateBuilder
         foreach (var property in entityType.GetProperties())
         {
             var trackerFor = property.FindAnnotation(ArrayOfAnnotations.JsonTrackerFor)?.Value as string;
+            if (trackerFor != null)
+            {
+                var shadowProp = entityEntry.Property(property.Name);
+                if (shadowProp.IsModified)
+                    return true;
+            }
+        }
+
+        // Check MapOf properties via shadow property changes
+        foreach (var property in entityType.GetProperties())
+        {
+            var trackerFor = property.FindAnnotation(MapOfAnnotations.JsonTrackerFor)?.Value as string;
             if (trackerFor != null)
             {
                 var shadowProp = entityEntry.Property(property.Name);
@@ -821,6 +837,148 @@ public class PartialUpdateBuilder
         }
 
         return result;
+    }
+
+    #endregion
+
+    #region MapOf Properties
+
+    private void ProcessMapOfProperties(EntityEntry entityEntry, Dictionary<string, object> updates)
+    {
+        var entityType = entityEntry.Metadata;
+        var entity = entityEntry.Entity;
+
+        foreach (var property in entityType.GetProperties())
+        {
+            var trackerFor = property.FindAnnotation(MapOfAnnotations.JsonTrackerFor)?.Value as string;
+            if (trackerFor == null)
+                continue;
+
+            var shadowProp = entityEntry.Property(property.Name);
+            if (!shadowProp.IsModified)
+                continue;
+
+            var originalJson = shadowProp.OriginalValue as string;
+            var currentJson = shadowProp.CurrentValue as string;
+
+            // Get the map property info
+            var mapProperty = entity.GetType().GetProperty(trackerFor, BindingFlags.Public | BindingFlags.Instance);
+            if (mapProperty == null)
+                continue;
+
+            // Get key and element types
+            var keyType = entityType.GetMapOfKeyClrType(trackerFor);
+            var elementType = entityType.GetMapOfElementClrType(trackerFor);
+            if (keyType == null || elementType == null)
+                continue;
+
+            // Compute diff and generate dot notation updates
+            ComputeMapDiff(
+                trackerFor,
+                originalJson,
+                currentJson,
+                keyType,
+                elementType,
+                entityType,
+                updates);
+        }
+    }
+
+    private void ComputeMapDiff(
+        string propertyName,
+        string? originalJson,
+        string? currentJson,
+        Type keyType,
+        Type elementType,
+        IEntityType entityType,
+        Dictionary<string, object> updates)
+    {
+        // Deserialize original and current maps
+        var originalMap = DeserializeJsonToDictionary(originalJson);
+        var currentMap = DeserializeJsonToDictionary(currentJson);
+
+        // Special case: if map is now empty but had values, delete the entire map
+        if (currentMap.Count == 0 && originalMap.Count > 0)
+        {
+            updates[propertyName] = FieldValue.Delete;
+            return;
+        }
+
+        // Find removed keys (in original but not in current)
+        foreach (var key in originalMap.Keys)
+        {
+            if (!currentMap.ContainsKey(key))
+            {
+                // Key was removed -> use dot notation to delete
+                updates[$"{propertyName}.{key}"] = FieldValue.Delete;
+            }
+        }
+
+        // Find added or modified keys (in current but not in original, or value changed)
+        foreach (var kvp in currentMap)
+        {
+            var key = kvp.Key;
+            var currentValue = kvp.Value;
+
+            if (!originalMap.TryGetValue(key, out var originalValue) ||
+                !JsonElementsEqualForMap(originalValue, currentValue))
+            {
+                // Key was added or value changed -> use dot notation to set
+                var convertedValue = ConvertMapElementToFirestore(currentValue, elementType, entityType, propertyName);
+                if (convertedValue != null)
+                {
+                    updates[$"{propertyName}.{key}"] = convertedValue;
+                }
+            }
+        }
+    }
+
+    private Dictionary<string, JsonElement> DeserializeJsonToDictionary(string? json)
+    {
+        if (string.IsNullOrEmpty(json))
+            return new Dictionary<string, JsonElement>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return new Dictionary<string, JsonElement>();
+
+            var result = new Dictionary<string, JsonElement>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                result[prop.Name] = prop.Value.Clone();
+            }
+            return result;
+        }
+        catch
+        {
+            return new Dictionary<string, JsonElement>();
+        }
+    }
+
+    private bool JsonElementsEqualForMap(JsonElement a, JsonElement b)
+    {
+        return a.GetRawText() == b.GetRawText();
+    }
+
+    private object? ConvertMapElementToFirestore(
+        JsonElement element,
+        Type elementType,
+        IEntityType entityType,
+        string propertyName)
+    {
+        // Get ignored properties for this map (configured via Ignore() in OnModelCreating)
+        var ignoredProperties = entityType.GetMapOfIgnoredProperties(propertyName);
+
+        // Convert JSON element to dictionary (respecting ignored properties)
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            return JsonElementToDict(element, ignoredProperties);
+        }
+
+        // For primitive types, convert directly
+        return JsonElementToValue(element, ignoredProperties);
     }
 
     #endregion

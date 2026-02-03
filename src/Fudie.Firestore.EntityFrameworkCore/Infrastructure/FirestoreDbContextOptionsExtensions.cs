@@ -160,8 +160,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             ConfigureWarnings(optionsBuilder);
 
-            // Add ArrayOf change tracking interceptor
-            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
+            // Add Firestore change tracking interceptor (ArrayOf and MapOf)
+            optionsBuilder.AddInterceptors(new FirestoreSaveChangesInterceptor());
 
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 
@@ -202,8 +202,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             ConfigureWarnings(optionsBuilder);
 
-            // Add ArrayOf change tracking interceptor
-            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
+            // Add Firestore change tracking interceptor (ArrayOf and MapOf)
+            optionsBuilder.AddInterceptors(new FirestoreSaveChangesInterceptor());
 
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 
@@ -231,8 +231,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Infrastructure
 
             ConfigureWarnings(optionsBuilder);
 
-            // Add ArrayOf change tracking interceptor
-            optionsBuilder.AddInterceptors(new ArrayOfSaveChangesInterceptor());
+            // Add Firestore change tracking interceptor (ArrayOf and MapOf)
+            optionsBuilder.AddInterceptors(new FirestoreSaveChangesInterceptor());
 
             firestoreOptionsAction?.Invoke(new FirestoreDbContextOptionsBuilder(optionsBuilder));
 

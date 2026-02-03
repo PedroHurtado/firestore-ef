@@ -71,9 +71,10 @@ public class TrackingHandler : QueryPipelineHandlerBase
             {
                 var entry = stateManager.GetOrCreateEntry(entity, entityType);
 
-                // Initialize ArrayOf shadow properties BEFORE setting state to Unchanged
+                // Initialize ArrayOf and MapOf shadow properties BEFORE setting state to Unchanged
                 // This ensures the original values are set correctly
                 ArrayOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
+                MapOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
 
                 entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
 
@@ -185,8 +186,9 @@ public class TrackingHandler : QueryPipelineHandlerBase
 
         var entry = stateManager.GetOrCreateEntry(entity, entityType);
 
-        // Initialize ArrayOf shadow properties BEFORE setting state to Unchanged
+        // Initialize ArrayOf and MapOf shadow properties BEFORE setting state to Unchanged
         ArrayOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
+        MapOfChangeTracker.InitializeShadowProperties(entity, entityType, entry);
 
         entry.SetEntityState(Microsoft.EntityFrameworkCore.EntityState.Unchanged);
     }
