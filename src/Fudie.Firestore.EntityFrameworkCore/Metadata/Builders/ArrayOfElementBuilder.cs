@@ -20,6 +20,7 @@ public class ArrayOfElementBuilder<TElement>
     private readonly string _parentPropertyName;
     private readonly List<ArrayOfNestedReference> _nestedReferences = new();
     private readonly List<ArrayOfNestedArray> _nestedArrays = new();
+    private readonly List<ArrayOfNestedMap> _nestedMaps = new();
 
     internal ArrayOfElementBuilder(IMutableEntityType parentEntityType, string parentPropertyName)
     {
@@ -80,6 +81,42 @@ public class ArrayOfElementBuilder<TElement>
     }
 
     /// <summary>
+    /// Configura una propiedad del elemento como un diccionario anidado (Map dentro de Array).
+    /// </summary>
+    /// <typeparam name="TKey">Tipo de la clave del diccionario</typeparam>
+    /// <typeparam name="TValue">Tipo del valor del diccionario</typeparam>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del diccionario</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public ArrayOfElementBuilder<TElement> MapOf<TKey, TValue>(
+        Expression<Func<TElement, IReadOnlyDictionary<TKey, TValue>>> propertyExpression)
+        where TValue : class
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        _nestedMaps.Add(new ArrayOfNestedMap(memberInfo.Name, typeof(TKey), typeof(TValue), null));
+        return this;
+    }
+
+    /// <summary>
+    /// Configura una propiedad del elemento como un diccionario anidado con configuración adicional.
+    /// </summary>
+    /// <typeparam name="TKey">Tipo de la clave del diccionario</typeparam>
+    /// <typeparam name="TValue">Tipo del valor del diccionario</typeparam>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del diccionario</param>
+    /// <param name="configure">Acción para configurar los elementos del diccionario</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public ArrayOfElementBuilder<TElement> MapOf<TKey, TValue>(
+        Expression<Func<TElement, IReadOnlyDictionary<TKey, TValue>>> propertyExpression,
+        Action<MapOfElementBuilder<TValue>> configure)
+        where TValue : class
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        var nestedBuilder = new MapOfElementBuilder<TValue>(_parentEntityType, $"{_parentPropertyName}.{memberInfo.Name}");
+        configure(nestedBuilder);
+        _nestedMaps.Add(new ArrayOfNestedMap(memberInfo.Name, typeof(TKey), typeof(TValue), nestedBuilder));
+        return this;
+    }
+
+    /// <summary>
     /// Ignora una propiedad del elemento para que no se serialice a Firestore.
     /// Útil para propiedades calculadas (getters sin backing field).
     /// </summary>
@@ -103,6 +140,11 @@ public class ArrayOfElementBuilder<TElement>
     /// Obtiene los arrays anidados configurados
     /// </summary>
     internal IReadOnlyList<ArrayOfNestedArray> NestedArrays => _nestedArrays;
+
+    /// <summary>
+    /// Obtiene los maps anidados configurados
+    /// </summary>
+    internal IReadOnlyList<ArrayOfNestedMap> NestedMaps => _nestedMaps;
 }
 
 /// <summary>
@@ -114,3 +156,8 @@ internal sealed record ArrayOfNestedReference(string PropertyName, Type Referenc
 /// Representa un array anidado dentro de un elemento de array
 /// </summary>
 internal sealed record ArrayOfNestedArray(string PropertyName, Type ElementType, object? NestedBuilder);
+
+/// <summary>
+/// Representa un Map anidado dentro de un elemento de array
+/// </summary>
+internal sealed record ArrayOfNestedMap(string PropertyName, Type KeyType, Type ElementType, object? NestedBuilder);

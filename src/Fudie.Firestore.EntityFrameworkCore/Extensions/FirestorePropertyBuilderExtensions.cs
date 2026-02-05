@@ -5,11 +5,37 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Fudie.Firestore.EntityFrameworkCore.Metadata.Builders;
 
 namespace Fudie.Firestore.EntityFrameworkCore.Extensions;
 
 public static class FirestorePropertyBuilderExtensions
 {
+    // ============= HELPER METHODS =============
+
+    /// <summary>
+    /// Navega desde un ComplexProperty hasta el EntityType contenedor.
+    /// </summary>
+    private static IMutableEntityType GetContainingEntityType(IReadOnlyComplexProperty complexProperty)
+    {
+        var declaringType = complexProperty.DeclaringType;
+
+        // Si el tipo declarante es un EntityType, lo devolvemos
+        if (declaringType is IMutableEntityType entityType)
+        {
+            return entityType;
+        }
+
+        // Si es un ComplexType, navegamos hacia arriba recursivamente
+        if (declaringType is IReadOnlyComplexType complexType)
+        {
+            return GetContainingEntityType(complexType.ComplexProperty);
+        }
+
+        throw new InvalidOperationException(
+            $"Cannot find containing EntityType for ComplexProperty '{complexProperty.Name}'");
+    }
+
     // ============= PERSIST NULL VALUES =============
 
     /// <summary>
@@ -94,6 +120,144 @@ public static class FirestorePropertyBuilderExtensions
         }
 
         builder.Metadata.SetAnnotation("Firestore:NestedReferences", existingRefs);
+
+        return builder;
+    }
+
+    // ============= MAPOF (ComplexProperty) =============
+
+    /// <summary>
+    /// Configura una propiedad como un Map (diccionario) embebido dentro de un ComplexProperty.
+    /// </summary>
+    /// <typeparam name="TComplex">Tipo del ComplexType</typeparam>
+    /// <typeparam name="TKey">Tipo de la clave del diccionario</typeparam>
+    /// <typeparam name="TValue">Tipo de los valores del diccionario</typeparam>
+    /// <param name="builder">El ComplexPropertyBuilder</param>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del diccionario</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public static ComplexPropertyBuilder<TComplex> MapOf<TComplex, TKey, TValue>(
+        this ComplexPropertyBuilder<TComplex> builder,
+        Expression<Func<TComplex, IReadOnlyDictionary<TKey, TValue>>> propertyExpression)
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        var propertyName = memberInfo.Name;
+
+        var existingMaps = builder.Metadata.FindAnnotation("Firestore:NestedMaps")?.Value as List<string>
+            ?? new List<string>();
+
+        if (!existingMaps.Contains(propertyName))
+        {
+            existingMaps.Add(propertyName);
+        }
+
+        builder.Metadata.SetAnnotation("Firestore:NestedMaps", existingMaps);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configura una propiedad como un Map (diccionario) embebido dentro de un ComplexProperty con configuración de elementos.
+    /// </summary>
+    /// <typeparam name="TComplex">Tipo del ComplexType</typeparam>
+    /// <typeparam name="TKey">Tipo de la clave del diccionario</typeparam>
+    /// <typeparam name="TValue">Tipo de los valores del diccionario</typeparam>
+    /// <param name="builder">El ComplexPropertyBuilder</param>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del diccionario</param>
+    /// <param name="configure">Acción para configurar los elementos del diccionario</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public static ComplexPropertyBuilder<TComplex> MapOf<TComplex, TKey, TValue>(
+        this ComplexPropertyBuilder<TComplex> builder,
+        Expression<Func<TComplex, IReadOnlyDictionary<TKey, TValue>>> propertyExpression,
+        Action<MapOfElementBuilder<TValue>> configure)
+        where TValue : class
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        var propertyName = memberInfo.Name;
+
+        var existingMaps = builder.Metadata.FindAnnotation("Firestore:NestedMaps")?.Value as List<string>
+            ?? new List<string>();
+
+        if (!existingMaps.Contains(propertyName))
+        {
+            existingMaps.Add(propertyName);
+        }
+
+        builder.Metadata.SetAnnotation("Firestore:NestedMaps", existingMaps);
+
+        // Crear el element builder para la configuración
+        var elementBuilder = new MapOfElementBuilder<TValue>(
+            GetContainingEntityType(builder.Metadata),
+            $"{builder.Metadata.Name}.{propertyName}");
+
+        configure(elementBuilder);
+
+        return builder;
+    }
+
+    // ============= ARRAYOF (ComplexProperty) =============
+
+    /// <summary>
+    /// Configura una propiedad como un array embebido dentro de un ComplexProperty.
+    /// </summary>
+    /// <typeparam name="TComplex">Tipo del ComplexType</typeparam>
+    /// <typeparam name="TElement">Tipo de los elementos del array</typeparam>
+    /// <param name="builder">El ComplexPropertyBuilder</param>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del array</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public static ComplexPropertyBuilder<TComplex> ArrayOf<TComplex, TElement>(
+        this ComplexPropertyBuilder<TComplex> builder,
+        Expression<Func<TComplex, IEnumerable<TElement>>> propertyExpression)
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        var propertyName = memberInfo.Name;
+
+        var existingArrays = builder.Metadata.FindAnnotation("Firestore:NestedArrays")?.Value as List<string>
+            ?? new List<string>();
+
+        if (!existingArrays.Contains(propertyName))
+        {
+            existingArrays.Add(propertyName);
+        }
+
+        builder.Metadata.SetAnnotation("Firestore:NestedArrays", existingArrays);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Configura una propiedad como un array embebido dentro de un ComplexProperty con configuración de elementos.
+    /// </summary>
+    /// <typeparam name="TComplex">Tipo del ComplexType</typeparam>
+    /// <typeparam name="TElement">Tipo de los elementos del array</typeparam>
+    /// <param name="builder">El ComplexPropertyBuilder</param>
+    /// <param name="propertyExpression">Expresión que identifica la propiedad del array</param>
+    /// <param name="configure">Acción para configurar los elementos del array</param>
+    /// <returns>El builder para encadenamiento fluent</returns>
+    public static ComplexPropertyBuilder<TComplex> ArrayOf<TComplex, TElement>(
+        this ComplexPropertyBuilder<TComplex> builder,
+        Expression<Func<TComplex, IEnumerable<TElement>>> propertyExpression,
+        Action<ArrayOfElementBuilder<TElement>> configure)
+        where TElement : class
+    {
+        var memberInfo = propertyExpression.GetMemberAccess();
+        var propertyName = memberInfo.Name;
+
+        var existingArrays = builder.Metadata.FindAnnotation("Firestore:NestedArrays")?.Value as List<string>
+            ?? new List<string>();
+
+        if (!existingArrays.Contains(propertyName))
+        {
+            existingArrays.Add(propertyName);
+        }
+
+        builder.Metadata.SetAnnotation("Firestore:NestedArrays", existingArrays);
+
+        // Crear el element builder para la configuración
+        var elementBuilder = new ArrayOfElementBuilder<TElement>(
+            GetContainingEntityType(builder.Metadata),
+            $"{builder.Metadata.Name}.{propertyName}");
+
+        configure(elementBuilder);
 
         return builder;
     }

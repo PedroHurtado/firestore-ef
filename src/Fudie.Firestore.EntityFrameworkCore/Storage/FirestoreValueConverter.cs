@@ -128,6 +128,10 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is long ticks && actualTargetType == typeof(TimeSpan))
             return TimeSpan.FromTicks(ticks);
 
+        // string → TimeSpan (EF Core uses TimeSpanToStringConverter by default)
+        if (value is string timeSpanStr && actualTargetType == typeof(TimeSpan))
+            return TimeSpan.Parse(timeSpanStr);
+
         // string → TimeOnly (stored as ISO format) - .NET 6+ type
         if (value is string timeStr && actualTargetType == typeof(TimeOnly))
             return TimeOnly.Parse(timeStr);
