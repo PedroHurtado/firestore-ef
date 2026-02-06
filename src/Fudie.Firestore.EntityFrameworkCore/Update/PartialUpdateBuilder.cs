@@ -327,7 +327,7 @@ public class PartialUpdateBuilder
             }
             else if (currentValue != null)
             {
-                var convertedValue = _valueConverter.ToFirestore(currentValue);
+                var convertedValue = ConvertValue(property.Metadata, currentValue);
                 if (convertedValue != null)
                 {
                     updates[fullPath] = convertedValue;

@@ -42,9 +42,9 @@ public class FirestoreValueConverter : IFirestoreValueConverter
         if (value is DateTime dt)
             return dt.Kind == DateTimeKind.Utc ? dt : dt.ToUniversalTime();
 
-        // TimeSpan → long (ticks) - Firestore doesn't support TimeSpan natively
+        // TimeSpan → string (e.g., "00:15:00") - consistent with EF Core's TimeSpanToStringConverter
         if (value is TimeSpan ts)
-            return ts.Ticks;
+            return ts.ToString();
 
         // TimeOnly → string ("HH:mm:ss") - .NET 6+ type
         if (value is TimeOnly to)
