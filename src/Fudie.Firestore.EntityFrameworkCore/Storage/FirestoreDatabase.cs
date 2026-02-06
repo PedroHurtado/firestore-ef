@@ -1361,7 +1361,147 @@ namespace Fudie.Firestore.EntityFrameworkCore.Storage
             // ✅ Detectar y serializar referencias a entidades dentro del ComplexType
             SerializeNestedEntityReferences(complexObject, dict);
 
+            // ✅ Serializar MapOf y ArrayOf anotados dentro del ComplexType
+            SerializeComplexTypeCollections(complexType, complexObject, dict);
+
             return dict;
+        }
+
+        /// <summary>
+        /// Serializa propiedades MapOf y ArrayOf dentro de un ComplexType.
+        /// Estas propiedades están ignoradas por EF Core (via builder.Ignore) pero se
+        /// serializan manualmente usando las anotaciones del ComplexProperty.
+        /// </summary>
+        private void SerializeComplexTypeCollections(
+            IComplexType complexType,
+            object complexObject,
+            Dictionary<string, object> dict)
+        {
+            var complexProperty = complexType.ComplexProperty;
+
+            // Procesar NestedMaps
+            var nestedMaps = complexProperty.FindAnnotation("Firestore:NestedMaps")?.Value as List<string>;
+            if (nestedMaps != null)
+            {
+                foreach (var mapPropName in nestedMaps)
+                {
+                    SerializeMapPropertyInComplexType(complexObject, mapPropName, dict);
+                }
+            }
+
+            // Procesar NestedArrays
+            var nestedArrays = complexProperty.FindAnnotation("Firestore:NestedArrays")?.Value as List<string>;
+            if (nestedArrays != null)
+            {
+                foreach (var arrayPropName in nestedArrays)
+                {
+                    SerializeArrayPropertyInComplexType(complexObject, arrayPropName, dict);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Serializa una propiedad MapOf dentro de un ComplexType usando reflexión.
+        /// </summary>
+        private void SerializeMapPropertyInComplexType(
+            object complexObject,
+            string propertyName,
+            Dictionary<string, object> dict)
+        {
+            var prop = complexObject.GetType().GetProperty(propertyName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (prop == null) return;
+
+            var value = prop.GetValue(complexObject);
+            if (value == null) return;
+
+            // Manejar IDictionary
+            if (value is System.Collections.IDictionary dictValue)
+            {
+                if (dictValue.Count == 0) return;
+
+                var result = new Dictionary<string, object>();
+                foreach (System.Collections.DictionaryEntry entry in dictValue)
+                {
+                    if (entry.Key == null) continue;
+                    var stringKey = ConvertMapKeyToString(entry.Key);
+                    if (entry.Value != null)
+                    {
+                        result[stringKey] = SerializeMapOfElement(entry.Value, ignoredProperties: null);
+                    }
+                }
+                if (result.Count > 0)
+                    dict[propertyName] = result;
+                return;
+            }
+
+            // Manejar IReadOnlyDictionary via IEnumerable<KeyValuePair<,>>
+            var serialized = SerializeReadOnlyDictionaryViaReflection(value);
+            if (serialized != null && serialized.Count > 0)
+                dict[propertyName] = serialized;
+        }
+
+        /// <summary>
+        /// Serializa un IReadOnlyDictionary iterando sobre IEnumerable&lt;KeyValuePair&lt;,&gt;&gt;.
+        /// </summary>
+        private Dictionary<string, object>? SerializeReadOnlyDictionaryViaReflection(object value)
+        {
+            var result = new Dictionary<string, object>();
+            var valueType = value.GetType();
+
+            foreach (var iface in valueType.GetInterfaces())
+            {
+                if (iface.IsGenericType &&
+                    iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    var elementType = iface.GetGenericArguments()[0];
+                    if (elementType.IsGenericType &&
+                        elementType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+                    {
+                        foreach (var kvp in (IEnumerable)value)
+                        {
+                            var kvpType = kvp.GetType();
+                            var key = kvpType.GetProperty("Key")?.GetValue(kvp);
+                            var val = kvpType.GetProperty("Value")?.GetValue(kvp);
+                            if (key == null) continue;
+
+                            var stringKey = ConvertMapKeyToString(key);
+                            if (val != null)
+                            {
+                                result[stringKey] = SerializeMapOfElement(val, ignoredProperties: null);
+                            }
+                        }
+                        return result.Count > 0 ? result : null;
+                    }
+                }
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Serializa una propiedad ArrayOf dentro de un ComplexType usando reflexión.
+        /// </summary>
+        private void SerializeArrayPropertyInComplexType(
+            object complexObject,
+            string propertyName,
+            Dictionary<string, object> dict)
+        {
+            var prop = complexObject.GetType().GetProperty(propertyName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (prop == null) return;
+
+            var value = prop.GetValue(complexObject);
+            if (value == null) return;
+
+            if (value is IEnumerable enumerable && value is not string && value is not byte[])
+            {
+                if (!enumerable.Cast<object>().Any()) return;
+
+                var serialized = SerializeNestedList(enumerable, prop.PropertyType);
+                if (serialized != null)
+                    dict[propertyName] = serialized;
+            }
         }
 
         // ✅ Serializar referencias a entidades dentro de ComplexTypes

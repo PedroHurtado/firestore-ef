@@ -341,6 +341,146 @@ public class PartialUpdateBuilder
             var nestedPath = $"{pathPrefix}.{nestedComplex.Metadata.Name}";
             ProcessComplexPropertyEntry(nestedComplex, nestedPath, updates);
         }
+
+        // Si alguna propiedad escalar cambió, re-serializar maps/arrays anotados
+        // (estas propiedades están ignoradas por EF Core, se serializan por reflexión)
+        if (complexPropEntry.Properties.Any(p => p.IsModified))
+        {
+            SerializeAnnotatedCollectionsForUpdate(complexPropEntry, pathPrefix, updates);
+        }
+    }
+
+    /// <summary>
+    /// Serializa propiedades MapOf y ArrayOf anotadas dentro de un ComplexType
+    /// para partial update. Dado que estas propiedades están ignoradas por EF Core,
+    /// se re-serializan completas cuando cualquier propiedad escalar cambia.
+    /// </summary>
+    private void SerializeAnnotatedCollectionsForUpdate(
+        ComplexPropertyEntry complexPropEntry,
+        string pathPrefix,
+        Dictionary<string, object> updates)
+    {
+        var complexProperty = complexPropEntry.Metadata;
+        var complexValue = complexPropEntry.CurrentValue;
+        if (complexValue == null) return;
+
+        // Procesar NestedMaps
+        var nestedMaps = complexProperty.FindAnnotation("Firestore:NestedMaps")?.Value as List<string>;
+        if (nestedMaps != null)
+        {
+            foreach (var mapPropName in nestedMaps)
+            {
+                var fullPath = $"{pathPrefix}.{mapPropName}";
+                var prop = complexValue.GetType().GetProperty(mapPropName,
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (prop == null) continue;
+
+                var mapValue = prop.GetValue(complexValue);
+                if (mapValue == null)
+                {
+                    updates[fullPath] = FieldValue.Delete;
+                    continue;
+                }
+
+                var serialized = SerializeMapForUpdate(mapValue);
+                if (serialized != null)
+                    updates[fullPath] = serialized;
+            }
+        }
+
+        // Procesar NestedArrays
+        var nestedArrays = complexProperty.FindAnnotation("Firestore:NestedArrays")?.Value as List<string>;
+        if (nestedArrays != null)
+        {
+            foreach (var arrayPropName in nestedArrays)
+            {
+                var fullPath = $"{pathPrefix}.{arrayPropName}";
+                var prop = complexValue.GetType().GetProperty(arrayPropName,
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (prop == null) continue;
+
+                var arrayValue = prop.GetValue(complexValue);
+                if (arrayValue == null)
+                {
+                    updates[fullPath] = FieldValue.Delete;
+                    continue;
+                }
+
+                if (arrayValue is IEnumerable enumerable && arrayValue is not string)
+                {
+                    var items = enumerable.Cast<object>().ToList();
+                    if (items.Count == 0)
+                    {
+                        updates[fullPath] = FieldValue.Delete;
+                    }
+                    else
+                    {
+                        updates[fullPath] = _valueConverter.ToFirestore(enumerable) ?? enumerable;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Serializa un diccionario (IDictionary o IReadOnlyDictionary) para partial update.
+    /// </summary>
+    private Dictionary<string, object>? SerializeMapForUpdate(object mapValue)
+    {
+        var result = new Dictionary<string, object>();
+
+        if (mapValue is IDictionary dictValue)
+        {
+            if (dictValue.Count == 0) return null;
+
+            foreach (DictionaryEntry entry in dictValue)
+            {
+                if (entry.Key == null) continue;
+                var stringKey = _valueConverter.ToFirestore(entry.Key)?.ToString()
+                    ?? entry.Key.ToString() ?? string.Empty;
+                if (entry.Value != null)
+                {
+                    var converted = _valueConverter.ToFirestore(entry.Value);
+                    if (converted != null)
+                        result[stringKey] = converted;
+                }
+            }
+            return result.Count > 0 ? result : null;
+        }
+
+        // IReadOnlyDictionary via reflection
+        var valueType = mapValue.GetType();
+        foreach (var iface in valueType.GetInterfaces())
+        {
+            if (iface.IsGenericType &&
+                iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                var elementType = iface.GetGenericArguments()[0];
+                if (elementType.IsGenericType &&
+                    elementType.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+                {
+                    foreach (var kvp in (IEnumerable)mapValue)
+                    {
+                        var kvpType = kvp.GetType();
+                        var key = kvpType.GetProperty("Key")?.GetValue(kvp);
+                        var val = kvpType.GetProperty("Value")?.GetValue(kvp);
+                        if (key == null) continue;
+
+                        var stringKey = _valueConverter.ToFirestore(key)?.ToString()
+                            ?? key.ToString() ?? string.Empty;
+                        if (val != null)
+                        {
+                            var converted = _valueConverter.ToFirestore(val);
+                            if (converted != null)
+                                result[stringKey] = converted;
+                        }
+                    }
+                    return result.Count > 0 ? result : null;
+                }
+            }
+        }
+
+        return null;
     }
 
     private bool HasModifiedComplexProperties(ComplexPropertyEntry complexProp)

@@ -14,6 +14,16 @@ public static class FirestorePropertyBuilderExtensions
     // ============= HELPER METHODS =============
 
     /// <summary>
+    /// Ignora una propiedad del ComplexType subyacente para que EF Core
+    /// no intente crear un TypeMapping para ella (ej: IReadOnlyDictionary, IEnumerable).
+    /// </summary>
+    private static void IgnorePropertyInComplexType(ComplexPropertyBuilder builder, string propertyName)
+    {
+        var typeBuilder = ((IInfrastructure<IConventionComplexTypeBuilder>)builder).Instance;
+        typeBuilder.Ignore(propertyName);
+    }
+
+    /// <summary>
     /// Navega desde un ComplexProperty hasta el EntityType contenedor.
     /// </summary>
     private static IMutableEntityType GetContainingEntityType(IReadOnlyComplexProperty complexProperty)
@@ -152,6 +162,9 @@ public static class FirestorePropertyBuilderExtensions
 
         builder.Metadata.SetAnnotation("Firestore:NestedMaps", existingMaps);
 
+        // Ignorar la propiedad para que EF Core no intente crear un TypeMapping
+        IgnorePropertyInComplexType(builder, propertyName);
+
         return builder;
     }
 
@@ -183,6 +196,9 @@ public static class FirestorePropertyBuilderExtensions
         }
 
         builder.Metadata.SetAnnotation("Firestore:NestedMaps", existingMaps);
+
+        // Ignorar la propiedad para que EF Core no intente crear un TypeMapping
+        IgnorePropertyInComplexType(builder, propertyName);
 
         // Crear el element builder para la configuración
         var elementBuilder = new MapOfElementBuilder<TValue>(
@@ -221,6 +237,9 @@ public static class FirestorePropertyBuilderExtensions
 
         builder.Metadata.SetAnnotation("Firestore:NestedArrays", existingArrays);
 
+        // Ignorar la propiedad para que EF Core no intente crear un TypeMapping
+        IgnorePropertyInComplexType(builder, propertyName);
+
         return builder;
     }
 
@@ -251,6 +270,9 @@ public static class FirestorePropertyBuilderExtensions
         }
 
         builder.Metadata.SetAnnotation("Firestore:NestedArrays", existingArrays);
+
+        // Ignorar la propiedad para que EF Core no intente crear un TypeMapping
+        IgnorePropertyInComplexType(builder, propertyName);
 
         // Crear el element builder para la configuración
         var elementBuilder = new ArrayOfElementBuilder<TElement>(
