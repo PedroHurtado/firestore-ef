@@ -114,6 +114,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Visitors
             bool returnDefault)
             => FirestoreQueryExpression.TranslateFirstOrDefault(new(source, predicate, returnType, returnDefault));
 
+        protected override ShapedQueryExpression? TranslateJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
+            => FirestoreQueryExpression.TranslateJoin(new(outer, inner, outerKeySelector, innerKeySelector, resultSelector, _collectionManager));
+
         protected override ShapedQueryExpression? TranslateLeftJoin(
             ShapedQueryExpression outer,
             ShapedQueryExpression inner,
@@ -208,9 +211,6 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Visitors
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateIntersect(ShapedQueryExpression source1, ShapedQueryExpression source2)
-            => throw new NotImplementedException();
-
-        protected override ShapedQueryExpression? TranslateJoin(ShapedQueryExpression outer, ShapedQueryExpression inner, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector)
             => throw new NotImplementedException();
 
         protected override ShapedQueryExpression? TranslateLastOrDefault(ShapedQueryExpression source, LambdaExpression? predicate, Type returnType, bool returnDefault)
