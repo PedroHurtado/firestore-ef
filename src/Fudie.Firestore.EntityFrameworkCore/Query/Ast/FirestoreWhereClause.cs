@@ -32,6 +32,13 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Ast
         public Type? EnumType { get; set; }
 
         /// <summary>
+        /// Nombre de la colección Firestore cuando el filtro compara contra un DocumentReference.
+        /// Cuando no es null, indica que PropertyName es una navegación Reference y el valor
+        /// debe convertirse a DocumentReference("{CollectionName}/{value}") al ejecutar.
+        /// </summary>
+        public string? ReferenceCollectionName { get; set; }
+
+        /// <summary>
         /// Constructor
         /// </summary>
         public FirestoreWhereClause(string propertyName, FirestoreOperator @operator, Expression valueExpression)

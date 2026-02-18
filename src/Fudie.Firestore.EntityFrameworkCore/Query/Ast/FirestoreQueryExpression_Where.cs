@@ -37,13 +37,23 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Ast
             // Note: PreprocessArrayContainsPatterns is already called by the Visitor's Visit() method
             // before TranslateWhere is invoked, so predicateBody is already preprocessed.
 
-            // Translate using FirestoreWhereTranslator
-            var translator = new FirestoreWhereTranslator();
+            // Translate using FirestoreWhereTranslator with pending includes for Reference detection.
+            // When the predicate references a Reference navigation (e.g., m.User!.Id == userId),
+            // the translator detects this pattern and collapses it to a DocumentReference comparison.
+            var translator = new FirestoreWhereTranslator(ast.PendingIncludes);
             var filterResult = translator.Translate(predicateBody);
 
             if (filterResult == null)
             {
                 return null;
+            }
+
+            // Remove auto-generated Includes for Reference navigations detected in the Where clause.
+            // EF Core generates LeftJoin/Include when it sees navigation access in Where (e.g., m.User!.Id),
+            // but in Firestore we compare directly against the DocumentReference field — no Include needed.
+            foreach (var navigationName in translator.DetectedReferenceNavigations)
+            {
+                ast.RemoveInclude(navigationName);
             }
 
             // Store the filter result for later processing by Resolver

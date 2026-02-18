@@ -291,6 +291,17 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Ast
         }
 
         /// <summary>
+        /// Removes a pending Include by navigation name.
+        /// Used when a Reference navigation in a Where clause is detected and transformed
+        /// into a DocumentReference comparison, making the auto-generated Include unnecessary.
+        /// </summary>
+        public FirestoreQueryExpression RemoveInclude(string navigationName)
+        {
+            _pendingIncludes.RemoveAll(i => i.NavigationName == navigationName);
+            return this;
+        }
+
+        /// <summary>
         /// Establece los Includes de ComplexTypes.
         /// </summary>
         public FirestoreQueryExpression WithComplexTypeIncludes(IEnumerable<LambdaExpression> includes)

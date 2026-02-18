@@ -18,7 +18,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
         string PropertyName,
         FirestoreOperator Operator,
         object? Value,
-        bool IsPrimaryKey = false)
+        bool IsPrimaryKey = false,
+        string? ReferenceCollectionName = null)
     {
         public override string ToString()
         {
@@ -37,9 +38,12 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
                 _ => Operator.ToString()
             };
 
-            var valueStr = FormatValue(Value);
+            var valueStr = ReferenceCollectionName != null
+                ? $"{ReferenceCollectionName}/{FormatValue(Value)}"
+                : FormatValue(Value);
             var pk = IsPrimaryKey ? " [PK]" : "";
-            return $"{PropertyName} {op} {valueStr}{pk}";
+            var refTag = ReferenceCollectionName != null ? " [Reference]" : "";
+            return $"{PropertyName} {op} {valueStr}{pk}{refTag}";
         }
 
         private static string FormatValue(object? value) => value switch

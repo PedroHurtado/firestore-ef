@@ -2,6 +2,7 @@ using Fudie.Firestore.EntityFrameworkCore.Query.Ast;
 using Fudie.Firestore.EntityFrameworkCore.Query.Visitors;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -9,6 +10,22 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
 {
     internal class FirestoreWhereTranslator
     {
+        private readonly IReadOnlyList<IncludeInfo>? _pendingIncludes;
+
+        public FirestoreWhereTranslator()
+        {
+        }
+
+        public FirestoreWhereTranslator(IReadOnlyList<IncludeInfo> pendingIncludes)
+        {
+            _pendingIncludes = pendingIncludes;
+        }
+
+        /// <summary>
+        /// Navigation names detected as Reference filters during translation.
+        /// The caller should remove these from the pending includes after translation.
+        /// </summary>
+        public List<string> DetectedReferenceNavigations { get; } = new();
         public FirestoreFilterResult? Translate(Expression expression)
         {
             if (expression is BinaryExpression binaryExpression)
@@ -280,6 +297,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             string? propertyName = null;
             Expression? valueExpression = null;
             Type? enumType = null;
+            string? referenceCollectionName = null;
 
             // Intentar extraer propiedad del lado izquierdo
             var leftResult = ExtractPropertyInfo(binary.Left);
@@ -287,6 +305,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             {
                 propertyName = leftResult.Value.PropertyName;
                 enumType = leftResult.Value.EnumType;
+                referenceCollectionName = leftResult.Value.ReferenceCollectionName;
                 valueExpression = binary.Right;
             }
             else
@@ -297,6 +316,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 {
                     propertyName = rightResult.Value.PropertyName;
                     enumType = rightResult.Value.EnumType;
+                    referenceCollectionName = rightResult.Value.ReferenceCollectionName;
                     valueExpression = binary.Left;
                 }
             }
@@ -337,18 +357,27 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
             if (!firestoreOperator.HasValue)
                 return null;
 
-            return new FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression, enumType);
+            var clause = new FirestoreWhereClause(propertyName, firestoreOperator.Value, valueExpression, enumType);
+            clause.ReferenceCollectionName = referenceCollectionName;
+            return clause;
         }
 
         /// <summary>
-        /// Extrae información de propiedad de una expresión, manejando casts de enum y propiedades anidadas (ComplexType).
-        /// Retorna el path completo de la propiedad (ej: "Direccion.Ciudad") y opcionalmente el tipo de enum si hay cast.
+        /// Extrae información de propiedad de una expresión, manejando casts de enum, propiedades anidadas (ComplexType)
+        /// y navegaciones Reference.
+        /// Retorna el path completo de la propiedad (ej: "Direccion.Ciudad"), opcionalmente el tipo de enum si hay cast,
+        /// y el nombre de colección si es una comparación contra un DocumentReference.
         /// </summary>
-        private (string PropertyName, Type? EnumType)? ExtractPropertyInfo(Expression expression)
+        private (string PropertyName, Type? EnumType, string? ReferenceCollectionName)? ExtractPropertyInfo(Expression expression)
         {
             // Caso 1: MemberExpression directo o anidado (p.Nombre, p.Direccion.Ciudad)
             if (expression is MemberExpression memberExpr && memberExpr.Member is PropertyInfo propInfo)
             {
+                // Check for Reference navigation pattern: refNav.Id (e.g., Inner.Id where Inner is User)
+                var refResult = TryExtractReferenceNavigation(memberExpr, propInfo);
+                if (refResult.HasValue)
+                    return refResult;
+
                 // Construir el path completo para propiedades anidadas
                 var propertyPath = BuildPropertyPath(memberExpr);
 
@@ -358,7 +387,7 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 {
                     enumType = propInfo.PropertyType;
                 }
-                return (propertyPath, enumType);
+                return (propertyPath, enumType, null);
             }
 
             // Caso 2: UnaryExpression con cast - típico de enums: (int)p.Categoria
@@ -368,6 +397,11 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                 // Verificar si el operando es un MemberExpression
                 if (unaryExpr.Operand is MemberExpression innerMember && innerMember.Member is PropertyInfo innerProp)
                 {
+                    // Check for Reference navigation pattern with cast
+                    var refResult = TryExtractReferenceNavigation(innerMember, innerProp);
+                    if (refResult.HasValue)
+                        return refResult;
+
                     // Construir el path completo para propiedades anidadas con cast
                     var propertyPath = BuildPropertyPath(innerMember);
 
@@ -377,11 +411,50 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     {
                         enumType = innerProp.PropertyType;
                     }
-                    return (propertyPath, enumType);
+                    return (propertyPath, enumType, null);
                 }
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Detects the pattern refNav.Id where refNav is a Reference navigation (e.g., m.User!.Id).
+        /// After LeftJoin, this appears as Inner.Id where Inner's CLR type matches a pending Reference include.
+        /// Returns (NavigationName, null, CollectionName) if detected, or null otherwise.
+        /// Throws NotSupportedException if filtering by a non-PK field on a Reference navigation.
+        /// </summary>
+        private (string PropertyName, Type? EnumType, string? ReferenceCollectionName)? TryExtractReferenceNavigation(
+            MemberExpression memberExpr, PropertyInfo propInfo)
+        {
+            if (_pendingIncludes == null || _pendingIncludes.Count == 0)
+                return null;
+
+            // We need a nested member: refNav.Field (at least 2 levels before the parameter)
+            if (memberExpr.Expression is not MemberExpression parentMember)
+                return null;
+
+            // Match the parent member's CLR type against pending Reference includes
+            var parentClrType = parentMember.Type;
+            var matchingInclude = _pendingIncludes.FirstOrDefault(
+                i => !i.IsCollection && i.TargetClrType == parentClrType);
+
+            if (matchingInclude == null)
+                return null;
+
+            // Found a Reference navigation. Check if filtering by PK (supported) or other field (not supported).
+            if (propInfo.Name == matchingInclude.PrimaryKeyPropertyName)
+            {
+                // Reference.Id pattern → collapse to NavigationName with DocumentReference comparison
+                DetectedReferenceNavigations.Add(matchingInclude.NavigationName);
+                return (matchingInclude.NavigationName, null, matchingInclude.CollectionName);
+            }
+
+            // Filtering by a non-PK field on a Reference is not supported in Firestore
+            throw new NotSupportedException(
+                $"Filtering by '{propInfo.Name}' on Reference navigation '{matchingInclude.NavigationName}' is not supported in Firestore. " +
+                $"Only filtering by the primary key ('{matchingInclude.PrimaryKeyPropertyName}') is supported. " +
+                $"Reference navigations are stored as DocumentReference values, so only identity comparisons are possible.");
         }
 
         /// <summary>
@@ -450,7 +523,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
                     if (propertyResult.HasValue)
                     {
-                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Object);
+                        var clause = new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Object);
+                        clause.ReferenceCollectionName = propertyResult.Value.ReferenceCollectionName;
+                        return clause;
                     }
                 }
 
@@ -460,7 +535,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[1]);
                     if (propertyResult.HasValue)
                     {
-                        return new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Arguments[0]);
+                        var clause = new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.NotIn, methodCall.Arguments[0]);
+                        clause.ReferenceCollectionName = propertyResult.Value.ReferenceCollectionName;
+                        return clause;
                     }
                 }
             }
@@ -504,10 +581,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[0]);
                     if (propertyResult.HasValue)
                     {
-                        return new List<FirestoreWhereClause>
-                        {
-                            new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Object)
-                        };
+                        var clause = new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Object);
+                        clause.ReferenceCollectionName = propertyResult.Value.ReferenceCollectionName;
+                        return new List<FirestoreWhereClause> { clause };
                     }
                 }
 
@@ -517,10 +593,9 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Translators
                     var propertyResult = ExtractPropertyInfo(methodCall.Arguments[1]);
                     if (propertyResult.HasValue)
                     {
-                        return new List<FirestoreWhereClause>
-                        {
-                            new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Arguments[0])
-                        };
+                        var clause = new FirestoreWhereClause(propertyResult.Value.PropertyName, FirestoreOperator.In, methodCall.Arguments[0]);
+                        clause.ReferenceCollectionName = propertyResult.Value.ReferenceCollectionName;
+                        return new List<FirestoreWhereClause> { clause };
                     }
                 }
 

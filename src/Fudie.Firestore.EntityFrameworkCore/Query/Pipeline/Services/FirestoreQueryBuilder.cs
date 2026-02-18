@@ -146,7 +146,7 @@ public class FirestoreQueryBuilder : IQueryBuilder
         };
     }
 
-    private static FirestoreQuery ApplyFilters(FirestoreQuery query, IReadOnlyList<ResolvedFilterResult> filterResults)
+    private FirestoreQuery ApplyFilters(FirestoreQuery query, IReadOnlyList<ResolvedFilterResult> filterResults)
     {
         foreach (var filterResult in filterResults)
         {
@@ -166,7 +166,7 @@ public class FirestoreQueryBuilder : IQueryBuilder
         return query;
     }
 
-    private static FirestoreQuery ApplyOrGroup(FirestoreQuery query, ResolvedOrFilterGroup orGroup)
+    private FirestoreQuery ApplyOrGroup(FirestoreQuery query, ResolvedOrFilterGroup orGroup)
     {
         if (orGroup.Clauses.Count == 0)
             return query;
@@ -175,7 +175,7 @@ public class FirestoreQueryBuilder : IQueryBuilder
         return query.Where(Filter.Or(filters));
     }
 
-    private static Filter CreateFilter(ResolvedWhereClause clause)
+    private Filter CreateFilter(ResolvedWhereClause clause)
     {
         var value = clause.Value;
         // Use IsPrimaryKey flag to determine if this is a document ID filter
@@ -188,6 +188,18 @@ public class FirestoreQueryBuilder : IQueryBuilder
         if (clause.IsPrimaryKey && value != null && value is not string)
         {
             value = value.ToString();
+        }
+
+        // Reference navigation comparison: convert the value to a DocumentReference.
+        // The Where translator detected a pattern like m.User!.Id == userId and collapsed it
+        // to a comparison against the navigation field. The value (e.g., a Guid) must become
+        // a DocumentReference (e.g., Users/6c5ad094-...) for Firestore to match correctly.
+        if (clause.ReferenceCollectionName != null && value != null)
+        {
+            var docRef = _clientWrapper.Database
+                .Collection(clause.ReferenceCollectionName)
+                .Document(value.ToString()!);
+            value = docRef;
         }
 
         return clause.Operator switch

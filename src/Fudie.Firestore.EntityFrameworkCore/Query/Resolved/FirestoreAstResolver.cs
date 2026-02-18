@@ -198,7 +198,8 @@ namespace Fudie.Firestore.EntityFrameworkCore.Query.Resolved
                 clause.PropertyName,
                 clause.Operator,
                 convertedValue,
-                isPrimaryKey);
+                isPrimaryKey,
+                clause.ReferenceCollectionName);
         }
 
         private static void ValidateNullFilter(string propertyName, IEntityType entityType)
