@@ -76,6 +76,7 @@ public class PartialUpdateBuilder
         ProcessComplexProperties(entityEntry, result.Updates);
         ProcessArrayOfProperties(entityEntry, result);
         ProcessMapOfProperties(entityEntry, result.Updates);
+        ProcessNavigationReferences(entityEntry, result.Updates);
 
         // Add _updatedAt with current UTC time (backend timestamp)
         result.Updates["_updatedAt"] = DateTime.UtcNow;
@@ -163,6 +164,17 @@ public class PartialUpdateBuilder
                 if (shadowProp.IsModified)
                     return true;
             }
+        }
+
+        // Check navigation references (FK-backed entity references)
+        foreach (var navigation in entityType.GetNavigations())
+        {
+            if (navigation.IsCollection) continue;
+            if (IsInverseOfArrayOfReference(navigation)) continue;
+
+            if (navigation.ForeignKey.Properties.Any(fkProp =>
+                entityEntry.Property(fkProp.Name).IsModified))
+                return true;
         }
 
         return false;
@@ -1119,6 +1131,94 @@ public class PartialUpdateBuilder
 
         // For primitive types, convert directly
         return JsonElementToValue(element, ignoredProperties);
+    }
+
+    #endregion
+
+    #region Navigation References
+
+    /// <summary>
+    /// Processes modified navigation properties (entity references) and converts them to DocumentReferences.
+    /// When a navigation like entity.User is changed, the backing FK is marked as modified by EF Core.
+    /// This method detects those FK changes and serializes the navigation as a Firestore DocumentReference.
+    /// </summary>
+    private void ProcessNavigationReferences(EntityEntry entityEntry, Dictionary<string, object> updates)
+    {
+        var entityType = entityEntry.Metadata;
+
+        foreach (var navigation in entityType.GetNavigations())
+        {
+            // Skip collections (handled separately)
+            if (navigation.IsCollection)
+                continue;
+
+            // Skip inverse navigations of ArrayOf References
+            if (IsInverseOfArrayOfReference(navigation))
+                continue;
+
+            // Check if the FK backing this navigation was modified
+            var foreignKey = navigation.ForeignKey;
+            var isModified = foreignKey.Properties.Any(fkProp =>
+                entityEntry.Property(fkProp.Name).IsModified);
+
+            if (!isModified)
+                continue;
+
+            // Get the current navigation value
+            var relatedEntity = navigation.PropertyInfo?.GetValue(entityEntry.Entity);
+
+            if (relatedEntity == null)
+            {
+                // Reference was removed -> delete the field
+                updates[navigation.Name] = FieldValue.Delete;
+                continue;
+            }
+
+            // Create DocumentReference from the related entity's primary key
+            var targetEntityType = navigation.TargetEntityType;
+            var primaryKey = targetEntityType.FindPrimaryKey()?.Properties.FirstOrDefault();
+            if (primaryKey == null)
+                continue;
+
+            var relatedId = primaryKey.PropertyInfo?.GetValue(relatedEntity);
+            if (relatedId == null)
+                continue;
+
+            var collectionName = _collectionManager.GetCollectionName(targetEntityType.ClrType);
+            updates[navigation.Name] = _firestoreClient.Database
+                .Collection(collectionName)
+                .Document(relatedId.ToString()!);
+        }
+    }
+
+    /// <summary>
+    /// Checks if a navigation is the inverse of an ArrayOf Reference configuration.
+    /// These navigations are auto-created by EF Core and should not be serialized
+    /// as standalone references because the ArrayOf already manages the relationship.
+    /// </summary>
+    private static bool IsInverseOfArrayOfReference(INavigation navigation)
+    {
+        if (navigation.IsCollection)
+            return false;
+
+        var targetEntityType = navigation.TargetEntityType;
+        var sourceClrType = navigation.DeclaringEntityType.ClrType;
+
+        foreach (var prop in targetEntityType.ClrType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!ConventionHelpers.IsGenericCollection(prop.PropertyType))
+                continue;
+
+            var elementType = ConventionHelpers.GetCollectionElementType(prop.PropertyType);
+            if (elementType != sourceClrType)
+                continue;
+
+            var arrayType = targetEntityType.GetArrayOfType(prop.Name);
+            if (arrayType == ArrayOfAnnotations.ArrayType.Reference)
+                return true;
+        }
+
+        return false;
     }
 
     #endregion
